@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite name="pytest" timestamp="2024-06-01T12:00:00" tests="3" failures="1" skipped="1">
+    <testcase classname="tests.test_sample.TestSample" name="test_pass" file="tests/test_sample.py" time="0.012"/>
+    <testcase classname="tests.test_sample.TestSample" name="test_fail" file="tests/test_sample.py" time="0.005">
+      <failure message="assert 1 == 2">def test_fail():
+    assert 1 == 2</failure>
+    </testcase>
+    <testcase classname="tests.test_sample.TestSample" name="test_skip" file="tests/test_sample.py" time="0.001">
+      <skipped message="not now"/>
+    </testcase>
+  </testsuite>
+</testsuites>

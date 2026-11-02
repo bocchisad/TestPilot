@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="outer">
+    <testsuite name="inner">
+      <testcase classname="pkg.A" name="one" time="0.1"/>
+      <testcase classname="pkg.B" name="two" time="0.2">
+        <error message="boom">stack</error>
+      </testcase>
+    </testsuite>
+  </testsuite>
+</testsuites>

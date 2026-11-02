@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="com.example.CalculatorTest" time="0.15" tests="2" failures="1" errors="0" skipped="0">
+  <testcase name="addsNumbers" classname="com.example.CalculatorTest" time="0.01"/>
+  <testcase name="dividesByZero" classname="com.example.CalculatorTest" time="0.02">
+    <failure message="expected exception" type="java.lang.AssertionError">java.lang.AssertionError: expected exception
+</failure>
+  </testcase>
+</testsuite>

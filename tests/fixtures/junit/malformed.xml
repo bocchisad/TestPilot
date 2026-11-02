@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<testsuite>
+  <testcase classname="x" name="y">
+    <failure>unclosed
+</testsuite>

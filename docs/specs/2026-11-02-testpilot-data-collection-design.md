@@ -102,7 +102,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE IF NOT EXISTS commits (
   sha       TEXT PRIMARY KEY,
   author_ts INTEGER NOT NULL,   -- unix seconds
-  message   TEXT NOT NULL
+  message   TEXT NOT NULL,
+  oversized INTEGER NOT NULL DEFAULT 0 CHECK (oversized IN (0,1))
+  -- oversized=1: commit recorded without file_changes (exceeded --max-files-per-commit)
 );
 
 CREATE TABLE IF NOT EXISTS commit_parents (
@@ -131,8 +133,13 @@ CREATE TABLE IF NOT EXISTS test_runs (
   finished_at INTEGER,
   dirty       INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0,1)),
   diff_hash   TEXT,              -- sha256 of dirty tree fingerprint; NULL if clean
-  meta        TEXT               -- JSON object
+  input_hash  TEXT,              -- junit ingest dedup; NULL for pytest
+  meta        TEXT               -- JSON object (optional extras; not used for dedup)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_test_runs_dedup
+  ON test_runs(source, sha, input_hash)
+  WHERE input_hash IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS test_results (
   run_id      INTEGER NOT NULL REFERENCES test_runs(id),
@@ -170,7 +177,8 @@ CREATE INDEX IF NOT EXISTS idx_test_coverage_path ON test_coverage(path);
 
 - Coverage is keyed by `run_id`, not commit sha (a sha may have multiple runs).
 - Dirty runs: `dirty=1` when the working tree is not clean (including untracked files). `diff_hash` is sha256 of a fingerprint that includes tracked diff and untracked content; `NULL` when clean. Future training defaults to `WHERE dirty = 0`.
-- `meta`: JSON text for optional fields (`--meta` on junit collect, plugin extras, input dedup hash, etc.).
+- `meta`: JSON text for optional fields (`--meta` on junit collect, plugin extras). Dedup uses `input_hash`, not `meta`.
+- `commits.oversized=1`: commit stored with parents but **no** `file_changes` rows because the diff exceeded `--max-files-per-commit`.
 
 ---
 
@@ -194,19 +202,22 @@ If `--sha` is passed instead of `--run-id`, resolve to the latest `test_runs.id`
 ### Trait
 
 ```rust
+/// Opaque hex commit id — never expose gix::Oid on the trait boundary.
+struct Sha(String);
+
 trait GitRepo {
-    fn rev_parse(&self, rev: &str) -> Result<Oid>;
+    fn rev_parse(&self, rev: &str) -> Result<Sha>;
     fn walk_topo_old_to_new(
         &self,
         since_sha: Option<&str>,
         since_date: Option<i64>,
         max: Option<usize>,
     ) -> Result<Vec<CommitMeta>>;
-    fn diff_against_first_parent(&self, sha: &Oid) -> Result<Vec<FileChange>>;
+    fn diff_against_first_parent(&self, sha: &Sha) -> Result<Vec<FileChange>>;
 }
 ```
 
-- Production impl: `GixRepo` (gix, no default features).
+- Production impl: `GixRepo` (gix, no default features). `gix` types stay inside `GixRepo` only.
 - Tests may use a fake or real temp repos via the trait / integration harness.
 
 ### `testpilot collect git`
@@ -216,7 +227,7 @@ Flags:
 - `--since-sha <sha>`
 - `--since-date <RFC3339|YYYY-MM-DD>` (filter by `author_ts`)
 - `--max N`
-- `--max-files-per-commit 5000` (default 5000; if exceeded, skip remaining files and warn)
+- `--max-files-per-commit 5000` (default 5000)
 - Global `--db PATH`
 
 Algorithm:
@@ -224,12 +235,13 @@ Algorithm:
 1. Open DB, check `schema_version`, set pragmas.
 2. Full topological walk, oldest → newest.
 3. Process in batches of 200 commits, each batch one transaction.
-4. Per commit: `INSERT OR IGNORE` into `commits`. If the row was not newly inserted (already known), skip parents/file_changes for that sha. Only on a fresh insert: write `commit_parents` + `file_changes`.
-5. Idempotent: re-run and `--max` then full collect must not duplicate rows (integration-tested).
-6. Merge commits: diff against first parent (`parent_idx = 0`).
-7. Root commit: diff against empty tree.
-8. Rename detection via gix; `change_type` in `A|M|D|R`; `old_path` only for `R`; line counts from hunks; `is_binary=1` for binary diffs (line counts 0).
-9. No shell-out to `git` in Rust.
+4. Per commit: `INSERT OR IGNORE` into `commits`. If the row was not newly inserted (already known), skip parents/file_changes for that sha. Only on a fresh insert: write `commit_parents` + (optionally) `file_changes`.
+5. If a commit’s diff has more than `--max-files-per-commit` files: insert the commit + parents with `oversized=1`, write **no** `file_changes`, log a warning. Do not truncate the file list.
+6. Idempotent: re-run and `--max` then full collect must not duplicate rows (integration-tested).
+7. Merge commits: diff against first parent (`parent_idx = 0`).
+8. Root commit: diff against empty tree.
+9. Rename detection via gix; `change_type` in `A|M|D|R`; `old_path` only for `R`; line counts from hunks; `is_binary=1` for binary diffs (line counts 0).
+10. No shell-out to `git` in Rust.
 
 ---
 
@@ -239,7 +251,7 @@ Algorithm:
 
 - Nested `testsuites` / `testsuite` / `testcase`.
 - Outcomes: `failure`→fail, `error`→error, `skipped`/`skip`→skip, else pass.
-- `time` attribute (seconds) → `duration_ms`.
+- `time` attribute (seconds) → `duration_ms`; **missing `time` → `duration_ms = 0`**.
 - Failure/error body → `message`, truncated to 4 KiB.
 - `test_id` normalization:
   - pytest-style (path / `::` hints, or `file` attribute when present) → `path/to/test_file.py::Class::test_name[param]`
@@ -250,11 +262,11 @@ Algorithm:
 
 Additional flags:
 
-- `--started-at <unix|RFC3339>` (optional; default now)
+- `--started-at <unix|RFC3339>` (optional; default = `timestamp` attribute from the root/first `testsuite`/`testsuites` in XML if present, else now)
 - `--meta <json>` (optional; stored on `test_runs.meta`)
 - `--force` — bypass input dedup
 
-**Dedup:** hash of (normalized glob expansion contents + sha + source). If an identical ingest exists and `--force` is absent, skip with a log line.
+**Dedup:** `input_hash` = sha256 of concatenated sorted matched file contents (plus fixed source marker). Stored in `test_runs.input_hash`. Unique index `(source, sha, input_hash)` WHERE `input_hash IS NOT NULL`. On conflict without `--force`, skip with a log line.
 
 **Reruns in one XML / multiple results for same `test_id`:** keep last attempt’s outcome/duration/message; set `attempts` to count; set `flaky=1` if any two attempts disagree on outcome.
 
@@ -339,6 +351,7 @@ Plugin loads its packaged `schema.sql` copy; CI ensures it matches core via `--c
 ### E2E
 
 - `tests/fixtures/sample_project/`: `testpilot init && pytest --testpilot && testpilot collect git && testpilot stats` → non-zero stats.
+- **test_id consistency:** on `sample_project`, run `pytest --junitxml=...` and `pytest --testpilot`, then `testpilot collect junit`; the set of `test_id` values from the junit ingest and the pytest ingest must be equal.
 - Separate overhead bench output (no hard CI fail on ms).
 
 ### Perf target (documented; optional manual/local)
@@ -375,7 +388,6 @@ Must include:
 
 ## 10. Open TODOs (do not over-engineer)
 
-- Exact behavior when `--max-files-per-commit` is exceeded (skip remaining files + warn is the default choice).
 - PyO3 shared writer — later week.
 - Training-set filter `dirty=0` — later week.
 - Schema v2+ migrations framework — only when needed.

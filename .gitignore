@@ -1,0 +1,16 @@
+/target/
+**/*.rs.bk
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.testpilot/
+*.egg-info/
+dist/
+build/
+.DS_Store
+junit.xml

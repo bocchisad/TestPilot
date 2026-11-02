@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/testpilot-core",
+    "crates/testpilot-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/bocchisad/TestPilot"
+
+[workspace.dependencies]
+testpilot-core = { path = "crates/testpilot-core" }
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+quick-xml = "0.37"
+clap = { version = "4", features = ["derive"] }
+glob = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+tempfile = "3"
+# gix features chosen explicitly — no defaults
+gix = { version = "0.70", default-features = false, features = [
+    "max-performance-safe",
+    "revision",
+    "blob-diff",
+] }
