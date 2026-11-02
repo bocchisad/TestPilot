@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
-import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from pytest_testpilot.codec import encode_lines
-from pytest_testpilot.gitinfo import collect_gitinfo
+from pytest_testpilot.gitinfo import collect_gitinfo, git_toplevel
 from pytest_testpilot.store import Store, StoreError
 
 try:
@@ -32,8 +32,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--testpilot-db",
         action="store",
-        default=".testpilot/db.sqlite",
-        help="Path to TestPilot SQLite database",
+        default=None,
+        metavar="PATH",
+        help="SQLite path (use --testpilot-db=PATH). Default: <git-toplevel>/.testpilot/db.sqlite",
     )
     group.addoption(
         "--testpilot-strict",
@@ -46,11 +47,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     if not config.getoption("--testpilot"):
         return
-    if getattr(config, "workerinput", None) is not None:
-        # xdist worker
-        plugin = TestPilotPlugin(config, worker=True)
-    else:
-        plugin = TestPilotPlugin(config, worker=False)
+    worker = getattr(config, "workerinput", None) is not None
+    plugin = TestPilotPlugin(config, worker=worker)
     config.pluginmanager.register(plugin, "testpilot-plugin")
 
 
@@ -70,61 +68,118 @@ class TestPilotPlugin:
     repo_root: Path = field(default_factory=Path.cwd)
     started_at: float = 0.0
     results: dict[str, list[Attempt]] = field(default_factory=lambda: defaultdict(list))
-    setup_start: dict[str, float] = field(default_factory=dict)
-    call_durations: dict[str, float] = field(default_factory=dict)
+    phase_duration: dict[str, float] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     worker_payloads: list[dict[str, Any]] = field(default_factory=list)
     own_coverage: bool = False
+    coverage_disabled_reason: str | None = None
+    wrote_run: bool = False
+    session_failed_hard: bool = False
+
+    def _db_path(self) -> Path:
+        explicit = self.config.getoption("--testpilot-db")
+        if explicit:
+            return Path(explicit)
+        return self.repo_root / ".testpilot" / "db.sqlite"
 
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         self.started_at = time.time()
-        self.repo_root = Path(session.config.rootpath).resolve()
         try:
+            self.repo_root = git_toplevel(Path(session.config.rootpath))
+        except Exception:
+            self.repo_root = Path(session.config.rootpath).resolve()
+        try:
+            # B6: xdist controller must NOT create Coverage
+            if self.worker or not self._is_xdist_controller():
+                self._start_coverage()
             if not self.worker:
-                self.store = Store(self.config.getoption("--testpilot-db"))
-            self._start_coverage()
+                self.store = Store(self._db_path())
         except Exception as exc:
             self._handle_error(exc)
+
+    def _is_xdist_controller(self) -> bool:
+        if self.worker:
+            return False
+        # controller has workerinput absent but xdist loaded with -n
+        numproc = getattr(self.config.option, "numprocesses", None)
+        return bool(numproc)
 
     def _start_coverage(self) -> None:
         if Coverage is None:
             raise StoreError("coverage package is required for --testpilot")
-        # Cooperate with pytest-cov: reuse active coverage if present.
-        # sysmon core (Python 3.12+) does not support dynamic contexts — force ctrace.
-        os.environ.setdefault("COVERAGE_CORE", "ctrace")
+        core = os.environ.get("COVERAGE_CORE", "").lower()
+        if core == "sysmon":
+            self.coverage_disabled_reason = (
+                "COVERAGE_CORE=sysmon does not support dynamic contexts; coverage collection disabled"
+            )
+            self.coverage = None
+            return
+        os.environ["COVERAGE_CORE"] = "ctrace"
+
         existing = Coverage.current()
         if existing is not None:
             self.coverage = existing
             self.own_coverage = False
+            with contextlib.suppress(Exception):
+                self.coverage.set_option("run:core", "ctrace")
             return
+
         self.coverage = Coverage(
             data_file=None,
             source=[str(self.repo_root)],
             config_file=False,
         )
+        try:
+            self.coverage.set_option("run:core", "ctrace")
+            self.coverage.set_option("run:dynamic_context", None)
+            # Silence "No data was collected" under filterwarnings=error
+            if hasattr(self.coverage, "_no_warn"):
+                pass
+            self.coverage._warn_no_data = False  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        with contextlib.suppress(Exception):
+            self.coverage.disable_warnings("no-data-collected")
         self.coverage.start()
         self.own_coverage = True
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
-        self.setup_start[item.nodeid] = time.perf_counter()
+        tid = self._test_id(item)
+        # B9: reset duration at setup so only last attempt's setup+call count
+        self.phase_duration[tid] = 0.0
         if self.coverage is not None:
             try:
                 self.coverage.switch_context(item.nodeid)
             except Exception as exc:
-                warnings.warn(f"testpilot: switch_context failed: {exc}", stacklevel=2)
+                self.errors.append(f"switch_context: {exc}")
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_makereport(self, item: pytest.Item, call: pytest.CallInfo[Any]):
         outcome = yield
         report = outcome.get_result()
         test_id = self._test_id(item)
-        if report.when == "setup":
-            # duration includes setup; accumulate later with call
-            self.call_durations.setdefault(test_id, 0.0)
-            self.call_durations[test_id] += report.duration
+
+        if report.when in ("setup", "call"):
+            self.phase_duration[test_id] = self.phase_duration.get(test_id, 0.0) + report.duration
+
+        if report.when == "setup" and report.failed:
+            # B8: setup failure → error
+            self.results[test_id].append(
+                Attempt(
+                    outcome="error",
+                    duration_ms=self.phase_duration.get(test_id, 0.0) * 1000.0,
+                    message=str(report.longrepr)[:4096] if report.longrepr else None,
+                )
+            )
+        elif report.when == "setup" and report.skipped:
+            self.results[test_id].append(
+                Attempt(
+                    outcome="skip",
+                    duration_ms=report.duration * 1000.0,
+                    message=None,
+                )
+            )
         elif report.when == "call":
-            self.call_durations.setdefault(test_id, 0.0)
-            self.call_durations[test_id] += report.duration
             if report.passed:
                 oc = "pass"
             elif report.failed:
@@ -139,37 +194,63 @@ class TestPilotPlugin:
             self.results[test_id].append(
                 Attempt(
                     outcome=oc,
-                    duration_ms=self.call_durations.get(test_id, 0.0) * 1000.0,
+                    duration_ms=self.phase_duration.get(test_id, 0.0) * 1000.0,
                     message=msg,
                 )
             )
-        elif report.when == "teardown" and report.skipped and test_id not in self.results:
-            # skipped during setup
-            pass
-
-        # Skipped at setup
-        if report.when == "setup" and report.skipped:
-            self.results[test_id].append(
-                Attempt(
-                    outcome="skip",
-                    duration_ms=report.duration * 1000.0,
-                    message=None,
+        elif report.when == "teardown" and report.failed:
+            # B8: teardown failure overwrites to error
+            attempts = self.results.get(test_id)
+            if attempts:
+                last = attempts[-1]
+                attempts[-1] = Attempt(
+                    outcome="error",
+                    duration_ms=last.duration_ms,
+                    message=str(report.longrepr)[:4096] if report.longrepr else last.message,
                 )
-            )
+            else:
+                self.results[test_id].append(
+                    Attempt(
+                        outcome="error",
+                        duration_ms=0.0,
+                        message=str(report.longrepr)[:4096] if report.longrepr else None,
+                    )
+                )
 
+    @pytest.hookimpl(hookwrapper=True, trylast=True)
+    def pytest_runtestloop(self, session: pytest.Session):
+        # B5: read coverage after the loop (after pytest-cov combines), before sessionfinish.
+        outcome = yield
+        try:
+            if outcome.excinfo is not None:
+                self.session_failed_hard = True
+            if self.worker or not self._is_xdist_controller():
+                self._coverage_snapshot = self._collect_coverage_rows()
+        except Exception as exc:
+            self._handle_error(exc)
+            self._coverage_snapshot = []
+
+    @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node: Any, error: Any | None) -> None:
         if self.worker:
             return
-        payload = getattr(node, "workeroutput", {}).get("testpilot")
-        if payload:
-            self.worker_payloads.append(payload)
+        payload = getattr(getattr(node, "workeroutput", None), "get", None)
+        if callable(payload):
+            data = node.workeroutput.get("testpilot")
+        else:
+            data = (getattr(node, "workeroutput", {}) or {}).get("testpilot")
+        if data:
+            self.worker_payloads.append(data)
 
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
         try:
+            # Do not write empty run on INTERNALERROR
+            if self.session_failed_hard and not self.results and not self.worker_payloads:
+                return
             if self.worker:
                 self._worker_finish()
             else:
-                self._controller_finish()
+                self._controller_finish(exitstatus)
         except Exception as exc:
             self._handle_error(exc)
         finally:
@@ -177,17 +258,21 @@ class TestPilotPlugin:
                 try:
                     self.coverage.stop()
                 except Exception as exc:
-                    warnings.warn(f"testpilot: coverage.stop failed: {exc}", stacklevel=2)
+                    self.errors.append(f"coverage.stop: {exc}")
             if self.store is not None:
                 self.store.close()
+                self.store = None
 
-    def pytest_terminal_summary(self, terminalreporter: Any, exitstatus: int, config: pytest.Config) -> None:
-        if self.errors and not config.getoption("--testpilot-strict"):
-            for err in self.errors:
-                terminalreporter.write_line(f"testpilot warning: {err}", red=True)
+    def pytest_terminal_summary(
+        self, terminalreporter: Any, exitstatus: int, config: pytest.Config
+    ) -> None:
+        for err in self.errors:
+            terminalreporter.write_line(f"testpilot: {err}", red=True)
+        if self.coverage_disabled_reason:
+            terminalreporter.write_line(f"testpilot: {self.coverage_disabled_reason}", yellow=True)
 
     def _worker_finish(self) -> None:
-        coverage_rows = self._collect_coverage_rows()
+        coverage_rows = getattr(self, "_coverage_snapshot", None) or self._collect_coverage_rows()
         results = self._collapse_results()
         payload = {
             "results": results,
@@ -195,7 +280,6 @@ class TestPilotPlugin:
                 {
                     "test_id": c["test_id"],
                     "path": c["path"],
-                    "lines": list(c["lines"]),  # bytes → list for JSON; re-encode on master
                     "lines_hex": c["lines"].hex(),
                 }
                 for c in coverage_rows
@@ -212,22 +296,19 @@ class TestPilotPlugin:
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(payload) + "\n")
 
-    def _controller_finish(self) -> None:
+    def _controller_finish(self, exitstatus: int) -> None:
         t0 = time.perf_counter()
         results = self._collapse_results()
-        coverage_rows = self._collect_coverage_rows()
+        coverage_rows = list(getattr(self, "_coverage_snapshot", None) or [])
 
-        # Merge worker payloads
         for payload in self.worker_payloads:
-            for r in payload.get("results", []):
-                results.append(r)
+            results.extend(payload.get("results", []))
             for c in payload.get("coverage", []):
-                blob = bytes.fromhex(c["lines_hex"]) if "lines_hex" in c else bytes(c["lines"])
+                blob = bytes.fromhex(c["lines_hex"])
                 coverage_rows.append(
                     {"test_id": c["test_id"], "path": c["path"], "lines": blob}
                 )
 
-        # Fallback JSONL merge
         tmp = self.repo_root / ".testpilot" / "tmp"
         if tmp.is_dir():
             for path in sorted(tmp.glob("worker-*.jsonl")):
@@ -237,18 +318,23 @@ class TestPilotPlugin:
                     payload = json.loads(line)
                     results.extend(payload.get("results", []))
                     for c in payload.get("coverage", []):
-                        blob = bytes.fromhex(c["lines_hex"]) if "lines_hex" in c else bytes(c["lines"])
                         coverage_rows.append(
-                            {"test_id": c["test_id"], "path": c["path"], "lines": blob}
+                            {
+                                "test_id": c["test_id"],
+                                "path": c["path"],
+                                "lines": bytes.fromhex(c["lines_hex"]),
+                            }
                         )
                 path.unlink(missing_ok=True)
 
-        # Re-collapse after merge
         results = self._collapse_result_dicts(results)
+        if not results and exitstatus == 2:
+            # INTERNALERROR with nothing collected
+            return
 
         info = collect_gitinfo(self.repo_root)
         if self.store is None:
-            self.store = Store(self.config.getoption("--testpilot-db"))
+            self.store = Store(self._db_path())
         finished = int(time.time())
         run_id = self.store.insert_run(
             sha=info.sha,
@@ -262,6 +348,7 @@ class TestPilotPlugin:
             results=results,
             coverage=coverage_rows,
         )
+        self.wrote_run = True
         collect_ms = (time.perf_counter() - t0) * 1000
         session_s = time.time() - self.started_at
         print(
@@ -274,28 +361,37 @@ class TestPilotPlugin:
         if self.coverage is None:
             return []
         if self.own_coverage:
-            self.coverage.stop()
+            try:
+                self.coverage.stop()
+            except Exception as exc:
+                self.errors.append(f"coverage.stop: {exc}")
             self.own_coverage = False
-        data = self.coverage.get_data()
+        try:
+            data = self.coverage.get_data()
+        except Exception as exc:
+            self.errors.append(f"coverage.get_data: {exc}")
+            return []
         rows: list[dict[str, Any]] = []
-        # contexts_by_lineno: file -> {lineno: [contexts]}
-        measured = data.measured_files()
-        for abs_path in measured:
+        for abs_path in data.measured_files():
+            # Skip zip members
+            if ".zip/" in abs_path.replace("\\", "/") or abs_path.lower().endswith(".zip"):
+                continue
             try:
                 rel = str(Path(abs_path).resolve().relative_to(self.repo_root))
             except ValueError:
-                continue  # outside repo / site-packages
+                continue
             rel = rel.replace("\\", "/")
-            contexts_map = data.contexts_by_lineno(abs_path)
+            try:
+                contexts_map = data.contexts_by_lineno(abs_path)
+            except Exception:
+                continue
             by_test: dict[str, list[int]] = defaultdict(list)
             for lineno, contexts in contexts_map.items():
                 for ctx in contexts:
                     if not ctx:
                         continue
-                    # ctx is nodeid from switch_context / dynamic test_function
                     by_test[ctx].append(int(lineno))
             for test_id, lines in by_test.items():
-                # Map coverage context (nodeid) to our normalized test_id when possible
                 rows.append(
                     {
                         "test_id": self._normalize_nodeid(test_id),
@@ -316,6 +412,7 @@ class TestPilotPlugin:
                     "outcome": last.outcome,
                     "duration_ms": round(last.duration_ms),
                     "message": last.message,
+                    # B9: flaky from raw attempt outcomes
                     "flaky": len(set(outcomes)) > 1,
                     "attempts": len(attempts),
                 }
@@ -335,13 +432,16 @@ class TestPilotPlugin:
             attempts = by_id[tid]
             outcomes = [a["outcome"] for a in attempts]
             last = attempts[-1]
+            # Preserve flaky from already-collapsed rows (raw attempt variance),
+            # and also detect variance across worker/controller fragments.
+            flaky = any(bool(a.get("flaky")) for a in attempts) or len(set(outcomes)) > 1
             out.append(
                 {
                     "test_id": tid,
                     "outcome": last["outcome"],
                     "duration_ms": last["duration_ms"],
                     "message": last.get("message"),
-                    "flaky": len(set(outcomes)) > 1,
+                    "flaky": flaky,
                     "attempts": sum(int(a.get("attempts", 1)) for a in attempts),
                 }
             )
@@ -356,7 +456,6 @@ class TestPilotPlugin:
             except ValueError:
                 rel = Path(str(path)).as_posix()
             node = item.nodeid
-            # nodeid is like path::rest — replace path portion
             if "::" in node:
                 _, rest = node.split("::", 1)
                 return f"{rel}::{rest}"
@@ -375,6 +474,12 @@ class TestPilotPlugin:
                 path_part = p.as_posix()
         else:
             path_part = path_part.replace("\\", "/")
+            # relative to rootpath — rebase onto git toplevel
+            try:
+                abs_p = (Path(self.config.rootpath) / path_part).resolve()
+                path_part = abs_p.relative_to(self.repo_root).as_posix()
+            except Exception:
+                pass
         return f"{path_part}::{rest}"
 
     def _handle_error(self, exc: BaseException) -> None:
@@ -382,4 +487,4 @@ class TestPilotPlugin:
         self.errors.append(msg)
         if self.config.getoption("--testpilot-strict"):
             raise RuntimeError(msg) from exc
-        warnings.warn(f"testpilot: {msg}", stacklevel=2)
+        # B6: never warnings.warn — accumulate for terminal summary

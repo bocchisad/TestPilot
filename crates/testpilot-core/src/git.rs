@@ -1,11 +1,18 @@
 //! Git history collection via gix. Public API uses [`Sha`], never `gix::ObjectId`.
+//!
+//! Walk is **reachable from HEAD only** (not `--all`). Ordering is a Kahn topological
+//! sort (parents before children; author time as tie-break).
 
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use gix::diff::blob::Algorithm;
+use gix::diff::blob::intern::InternedInput;
+use gix::diff::blob::sink::Counter;
 use gix::object::tree::diff::{Action, Change};
 
 use crate::error::{Error, Result};
-use crate::store::{CommitRow, FileChangeRow};
+use crate::store::{CommitRow, FileChangeRow, Store};
 
 /// Opaque hex commit id — gix types stay inside [`GixRepo`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -47,11 +54,12 @@ pub struct FileChange {
 
 pub trait GitRepo {
     fn rev_parse(&self, rev: &str) -> Result<Sha>;
+    /// All commits reachable from HEAD (optionally excluding `since_sha` and its ancestors),
+    /// in Kahn topo order (parents before children). Does **not** apply `--max`.
     fn walk_topo_old_to_new(
         &self,
         since_sha: Option<&str>,
         since_date: Option<i64>,
-        max: Option<usize>,
     ) -> Result<Vec<CommitMeta>>;
     fn diff_against_first_parent(&self, sha: &Sha) -> Result<Vec<FileChange>>;
 }
@@ -87,7 +95,8 @@ impl GixRepo {
             .repo
             .find_commit(id)
             .map_err(|e| Error::Git(e.to_string()))?;
-        let author_ts = commit.time().map(|t| t.seconds).unwrap_or(0);
+        // B11: author time, not committer
+        let author_ts = commit.author().map(|a| a.time.seconds).unwrap_or(0);
         let message = commit
             .message_raw()
             .map(|m| String::from_utf8_lossy(m).trim().to_string())
@@ -103,6 +112,21 @@ impl GixRepo {
             parents,
         })
     }
+
+    fn collect_reachable(&self, tip: gix::ObjectId) -> Result<HashMap<String, CommitMeta>> {
+        let walk = self
+            .repo
+            .rev_walk([tip])
+            .all()
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let mut map = HashMap::new();
+        for info in walk {
+            let info = info.map_err(|e| Error::Git(e.to_string()))?;
+            let meta = self.commit_meta(info.id)?;
+            map.insert(meta.sha.as_str().to_string(), meta);
+        }
+        Ok(map)
+    }
 }
 
 impl GitRepo for GixRepo {
@@ -114,7 +138,6 @@ impl GitRepo for GixRepo {
         &self,
         since_sha: Option<&str>,
         since_date: Option<i64>,
-        max: Option<usize>,
     ) -> Result<Vec<CommitMeta>> {
         let head = self
             .repo
@@ -122,57 +145,22 @@ impl GitRepo for GixRepo {
             .map_err(|e| Error::Git(e.to_string()))?
             .detach();
 
-        let since_oid = since_sha.map(|s| self.parse_oid(s)).transpose()?;
+        let mut reachable = self.collect_reachable(head)?;
 
-        // Collect ancestors, then order oldest→newest by commit time with parent-before-child constraint.
-        let walk = self
-            .repo
-            .rev_walk([head])
-            .sorting(gix::revision::walk::Sorting::ByCommitTime(
-                gix::traverse::commit::simple::CommitTimeOrder::OldestFirst,
-            ))
-            .all()
-            .map_err(|e| Error::Git(e.to_string()))?;
-
-        let mut commits = Vec::new();
-        let mut seen_since = since_oid.is_none();
-        for info in walk {
-            let info = info.map_err(|e| Error::Git(e.to_string()))?;
-            let id = info.id;
-            if let Some(stop) = since_oid {
-                if id == stop {
-                    seen_since = true;
-                } else if !seen_since {
-                    // Still walking toward since; with OldestFirst we include from root.
-                    // If since_sha is set, skip commits until we hit it, then take the rest.
-                }
-            }
-            let meta = self.commit_meta(id)?;
-            if let Some(min_ts) = since_date {
-                if meta.author_ts < min_ts {
-                    continue;
-                }
-            }
-            commits.push(meta);
-            // With OldestFirst, once we pass since_sha we keep going to HEAD.
-        }
-
-        if let Some(stop) = since_oid {
-            let stop_hex = stop.to_hex().to_string();
-            if let Some(pos) = commits.iter().position(|c| c.sha.as_str() == stop_hex) {
-                commits = commits.split_off(pos);
-            } else {
-                return Err(Error::Git(format!(
-                    "since-sha {stop_hex} not found in history"
-                )));
+        // B3: since exclusive — drop since and everything reachable from it.
+        if let Some(since) = since_sha {
+            let since_oid = self.parse_oid(since)?;
+            let hidden = self.collect_reachable(since_oid)?;
+            for sha in hidden.keys() {
+                reachable.remove(sha);
             }
         }
 
-        if let Some(n) = max {
-            commits.truncate(n);
+        if let Some(min_ts) = since_date {
+            reachable.retain(|_, m| m.author_ts >= min_ts);
         }
 
-        Ok(commits)
+        Ok(kahn_topo_sort(reachable))
     }
 
     fn diff_against_first_parent(&self, sha: &Sha) -> Result<Vec<FileChange>> {
@@ -310,7 +298,7 @@ impl GitRepo for GixRepo {
                 }
                 let path = String::from_utf8_lossy(&entry.filepath).to_string();
                 let (added, _d, binary) = match self.repo.find_blob(entry.oid) {
-                    Ok(blob) => count_lines(blob.data.as_slice()),
+                    Ok(blob) => count_lines_as_addition(blob.data.as_slice()),
                     Err(_) => (0, 0, false),
                 };
                 changes.push(FileChange {
@@ -328,7 +316,92 @@ impl GitRepo for GixRepo {
     }
 }
 
-fn count_lines(data: &[u8]) -> (i64, i64, bool) {
+/// Kahn topological sort: parents before children; tie-break by author_ts then sha.
+fn kahn_topo_sort(commits: HashMap<String, CommitMeta>) -> Vec<CommitMeta> {
+    if commits.is_empty() {
+        return Vec::new();
+    }
+    let in_set: HashSet<String> = commits.keys().cloned().collect();
+    let mut indegree: HashMap<String, usize> = HashMap::new();
+    let mut children: HashMap<String, Vec<String>> = HashMap::new();
+
+    for (sha, meta) in &commits {
+        indegree.entry(sha.clone()).or_insert(0);
+        for p in &meta.parents {
+            let ps = p.as_str().to_string();
+            if in_set.contains(&ps) {
+                *indegree.entry(sha.clone()).or_insert(0) += 1;
+                children.entry(ps).or_default().push(sha.clone());
+            }
+        }
+    }
+
+    let mut ready: Vec<String> = indegree
+        .iter()
+        .filter(|(_, d)| **d == 0)
+        .map(|(s, _)| s.clone())
+        .collect();
+    ready.sort_by(|a, b| {
+        let ta = commits[a].author_ts;
+        let tb = commits[b].author_ts;
+        ta.cmp(&tb).then_with(|| a.cmp(b))
+    });
+    let mut queue: VecDeque<String> = ready.into();
+
+    let mut ordered = Vec::with_capacity(commits.len());
+    while let Some(sha) = queue.pop_front() {
+        // Keep queue sorted by inserting children in sorted position — simpler: collect then sort batch.
+        ordered.push(sha.clone());
+        if let Some(kids) = children.get(&sha) {
+            let mut newly = Vec::new();
+            for kid in kids {
+                if let Some(d) = indegree.get_mut(kid) {
+                    *d = d.saturating_sub(1);
+                    if *d == 0 {
+                        newly.push(kid.clone());
+                    }
+                }
+            }
+            newly.sort_by(|a, b| {
+                let ta = commits[a].author_ts;
+                let tb = commits[b].author_ts;
+                ta.cmp(&tb).then_with(|| a.cmp(b))
+            });
+            // Merge newly into queue keeping order (queue may already have items).
+            let mut merged: Vec<String> = queue.drain(..).collect();
+            merged.extend(newly);
+            merged.sort_by(|a, b| {
+                let ta = commits[a].author_ts;
+                let tb = commits[b].author_ts;
+                ta.cmp(&tb).then_with(|| a.cmp(b))
+            });
+            queue.extend(merged);
+        }
+    }
+
+    // Cycles / missing edges: append leftovers sorted by time
+    if ordered.len() < commits.len() {
+        let mut rest: Vec<_> = commits
+            .keys()
+            .filter(|s| !ordered.iter().any(|o| o == *s))
+            .cloned()
+            .collect();
+        rest.sort_by(|a, b| {
+            commits[a]
+                .author_ts
+                .cmp(&commits[b].author_ts)
+                .then_with(|| a.cmp(b))
+        });
+        ordered.extend(rest);
+    }
+
+    ordered
+        .into_iter()
+        .filter_map(|s| commits.get(&s).cloned())
+        .collect()
+}
+
+fn count_lines_as_addition(data: &[u8]) -> (i64, i64, bool) {
     if data.contains(&0) {
         return (0, 0, true);
     }
@@ -339,7 +412,7 @@ fn count_lines(data: &[u8]) -> (i64, i64, bool) {
 fn line_stats_new(id: &gix::Id<'_>) -> (i64, i64, bool) {
     match id.object().ok().and_then(|o| o.try_into_blob().ok()) {
         Some(blob) => {
-            let (a, _, b) = count_lines(blob.data.as_slice());
+            let (a, _, b) = count_lines_as_addition(blob.data.as_slice());
             (a, 0, b)
         }
         None => (0, 0, false),
@@ -349,13 +422,14 @@ fn line_stats_new(id: &gix::Id<'_>) -> (i64, i64, bool) {
 fn line_stats_old(id: &gix::Id<'_>) -> (i64, i64, bool) {
     match id.object().ok().and_then(|o| o.try_into_blob().ok()) {
         Some(blob) => {
-            let (d, _, b) = count_lines(blob.data.as_slice());
+            let (d, _, b) = count_lines_as_addition(blob.data.as_slice());
             (0, d, b)
         }
         None => (0, 0, false),
     }
 }
 
+/// B12: hunk-based counts via Histogram + Counter (matches git --numstat closely).
 fn line_stats_mod(old: &gix::Id<'_>, new: &gix::Id<'_>) -> (i64, i64, bool) {
     let old_blob = old.object().ok().and_then(|o| o.try_into_blob().ok());
     let new_blob = new.object().ok().and_then(|o| o.try_into_blob().ok());
@@ -364,85 +438,70 @@ fn line_stats_mod(old: &gix::Id<'_>, new: &gix::Id<'_>) -> (i64, i64, bool) {
             if o.data.contains(&0) || n.data.contains(&0) {
                 return (0, 0, true);
             }
-            // Approximate: count lines present only in new / only in old via set diff of line strings.
-            // Good enough for week-1; TODO: proper hunk-based counts via gix_diff::blob.
-            let old_lines: std::collections::HashSet<&str> =
-                std::str::from_utf8(&o.data).unwrap_or("").lines().collect();
-            let new_lines: std::collections::HashSet<&str> =
-                std::str::from_utf8(&n.data).unwrap_or("").lines().collect();
-            let added = new_lines.difference(&old_lines).count() as i64;
-            let deleted = old_lines.difference(&new_lines).count() as i64;
-            (added, deleted, false)
+            let input = InternedInput::new(o.data.as_slice(), n.data.as_slice());
+            let counts = gix::diff::blob::diff(Algorithm::Histogram, &input, Counter::default());
+            (counts.insertions as i64, counts.removals as i64, false)
+        }
+        (None, Some(n)) => {
+            let (a, _, b) = count_lines_as_addition(n.data.as_slice());
+            (a, 0, b)
+        }
+        (Some(o), None) => {
+            let (d, _, b) = count_lines_as_addition(o.data.as_slice());
+            (0, d, b)
         }
         _ => (0, 0, false),
     }
 }
 
-/// Collect commits from `repo` into `store`, respecting filters.
+/// Collect commits into the store. `--max` limits newly inserted commits in topo order.
 pub fn collect_git<R: GitRepo>(
     repo: &R,
-    store: &crate::store::Store,
+    store: &mut Store,
     since_sha: Option<&str>,
     since_date: Option<i64>,
     max: Option<usize>,
     max_files_per_commit: usize,
 ) -> Result<CollectGitStats> {
-    let commits = repo.walk_topo_old_to_new(since_sha, since_date, max)?;
+    let commits = repo.walk_topo_old_to_new(since_sha, since_date)?;
     let mut inserted = 0usize;
     let mut skipped = 0usize;
     let mut oversized = 0usize;
 
-    for chunk in commits.chunks(200) {
-        for meta in chunk {
-            if store.commit_exists(meta.sha.as_str())? {
-                skipped += 1;
-                continue;
+    // Precompute diffs only for candidates we might insert — but need exists check inside txn.
+    // Process in batches of 200; each batch is one transaction (B4).
+    let mut pending: Vec<(CommitMeta, Vec<FileChange>, bool)> = Vec::new();
+
+    for meta in commits {
+        if store.commit_exists(meta.sha.as_str())? {
+            skipped += 1;
+            continue;
+        }
+        if let Some(limit) = max {
+            if inserted + pending.len() >= limit {
+                break;
             }
-            let mut changes = repo.diff_against_first_parent(&meta.sha)?;
-            let is_oversized = changes.len() > max_files_per_commit;
-            if is_oversized {
-                tracing::warn!(
-                    sha = %meta.sha,
-                    files = changes.len(),
-                    limit = max_files_per_commit,
-                    "commit exceeds max-files-per-commit; storing without file_changes"
-                );
-                changes.clear();
-                oversized += 1;
-            }
-            let row = CommitRow {
-                sha: meta.sha.as_str().to_string(),
-                author_ts: meta.author_ts,
-                message: meta.message.clone(),
-                oversized: is_oversized,
-                parents: meta
-                    .parents
-                    .iter()
-                    .map(|p| p.as_str().to_string())
-                    .collect(),
-            };
-            if !store.insert_commit(&row)? {
-                skipped += 1;
-                continue;
-            }
-            if !is_oversized {
-                let rows: Vec<FileChangeRow> = changes
-                    .into_iter()
-                    .map(|c| FileChangeRow {
-                        sha: meta.sha.as_str().to_string(),
-                        path: c.path,
-                        change_type: c.change_type.to_string(),
-                        old_path: c.old_path,
-                        lines_added: c.lines_added,
-                        lines_deleted: c.lines_deleted,
-                        is_binary: c.is_binary,
-                    })
-                    .collect();
-                store.insert_file_changes(&rows)?;
-            }
-            inserted += 1;
+        }
+        let mut changes = repo.diff_against_first_parent(&meta.sha)?;
+        let is_oversized = changes.len() > max_files_per_commit;
+        if is_oversized {
+            tracing::warn!(
+                sha = %meta.sha,
+                files = changes.len(),
+                limit = max_files_per_commit,
+                "commit exceeds max-files-per-commit; storing without file_changes"
+            );
+            changes.clear();
+            oversized += 1;
+        }
+        pending.push((meta, changes, is_oversized));
+
+        if pending.len() >= 200 {
+            let n = flush_batch(store, &mut pending)?;
+            inserted += n;
         }
     }
+    inserted += flush_batch(store, &mut pending)?;
 
     Ok(CollectGitStats {
         inserted,
@@ -451,9 +510,103 @@ pub fn collect_git<R: GitRepo>(
     })
 }
 
+fn flush_batch(
+    store: &mut Store,
+    pending: &mut Vec<(CommitMeta, Vec<FileChange>, bool)>,
+) -> Result<usize> {
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    let batch = std::mem::take(pending);
+    store.with_transaction(|tx| {
+        let mut n = 0usize;
+        for (meta, changes, is_oversized) in &batch {
+            if Store::commit_exists_on(tx, meta.sha.as_str())? {
+                continue;
+            }
+            let row = CommitRow {
+                sha: meta.sha.as_str().to_string(),
+                author_ts: meta.author_ts,
+                message: meta.message.clone(),
+                oversized: *is_oversized,
+                parents: meta
+                    .parents
+                    .iter()
+                    .map(|p| p.as_str().to_string())
+                    .collect(),
+            };
+            if !Store::insert_commit_on(tx, &row)? {
+                continue;
+            }
+            if !is_oversized {
+                let rows: Vec<FileChangeRow> = changes
+                    .iter()
+                    .map(|c| FileChangeRow {
+                        sha: meta.sha.as_str().to_string(),
+                        path: c.path.clone(),
+                        change_type: c.change_type.to_string(),
+                        old_path: c.old_path.clone(),
+                        lines_added: c.lines_added,
+                        lines_deleted: c.lines_deleted,
+                        is_binary: c.is_binary,
+                    })
+                    .collect();
+                Store::insert_file_changes_on(tx, &rows)?;
+            }
+            n += 1;
+        }
+        Ok(n)
+    })
+}
+
 #[derive(Debug, Default)]
 pub struct CollectGitStats {
     pub inserted: usize,
     pub skipped: usize,
     pub oversized: usize,
+}
+
+#[cfg(test)]
+mod kahn_tests {
+    use super::*;
+
+    #[test]
+    fn kahn_parents_before_children() {
+        let mut map = HashMap::new();
+        map.insert(
+            "c".into(),
+            CommitMeta {
+                sha: Sha::from_hex("c"),
+                author_ts: 3,
+                message: "c".into(),
+                parents: vec![Sha::from_hex("b")],
+            },
+        );
+        map.insert(
+            "b".into(),
+            CommitMeta {
+                sha: Sha::from_hex("b"),
+                author_ts: 2,
+                message: "b".into(),
+                parents: vec![Sha::from_hex("a")],
+            },
+        );
+        map.insert(
+            "a".into(),
+            CommitMeta {
+                sha: Sha::from_hex("a"),
+                author_ts: 1,
+                message: "a".into(),
+                parents: vec![],
+            },
+        );
+        let ordered = kahn_topo_sort(map);
+        let pos: HashMap<_, _> = ordered
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (m.sha.as_str().to_string(), i))
+            .collect();
+        assert!(pos["a"] < pos["b"]);
+        assert!(pos["b"] < pos["c"]);
+    }
 }

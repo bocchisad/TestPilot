@@ -15,6 +15,8 @@ pip install -e python/pytest-testpilot
 # In a git checkout of your project
 testpilot init
 pytest --testpilot
+# Prefer equals form so pytest does not treat PATH as a rootdir arg:
+#   pytest --testpilot --testpilot-db=/abs/path/to/db.sqlite
 testpilot collect git
 testpilot stats
 ```
@@ -26,7 +28,9 @@ pytest --junitxml=junit.xml
 testpilot collect junit junit.xml --sha "$(git rev-parse HEAD)"
 ```
 
-Database path defaults to `.testpilot/db.sqlite` (also created by `testpilot init`, which adds `.testpilot/` to `.gitignore`).
+Database path defaults to `<git-toplevel>/.testpilot/db.sqlite`. `testpilot init` creates the DB and appends `.testpilot/` to `.git/info/exclude` (not the tracked `.gitignore`).
+
+`collect git` walks commits reachable from **HEAD** only (not `--all`), in parent-before-child order.
 
 ## Database schema
 
@@ -38,8 +42,9 @@ Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/sche
 | `commit_parents` | Parent SHAs (`parent_idx=0` is first parent / merge base for diffs) |
 | `file_changes` | Per-commit path changes (`A/M/D/R`), line counts, `is_binary` |
 | `test_runs` | One row per pytest/JUnit ingest; `dirty` + `diff_hash` for unclean trees; `input_hash` for JUnit dedup |
-| `test_results` | Outcomes (`pass/fail/error/skip`), duration, `flaky`, `attempts` |
-| `test_coverage` | Per `(run_id, test_id, path)` coverage blob |
+| `tests` | Dictionary of unique `test_id` strings (`id` referenced elsewhere) |
+| `test_results` | Outcomes (`pass/fail/error/skip`), duration, `flaky`, `attempts` (via `test_pk`) |
+| `test_coverage` | Per `(run_id, test_pk, path)` coverage blob (`WITHOUT ROWID`) |
 
 Coverage blob format: leading version byte `0x01`, then delta-encoded unsigned varints of sorted unique line numbers. Empty coverage is exactly `[0x01]`.
 
@@ -49,8 +54,8 @@ Dirty runs (`dirty=1`, including untracked files) are recorded now; **future tra
 
 | Command | Purpose |
 |---------|---------|
-| `testpilot init` | Create DB + gitignore entry |
-| `testpilot collect git` | Incremental history via [gix](https://github.com/GitoxideLabs/gitoxide) |
+| `testpilot init` | Create DB + `.git/info/exclude` entry |
+| `testpilot collect git` | Incremental HEAD history via [gix](https://github.com/GitoxideLabs/gitoxide) |
 | `testpilot collect junit <glob> --sha <sha>` | Stream-parse JUnit XML |
 | `testpilot stats [--json]` | Summary + top slow / failing tests |
 | `testpilot debug coverage --run-id/--sha --test-id` | Decode coverage blobs |

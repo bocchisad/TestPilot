@@ -55,9 +55,13 @@ def _read_varint(buf: bytes, i: int) -> tuple[int, int]:
             raise ValueError("truncated varint")
         byte = buf[i]
         i += 1
+        if shift >= 28 and (byte & 0x80 or (shift == 28 and byte > 0x0F)):
+            raise ValueError("varint overflow")
+        if shift >= 32:
+            raise ValueError("varint overflow")
         result |= (byte & 0x7F) << shift
         if not (byte & 0x80):
             return result, i
         shift += 7
-        if shift > 28:
-            raise ValueError("varint too long")
+        if shift >= 32:
+            raise ValueError("varint overflow")

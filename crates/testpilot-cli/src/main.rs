@@ -1,10 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use testpilot_core::codec;
-use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit};
+use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
 use testpilot_core::git::{GixRepo, collect_git};
 use testpilot_core::stats;
 use testpilot_core::store::Store;
@@ -16,9 +15,9 @@ use testpilot_core::store::Store;
     about = "Offline predictive test selection — data collection"
 )]
 struct Cli {
-    /// Path to SQLite database
-    #[arg(long, global = true, default_value = ".testpilot/db.sqlite")]
-    db: PathBuf,
+    /// Path to SQLite database (default: <git-toplevel>/.testpilot/db.sqlite)
+    #[arg(long, global = true)]
+    db: Option<PathBuf>,
 
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
@@ -29,7 +28,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Create .testpilot/ database and gitignore entry
+    /// Create .testpilot/ database and exclude entry
     Init,
     #[command(subcommand)]
     Collect(CollectCmd),
@@ -44,7 +43,7 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum CollectCmd {
-    /// Walk git history into the database
+    /// Walk commits reachable from HEAD (not --all) into the database
     Git {
         #[arg(long)]
         since_sha: Option<String>,
@@ -94,21 +93,22 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     init_tracing(cli.verbose);
+    let db = resolve_db_path(cli.db.as_deref())?;
 
     match cli.command {
-        Commands::Init => cmd_init(&cli.db)?,
+        Commands::Init => cmd_init(&db)?,
         Commands::Collect(CollectCmd::Git {
             since_sha,
             since_date,
             max,
             max_files_per_commit,
         }) => {
-            let store = Store::open(&cli.db).context("open db")?;
+            let mut store = Store::open(&db).context("open db")?;
             let repo = GixRepo::open(Path::new(".")).context("open git repo")?;
             let since_ts = since_date.as_deref().map(parse_date).transpose()?;
             let stats = collect_git(
                 &repo,
-                &store,
+                &mut store,
                 since_sha.as_deref(),
                 since_ts,
                 max,
@@ -126,10 +126,10 @@ fn run() -> Result<()> {
             meta,
             force,
         }) => {
-            let store = Store::open(&cli.db).context("open db")?;
+            let mut store = Store::open(&db).context("open db")?;
             let started = started_at.as_deref().map(parse_started_at).transpose()?;
             let st = collect_junit(
-                &store,
+                &mut store,
                 CollectJunitOpts {
                     glob: &glob,
                     sha: &sha,
@@ -149,7 +149,7 @@ fn run() -> Result<()> {
             }
         }
         Commands::Stats { json } => {
-            let store = Store::open(&cli.db).context("open db")?;
+            let store = Store::open(&db).context("open db")?;
             let s = stats::compute(&store)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&s)?);
@@ -163,18 +163,40 @@ fn run() -> Result<()> {
             test_id,
             path,
         }) => {
-            let store = Store::open(&cli.db).context("open db")?;
+            let store = Store::open(&db).context("open db")?;
             let rid = match (run_id, sha) {
                 (Some(id), _) => id,
-                (None, Some(sha)) => store
-                    .latest_run_id_for_sha(&sha)?
-                    .with_context(|| format!("no test_runs for sha {sha}"))?,
+                (None, Some(rev)) => {
+                    let resolved = resolve_sha(Path::new("."), &rev)?;
+                    store
+                        .latest_run_id_for_sha(&resolved)?
+                        .with_context(|| format!("no test_runs for sha {resolved}"))?
+                }
                 (None, None) => bail!("provide --run-id or --sha"),
             };
             debug_coverage(&store, rid, &test_id, path.as_deref())?;
         }
     }
     Ok(())
+}
+
+fn resolve_db_path(explicit: Option<&Path>) -> Result<PathBuf> {
+    if let Some(p) = explicit {
+        return Ok(p.to_path_buf());
+    }
+    if GixRepo::open(Path::new(".")).is_ok() {
+        // discover gives repo; use cwd git toplevel via rev-parse of worktree
+        let toplevel = std::process::Command::new("git")
+            .args(["rev-parse", "--show-toplevel"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
+        if let Some(root) = toplevel {
+            return Ok(root.join(".testpilot/db.sqlite"));
+        }
+    }
+    Ok(PathBuf::from(".testpilot/db.sqlite"))
 }
 
 fn cmd_init(db: &Path) -> Result<()> {
@@ -184,31 +206,37 @@ fn cmd_init(db: &Path) -> Result<()> {
         .unwrap_or(Path::new(".testpilot"));
     std::fs::create_dir_all(dir)?;
     let _ = Store::open(db)?;
-    ensure_gitignore(".gitignore")?;
+    // B10: write to .git/info/exclude, not tracked .gitignore
+    ensure_git_exclude(".testpilot/")?;
     println!("initialized {}", db.display());
     Ok(())
 }
 
-fn ensure_gitignore(path: &str) -> Result<()> {
-    let entry = ".testpilot/";
-    if Path::new(path).exists() {
-        let contents = std::fs::read_to_string(path)?;
-        if contents
-            .lines()
-            .any(|l| l.trim() == entry || l.trim() == ".testpilot")
-        {
-            return Ok(());
-        }
-        let mut contents = contents;
-        if !contents.ends_with('\n') && !contents.is_empty() {
-            contents.push('\n');
-        }
-        contents.push_str(entry);
-        contents.push('\n');
-        std::fs::write(path, contents)?;
-    } else {
-        std::fs::write(path, format!("{entry}\n"))?;
+fn ensure_git_exclude(entry: &str) -> Result<()> {
+    let exclude = PathBuf::from(".git/info/exclude");
+    if let Some(parent) = exclude.parent() {
+        std::fs::create_dir_all(parent)?;
     }
+    let contents = if exclude.exists() {
+        std::fs::read_to_string(&exclude)?
+    } else {
+        String::new()
+    };
+    if contents
+        .lines()
+        .any(|l| l.trim() == entry || l.trim() == entry.trim_end_matches('/'))
+    {
+        return Ok(());
+    }
+    let mut contents = contents;
+    if !contents.ends_with('\n') && !contents.is_empty() {
+        contents.push('\n');
+    }
+    contents.push_str(entry);
+    if !entry.ends_with('\n') {
+        contents.push('\n');
+    }
+    std::fs::write(exclude, contents)?;
     Ok(())
 }
 
@@ -231,9 +259,11 @@ fn debug_coverage(
 }
 
 fn init_tracing(verbose: u8) {
+    // Default: warn only; -v → info, -vv → debug, -vvv → trace
     let level = match verbose {
-        0 => "info",
-        1 => "debug",
+        0 => "warn",
+        1 => "info",
+        2 => "debug",
         _ => "trace",
     };
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -248,37 +278,19 @@ fn parse_date(s: &str) -> Result<i64> {
     if let Ok(n) = s.parse::<i64>() {
         return Ok(n);
     }
-    // YYYY-MM-DD → start of day UTC
     let mut parts = s.split('-');
-    let y: i32 = parts.next().context("bad date")?.parse()?;
-    let m: u32 = parts.next().context("bad date")?.parse()?;
-    let d: u32 = parts.next().context("bad date")?.parse()?;
-    // reuse junit-less: approximate via days
-    Ok(civil_to_unix(y as i64, m as i64, d as i64))
+    let y: i64 = parts.next().context("bad date")?.parse()?;
+    let m: i64 = parts.next().context("bad date")?.parse()?;
+    let d: i64 = parts.next().context("bad date")?.parse()?;
+    Ok(civil_to_unix(y, m, d))
 }
 
 fn parse_started_at(s: &str) -> Result<i64> {
     if let Ok(n) = s.parse::<i64>() {
         return Ok(n);
     }
-    parse_date(s).or_else(|_| {
-        // RFC3339 date-time without chrono: YYYY-MM-DDTHH:MM:SS
-        let (date, time) = s.split_once('T').context("bad started-at")?;
-        let mut d = date.split('-');
-        let y: i64 = d.next().unwrap().parse()?;
-        let mo: i64 = d.next().unwrap().parse()?;
-        let day: i64 = d.next().unwrap().parse()?;
-        let time = time.trim_end_matches('Z');
-        let mut t = time.split(':');
-        let h: i64 = t.next().unwrap().parse()?;
-        let mi: i64 = t.next().unwrap().parse()?;
-        let sec: i64 = t
-            .next()
-            .and_then(|x| x.parse::<f64>().ok())
-            .map(|x| x as i64)
-            .unwrap_or(0);
-        Ok(civil_to_unix(y, mo, day) + h * 3600 + mi * 60 + sec)
-    })
+    // Prefer junit parser semantics via shared logic — duplicate RFC3339 here.
+    testpilot_core::junit::parse_timestamp(s).context("bad started-at")
 }
 
 fn civil_to_unix(y: i64, m: i64, d: i64) -> i64 {
@@ -289,12 +301,4 @@ fn civil_to_unix(y: i64, m: i64, d: i64) -> i64 {
     let doy = (153 * mp + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     (era * 146097 + doe - 719468) * 86400
-}
-
-#[allow(dead_code)]
-fn now_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }

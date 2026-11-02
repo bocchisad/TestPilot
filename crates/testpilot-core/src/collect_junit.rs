@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
+use crate::git::{GitRepo, GixRepo};
 use crate::junit::{self, collapse_reruns};
 use crate::store::{Store, TestRunRow};
 
@@ -25,13 +26,15 @@ pub struct CollectJunitStats {
     pub skipped_dedup: bool,
 }
 
-pub fn collect_junit(store: &Store, opts: CollectJunitOpts<'_>) -> Result<CollectJunitStats> {
+pub fn collect_junit(store: &mut Store, opts: CollectJunitOpts<'_>) -> Result<CollectJunitStats> {
+    // B17: resolve sha via gix (HEAD / short sha)
+    let resolved_sha = resolve_sha(opts.cwd, opts.sha)?;
+
     let mut paths: Vec<PathBuf> = glob::glob(&opts.cwd.join(opts.glob).to_string_lossy())
         .map_err(|e| Error::Other(e.to_string()))?
         .filter_map(|r| r.ok())
         .collect();
     if paths.is_empty() {
-        // also try glob as-is (absolute / relative from cwd)
         paths = glob::glob(opts.glob)
             .map_err(|e| Error::Other(e.to_string()))?
             .filter_map(|r| r.ok())
@@ -45,20 +48,22 @@ pub fn collect_junit(store: &Store, opts: CollectJunitOpts<'_>) -> Result<Collec
         )));
     }
 
+    // B16: hash sorted file contents only (no paths)
+    let mut contents: Vec<Vec<u8>> = Vec::with_capacity(paths.len());
+    for p in &paths {
+        contents.push(std::fs::read(p)?);
+    }
+    contents.sort();
     let mut hasher = Sha256::new();
     hasher.update(b"junit\0");
-    hasher.update(opts.sha.as_bytes());
-    hasher.update(b"\0");
-    for p in &paths {
-        hasher.update(p.to_string_lossy().as_bytes());
-        hasher.update(b"\0");
-        hasher.update(&std::fs::read(p)?);
+    for c in &contents {
+        hasher.update(c);
         hasher.update(b"\0");
     }
     let input_hash = hex::encode(hasher.finalize());
 
     if !opts.force {
-        if let Some(id) = store.find_run_by_input_hash("junit", opts.sha, &input_hash)? {
+        if let Some(id) = store.find_run_by_input_hash("junit", &resolved_sha, &input_hash)? {
             tracing::info!(run_id = id, "skipping junit ingest (duplicate input_hash)");
             return Ok(CollectJunitStats {
                 run_id: Some(id),
@@ -84,7 +89,7 @@ pub fn collect_junit(store: &Store, opts: CollectJunitOpts<'_>) -> Result<Collec
     let finished_at = now_secs();
 
     let run = TestRunRow {
-        sha: opts.sha.to_string(),
+        sha: resolved_sha,
         source: "junit".into(),
         started_at,
         finished_at: Some(finished_at),
@@ -94,26 +99,29 @@ pub fn collect_junit(store: &Store, opts: CollectJunitOpts<'_>) -> Result<Collec
         meta: opts.meta,
     };
 
-    let run_id = match store.insert_test_run(&run)? {
-        Some(id) => id,
-        None => {
-            tracing::info!("skipping junit ingest (unique constraint)");
-            return Ok(CollectJunitStats {
-                run_id: None,
-                files: paths.len(),
-                tests: 0,
-                skipped_dedup: true,
-            });
-        }
-    };
-    store.insert_test_results(run_id, &results)?;
+    // B13/B16: one transaction; --force deletes prior matching run
+    let run_id = store.insert_run_atomic(&run, &results, &[], opts.force)?;
+    if run_id.is_none() {
+        tracing::info!("skipping junit ingest (unique constraint)");
+        return Ok(CollectJunitStats {
+            run_id: None,
+            files: paths.len(),
+            tests: 0,
+            skipped_dedup: true,
+        });
+    }
 
     Ok(CollectJunitStats {
-        run_id: Some(run_id),
+        run_id,
         files: paths.len(),
         tests: results.len(),
         skipped_dedup: false,
     })
+}
+
+pub fn resolve_sha(cwd: &Path, rev: &str) -> Result<String> {
+    let repo = GixRepo::open(cwd)?;
+    Ok(repo.rev_parse(rev)?.as_str().to_string())
 }
 
 fn now_secs() -> i64 {

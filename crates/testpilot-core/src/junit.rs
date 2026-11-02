@@ -368,17 +368,20 @@ fn parse_time_ms(s: &str) -> i64 {
         .unwrap_or(0)
 }
 
-fn parse_timestamp(s: &str) -> Option<i64> {
+/// Parse RFC3339 / ISO-8601 timestamps. Offset is applied; missing offset = UTC (B15).
+pub fn parse_timestamp(s: &str) -> Option<i64> {
     if let Ok(n) = s.parse::<i64>() {
         return Some(n);
     }
-    let s = s.trim_end_matches('Z');
-    let (date, time) = s.split_once('T')?;
+    let s = s.trim();
+    let (datetime, offset_secs) = split_rfc3339_offset(s)?;
+    let (date, time) = datetime
+        .split_once('T')
+        .or_else(|| datetime.split_once(' '))?;
     let mut d = date.split('-');
     let y: i64 = d.next()?.parse().ok()?;
     let mo: i64 = d.next()?.parse().ok()?;
     let day: i64 = d.next()?.parse().ok()?;
-    let time = time.split(['+', '-']).next()?;
     let mut t = time.split(':');
     let h: i64 = t.next()?.parse().ok()?;
     let mi: i64 = t.next()?.parse().ok()?;
@@ -387,7 +390,37 @@ fn parse_timestamp(s: &str) -> Option<i64> {
         .and_then(|x| x.parse::<f64>().ok())
         .map(|x| x as i64)
         .unwrap_or(0);
-    Some(days_from_civil(y, mo, day) * 86400 + h * 3600 + mi * 60 + sec)
+    let utc = days_from_civil(y, mo, day) * 86400 + h * 3600 + mi * 60 + sec;
+    Some(utc - offset_secs)
+}
+
+/// Returns (datetime_without_offset, offset_seconds_east_of_utc).
+fn split_rfc3339_offset(s: &str) -> Option<(&str, i64)> {
+    if let Some(rest) = s.strip_suffix('Z').or_else(|| s.strip_suffix('z')) {
+        return Some((rest, 0));
+    }
+    // Look for +HH:MM or -HH:MM at the end (after the T).
+    let bytes = s.as_bytes();
+    let t_pos = s.find('T').or_else(|| s.find(' '))?;
+    let after_t = &s[t_pos + 1..];
+    // Find last + or - that introduces an offset (not inside fractional seconds).
+    if let Some(idx) = after_t.rfind(['+', '-']) {
+        let abs_idx = t_pos + 1 + idx;
+        let sign = if bytes[abs_idx] == b'+' { 1i64 } else { -1 };
+        let off = &s[abs_idx + 1..];
+        let (oh, om) = if let Some((h, m)) = off.split_once(':') {
+            (h.parse::<i64>().ok()?, m.parse::<i64>().ok()?)
+        } else if off.len() == 4 {
+            (off[..2].parse().ok()?, off[2..].parse().ok()?)
+        } else if off.len() == 2 {
+            (off.parse().ok()?, 0)
+        } else {
+            return None;
+        };
+        return Some((&s[..abs_idx], sign * (oh * 3600 + om * 60)));
+    }
+    // No offset → UTC
+    Some((s, 0))
 }
 
 fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
@@ -495,6 +528,16 @@ mod tests {
         </testsuite>"#;
         let p = parse_str(xml).unwrap();
         assert!(p.started_at.is_some());
+    }
+
+    #[test]
+    fn timestamp_respects_timezone_offset() {
+        // 12:00+03:00 == 09:00Z
+        let with_tz = parse_timestamp("2024-06-01T12:00:00+03:00").unwrap();
+        let as_utc = parse_timestamp("2024-06-01T09:00:00Z").unwrap();
+        assert_eq!(with_tz, as_utc);
+        let naive = parse_timestamp("2024-06-01T12:00:00").unwrap();
+        assert_eq!(naive, parse_timestamp("2024-06-01T12:00:00Z").unwrap());
     }
 
     #[test]

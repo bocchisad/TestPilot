@@ -39,27 +39,32 @@ CREATE TABLE IF NOT EXISTS test_runs (
   meta        TEXT
 );
 
+CREATE TABLE IF NOT EXISTS tests (
+  id      INTEGER PRIMARY KEY,
+  test_id TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS test_results (
   run_id      INTEGER NOT NULL REFERENCES test_runs(id),
-  test_id     TEXT NOT NULL,
+  test_pk     INTEGER NOT NULL REFERENCES tests(id),
   outcome     TEXT NOT NULL CHECK (outcome IN ('pass','fail','error','skip')),
   duration_ms INTEGER NOT NULL,
   message     TEXT,
   flaky       INTEGER NOT NULL DEFAULT 0 CHECK (flaky IN (0,1)),
   attempts    INTEGER NOT NULL DEFAULT 1,
-  PRIMARY KEY (run_id, test_id)
+  PRIMARY KEY (run_id, test_pk)
 );
 
 CREATE TABLE IF NOT EXISTS test_coverage (
   run_id  INTEGER NOT NULL REFERENCES test_runs(id),
-  test_id TEXT NOT NULL,
+  test_pk INTEGER NOT NULL REFERENCES tests(id),
   path    TEXT NOT NULL,
   lines   BLOB NOT NULL,
-  PRIMARY KEY (run_id, test_id, path)
-);
+  PRIMARY KEY (run_id, test_pk, path)
+) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS idx_file_changes_path ON file_changes(path);
-CREATE INDEX IF NOT EXISTS idx_test_results_test_id ON test_results(test_id);
+CREATE INDEX IF NOT EXISTS idx_test_results_test_pk ON test_results(test_pk);
 CREATE INDEX IF NOT EXISTS idx_test_runs_sha ON test_runs(sha);
 CREATE INDEX IF NOT EXISTS idx_test_coverage_path ON test_coverage(path);
 

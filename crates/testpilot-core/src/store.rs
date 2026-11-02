@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{Error, Result};
 
@@ -121,8 +121,32 @@ impl Store {
         &self.conn
     }
 
-    pub fn insert_commit(&self, commit: &CommitRow) -> Result<bool> {
-        let changed = self.conn.execute(
+    pub fn with_transaction<F, T>(&mut self, f: F) -> Result<T>
+    where
+        F: FnOnce(&Transaction<'_>) -> Result<T>,
+    {
+        let tx = self.conn.transaction()?;
+        let result = f(&tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    pub fn commit_exists_on(conn: &Connection, sha: &str) -> Result<bool> {
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM commits WHERE sha = ?1",
+            params![sha],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn commit_exists(&self, sha: &str) -> Result<bool> {
+        Self::commit_exists_on(&self.conn, sha)
+    }
+
+    /// Insert commit + parents. Returns false if sha already present.
+    pub fn insert_commit_on(conn: &Connection, commit: &CommitRow) -> Result<bool> {
+        let changed = conn.execute(
             "INSERT OR IGNORE INTO commits(sha, author_ts, message, oversized)
              VALUES (?1, ?2, ?3, ?4)",
             params![
@@ -136,7 +160,7 @@ impl Store {
             return Ok(false);
         }
         for (idx, parent) in commit.parents.iter().enumerate() {
-            self.conn.execute(
+            conn.execute(
                 "INSERT INTO commit_parents(sha, parent_sha, parent_idx)
                  VALUES (?1, ?2, ?3)",
                 params![commit.sha, parent, idx as i64],
@@ -145,9 +169,13 @@ impl Store {
         Ok(true)
     }
 
-    pub fn insert_file_changes(&self, changes: &[FileChangeRow]) -> Result<()> {
+    pub fn insert_commit(&self, commit: &CommitRow) -> Result<bool> {
+        Self::insert_commit_on(&self.conn, commit)
+    }
+
+    pub fn insert_file_changes_on(conn: &Connection, changes: &[FileChangeRow]) -> Result<()> {
         for c in changes {
-            self.conn.execute(
+            conn.execute(
                 "INSERT INTO file_changes(
                     sha, path, change_type, old_path,
                     lines_added, lines_deleted, is_binary
@@ -166,19 +194,55 @@ impl Store {
         Ok(())
     }
 
-    pub fn commit_exists(&self, sha: &str) -> Result<bool> {
-        let n: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM commits WHERE sha = ?1",
-            params![sha],
-            |r| r.get(0),
-        )?;
-        Ok(n > 0)
+    pub fn insert_file_changes(&self, changes: &[FileChangeRow]) -> Result<()> {
+        Self::insert_file_changes_on(&self.conn, changes)
     }
 
-    /// Insert a test run. Returns `None` if unique dedup index rejects (unless caller
-    /// already checked). On UNIQUE conflict returns Ok(None).
-    pub fn insert_test_run(&self, run: &TestRunRow) -> Result<Option<i64>> {
-        let result = self.conn.execute(
+    pub fn upsert_test(conn: &Connection, test_id: &str) -> Result<i64> {
+        conn.execute(
+            "INSERT OR IGNORE INTO tests(test_id) VALUES (?1)",
+            params![test_id],
+        )?;
+        let id: i64 = conn.query_row(
+            "SELECT id FROM tests WHERE test_id = ?1",
+            params![test_id],
+            |r| r.get(0),
+        )?;
+        Ok(id)
+    }
+
+    pub fn delete_run_by_input_hash(
+        conn: &Connection,
+        source: &str,
+        sha: &str,
+        input_hash: &str,
+    ) -> Result<Option<i64>> {
+        let id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM test_runs
+                 WHERE source = ?1 AND sha = ?2 AND input_hash = ?3",
+                params![source, sha, input_hash],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(run_id) = id {
+            conn.execute(
+                "DELETE FROM test_coverage WHERE run_id = ?1",
+                params![run_id],
+            )?;
+            conn.execute(
+                "DELETE FROM test_results WHERE run_id = ?1",
+                params![run_id],
+            )?;
+            conn.execute("DELETE FROM test_runs WHERE id = ?1", params![run_id])?;
+            Ok(Some(run_id))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn insert_test_run_on(conn: &Connection, run: &TestRunRow) -> Result<Option<i64>> {
+        let result = conn.execute(
             "INSERT INTO test_runs(
                 sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -194,7 +258,7 @@ impl Store {
             ],
         );
         match result {
-            Ok(_) => Ok(Some(self.conn.last_insert_rowid())),
+            Ok(_) => Ok(Some(conn.last_insert_rowid())),
             Err(rusqlite::Error::SqliteFailure(e, _))
                 if e.code == rusqlite::ErrorCode::ConstraintViolation =>
             {
@@ -204,15 +268,24 @@ impl Store {
         }
     }
 
-    pub fn insert_test_results(&self, run_id: i64, results: &[TestResultRow]) -> Result<()> {
+    pub fn insert_test_run(&self, run: &TestRunRow) -> Result<Option<i64>> {
+        Self::insert_test_run_on(&self.conn, run)
+    }
+
+    pub fn insert_test_results_on(
+        conn: &Connection,
+        run_id: i64,
+        results: &[TestResultRow],
+    ) -> Result<()> {
         for r in results {
-            self.conn.execute(
+            let pk = Self::upsert_test(conn, &r.test_id)?;
+            conn.execute(
                 "INSERT INTO test_results(
-                    run_id, test_id, outcome, duration_ms, message, flaky, attempts
+                    run_id, test_pk, outcome, duration_ms, message, flaky, attempts
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     run_id,
-                    r.test_id,
+                    pk,
                     r.outcome,
                     r.duration_ms,
                     r.message,
@@ -224,15 +297,47 @@ impl Store {
         Ok(())
     }
 
-    pub fn insert_coverage(&self, run_id: i64, rows: &[CoverageRow]) -> Result<()> {
+    pub fn insert_test_results(&self, run_id: i64, results: &[TestResultRow]) -> Result<()> {
+        Self::insert_test_results_on(&self.conn, run_id, results)
+    }
+
+    pub fn insert_coverage_on(conn: &Connection, run_id: i64, rows: &[CoverageRow]) -> Result<()> {
         for c in rows {
-            self.conn.execute(
-                "INSERT INTO test_coverage(run_id, test_id, path, lines)
+            let pk = Self::upsert_test(conn, &c.test_id)?;
+            conn.execute(
+                "INSERT INTO test_coverage(run_id, test_pk, path, lines)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![run_id, c.test_id, c.path, c.lines],
+                params![run_id, pk, c.path, c.lines],
             )?;
         }
         Ok(())
+    }
+
+    pub fn insert_coverage(&self, run_id: i64, rows: &[CoverageRow]) -> Result<()> {
+        Self::insert_coverage_on(&self.conn, run_id, rows)
+    }
+
+    /// Insert a full run (results + coverage) in one transaction.
+    pub fn insert_run_atomic(
+        &mut self,
+        run: &TestRunRow,
+        results: &[TestResultRow],
+        coverage: &[CoverageRow],
+        force: bool,
+    ) -> Result<Option<i64>> {
+        self.with_transaction(|tx| {
+            if force {
+                if let Some(hash) = run.input_hash.as_deref() {
+                    Self::delete_run_by_input_hash(tx, &run.source, &run.sha, hash)?;
+                }
+            }
+            let Some(run_id) = Self::insert_test_run_on(tx, run)? else {
+                return Ok(None);
+            };
+            Self::insert_test_results_on(tx, run_id, results)?;
+            Self::insert_coverage_on(tx, run_id, coverage)?;
+            Ok(Some(run_id))
+        })
     }
 
     pub fn find_run_by_input_hash(
@@ -263,16 +368,6 @@ impl Store {
             .map_err(Into::into)
     }
 
-    pub fn with_transaction<F, T>(&mut self, f: F) -> Result<T>
-    where
-        F: FnOnce(&Connection) -> Result<T>,
-    {
-        let tx = self.conn.transaction()?;
-        let result = f(&tx)?;
-        tx.commit()?;
-        Ok(result)
-    }
-
     pub fn coverage_for(
         &self,
         run_id: i64,
@@ -282,8 +377,9 @@ impl Store {
         let mut out = Vec::new();
         if let Some(p) = path_filter {
             let mut stmt = self.conn.prepare(
-                "SELECT path, lines FROM test_coverage
-                 WHERE run_id = ?1 AND test_id = ?2 AND path = ?3",
+                "SELECT c.path, c.lines FROM test_coverage c
+                 JOIN tests t ON t.id = c.test_pk
+                 WHERE c.run_id = ?1 AND t.test_id = ?2 AND c.path = ?3",
             )?;
             let rows = stmt.query_map(params![run_id, test_id, p], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
@@ -293,8 +389,9 @@ impl Store {
             }
         } else {
             let mut stmt = self.conn.prepare(
-                "SELECT path, lines FROM test_coverage
-                 WHERE run_id = ?1 AND test_id = ?2",
+                "SELECT c.path, c.lines FROM test_coverage c
+                 JOIN tests t ON t.id = c.test_pk
+                 WHERE c.run_id = ?1 AND t.test_id = ?2",
             )?;
             let rows = stmt.query_map(params![run_id, test_id], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
@@ -357,5 +454,60 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM commits", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn tests_dictionary_dedups_test_id() {
+        let mut store = Store::open_in_memory().unwrap();
+        let run = TestRunRow {
+            sha: "abc".into(),
+            source: "pytest".into(),
+            started_at: 1,
+            finished_at: Some(2),
+            dirty: false,
+            diff_hash: None,
+            input_hash: None,
+            meta: None,
+        };
+        let results = vec![
+            TestResultRow {
+                test_id: "t::a".into(),
+                outcome: "pass".into(),
+                duration_ms: 1,
+                message: None,
+                flaky: false,
+                attempts: 1,
+            },
+            TestResultRow {
+                test_id: "t::b".into(),
+                outcome: "fail".into(),
+                duration_ms: 2,
+                message: None,
+                flaky: false,
+                attempts: 1,
+            },
+        ];
+        let cov = vec![CoverageRow {
+            test_id: "t::a".into(),
+            path: "x.py".into(),
+            lines: vec![0x01],
+        }];
+        store
+            .insert_run_atomic(&run, &results, &cov, false)
+            .unwrap();
+        let n: i64 = store
+            .conn
+            .query_row("SELECT COUNT(*) FROM tests", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2);
+        let joined: String = store
+            .conn
+            .query_row(
+                "SELECT t.test_id FROM test_results r JOIN tests t ON t.id = r.test_pk LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(joined.starts_with("t::"));
     }
 }

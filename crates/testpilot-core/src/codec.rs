@@ -84,13 +84,21 @@ fn read_varint(buf: &[u8], mut i: usize) -> Result<(u32, usize)> {
         }
         let byte = buf[i];
         i += 1;
-        result |= u32::from(byte & 0x7f) << shift;
+        // Reject overflow before shifting bits off a u32 (shift >= 28).
+        if shift >= 28 && (byte & 0x80 != 0 || (shift == 28 && byte > 0x0f)) {
+            return Err(Error::Codec("varint overflow".into()));
+        }
+        result |= u32::from(byte & 0x7f)
+            .checked_shl(shift)
+            .ok_or_else(|| Error::Codec("varint overflow".into()))?;
         if byte & 0x80 == 0 {
             return Ok((result, i));
         }
-        shift += 7;
-        if shift > 28 {
-            return Err(Error::Codec("varint too long".into()));
+        shift = shift
+            .checked_add(7)
+            .ok_or_else(|| Error::Codec("varint overflow".into()))?;
+        if shift >= 32 {
+            return Err(Error::Codec("varint overflow".into()));
         }
     }
 }
@@ -123,8 +131,11 @@ mod tests {
 
     #[derive(Deserialize)]
     struct Vector {
+        #[serde(default)]
         lines: Vec<u32>,
         hex: String,
+        #[serde(default)]
+        error: Option<String>,
     }
 
     #[test]
@@ -134,9 +145,22 @@ mod tests {
         let data = std::fs::read_to_string(&path).expect("coverage_vectors.json");
         let vectors: Vec<Vector> = serde_json::from_str(&data).unwrap();
         for v in vectors {
-            let blob = encode_lines(&v.lines);
+            let blob = hex::decode(&v.hex).expect("hex");
+            if let Some(kind) = &v.error {
+                let err = decode_lines(&blob).unwrap_err();
+                assert!(
+                    format!("{err}").contains(kind.as_str())
+                        || matches!(
+                            err,
+                            Error::Codec(ref m) if m.contains(kind.as_str()) || m.contains("varint")
+                        ),
+                    "{err} should mention {kind}"
+                );
+                continue;
+            }
+            let encoded = encode_lines(&v.lines);
             assert_eq!(
-                hex::encode(&blob),
+                hex::encode(&encoded),
                 v.hex,
                 "encode mismatch for {:?}",
                 v.lines
@@ -148,5 +172,16 @@ mod tests {
                 s
             });
         }
+    }
+
+    #[test]
+    fn varint_overflow_errors() {
+        // Version + continuation bytes that would overflow u32.
+        let blob = vec![COVERAGE_VERSION, 0xff, 0xff, 0xff, 0xff, 0xff];
+        let err = decode_lines(&blob).unwrap_err();
+        assert!(
+            matches!(err, Error::Codec(ref m) if m.contains("overflow") || m.contains("varint")),
+            "{err}"
+        );
     }
 }

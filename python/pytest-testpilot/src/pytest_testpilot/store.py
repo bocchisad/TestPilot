@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -28,8 +29,12 @@ class Store:
 
     def migrate(self) -> None:
         schema = SCHEMA_PATH.read_text(encoding="utf-8")
-        with self.conn:
-            self.conn.executescript(schema)
+        # Apply DDL statements individually inside one transaction (executescript auto-commits).
+        statements = [s.strip() for s in schema.split(";") if s.strip()]
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+            for stmt in statements:
+                self.conn.execute(stmt)
             row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
             if row is None:
                 self.conn.execute(
@@ -39,6 +44,19 @@ class Store:
                 raise StoreError(
                     f"unsupported schema_version {row[0]}; expected {SCHEMA_VERSION}"
                 )
+            self.conn.execute("COMMIT")
+        except Exception:
+            with contextlib.suppress(sqlite3.Error):
+                self.conn.execute("ROLLBACK")
+            raise
+
+    def _upsert_test(self, test_id: str) -> int:
+        self.conn.execute("INSERT OR IGNORE INTO tests(test_id) VALUES (?)", (test_id,))
+        row = self.conn.execute(
+            "SELECT id FROM tests WHERE test_id = ?", (test_id,)
+        ).fetchone()
+        assert row is not None
+        return int(row[0])
 
     def insert_run(
         self,
@@ -54,7 +72,8 @@ class Store:
         results: list[dict[str, Any]],
         coverage: list[dict[str, Any]],
     ) -> int:
-        with self.conn:
+        self.conn.execute("BEGIN")
+        try:
             cur = self.conn.execute(
                 """
                 INSERT INTO test_runs(
@@ -73,36 +92,38 @@ class Store:
                 ),
             )
             run_id = int(cur.lastrowid)
-            self.conn.executemany(
-                """
-                INSERT INTO test_results(
-                    run_id, test_id, outcome, duration_ms, message, flaky, attempts
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
+            for r in results:
+                pk = self._upsert_test(r["test_id"])
+                self.conn.execute(
+                    """
+                    INSERT INTO test_results(
+                        run_id, test_pk, outcome, duration_ms, message, flaky, attempts
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
                     (
                         run_id,
-                        r["test_id"],
+                        pk,
                         r["outcome"],
                         int(r["duration_ms"]),
                         r.get("message"),
                         1 if r.get("flaky") else 0,
                         int(r.get("attempts", 1)),
-                    )
-                    for r in results
-                ],
-            )
-            self.conn.executemany(
-                """
-                INSERT INTO test_coverage(run_id, test_id, path, lines)
-                VALUES (?, ?, ?, ?)
-                """,
-                [
-                    (run_id, c["test_id"], c["path"], c["lines"])
-                    for c in coverage
-                ],
-            )
+                    ),
+                )
+            for c in coverage:
+                pk = self._upsert_test(c["test_id"])
+                self.conn.execute(
+                    """
+                    INSERT INTO test_coverage(run_id, test_pk, path, lines)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (run_id, pk, c["path"], c["lines"]),
+                )
+            self.conn.execute("COMMIT")
             return run_id
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
 
     def close(self) -> None:
         self.conn.close()

@@ -1,4 +1,3 @@
-use rusqlite::params;
 use serde::Serialize;
 
 use crate::error::Result;
@@ -31,11 +30,7 @@ pub fn compute(store: &Store) -> Result<Stats> {
     let conn = store.connection();
     let commits: i64 = conn.query_row("SELECT COUNT(*) FROM commits", [], |r| r.get(0))?;
     let runs: i64 = conn.query_row("SELECT COUNT(*) FROM test_runs", [], |r| r.get(0))?;
-    let distinct_tests: i64 = conn.query_row(
-        "SELECT COUNT(DISTINCT test_id) FROM test_results",
-        [],
-        |r| r.get(0),
-    )?;
+    let distinct_tests: i64 = conn.query_row("SELECT COUNT(*) FROM tests", [], |r| r.get(0))?;
     let failures: i64 = conn.query_row(
         "SELECT COUNT(*) FROM test_results WHERE outcome IN ('fail','error')",
         [],
@@ -44,9 +39,10 @@ pub fn compute(store: &Store) -> Result<Stats> {
 
     let mut top_slowest = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT test_id, AVG(duration_ms) AS avg_ms
-         FROM test_results
-         GROUP BY test_id
+        "SELECT t.test_id, AVG(r.duration_ms) AS avg_ms
+         FROM test_results r
+         JOIN tests t ON t.id = r.test_pk
+         GROUP BY t.test_id
          ORDER BY avg_ms DESC
          LIMIT 10",
     )?;
@@ -62,11 +58,12 @@ pub fn compute(store: &Store) -> Result<Stats> {
 
     let mut top_flaky_failing = Vec::new();
     let mut stmt = conn.prepare(
-        "SELECT test_id,
-                SUM(CASE WHEN outcome IN ('fail','error') THEN 1 ELSE 0 END) AS fails,
+        "SELECT t.test_id,
+                SUM(CASE WHEN r.outcome IN ('fail','error') THEN 1 ELSE 0 END) AS fails,
                 COUNT(*) AS total
-         FROM test_results
-         GROUP BY test_id
+         FROM test_results r
+         JOIN tests t ON t.id = r.test_pk
+         GROUP BY t.test_id
          HAVING fails > 0
          ORDER BY fails DESC, total DESC
          LIMIT 10",
@@ -82,7 +79,6 @@ pub fn compute(store: &Store) -> Result<Stats> {
         top_flaky_failing.push(row?);
     }
 
-    let _ = params![];
     Ok(Stats {
         commits,
         runs,
