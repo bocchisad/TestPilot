@@ -1,0 +1,9 @@
+---
+description: Git commit style and license copyright holder
+alwaysApply: true
+---
+
+# Git and license
+
+- Copyright / GitHub nick for LICENSE files: **bocchisad**
+- Commit messages and authored metadata must not mention the AI, Cursor, Auto, Copilot, or similar. No `Co-authored-by` for the agent. Write commits as normal human project history.
