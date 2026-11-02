@@ -74,6 +74,16 @@ jobs:
           ls python/pytest-testpilot/dist/*.whl
       - name: Install wheel in clean venv and smoke
         run: |
+          set -euo pipefail
+          python - <<'PY'
+          import glob, zipfile
+          whls = glob.glob("python/pytest-testpilot/dist/*.whl")
+          assert whls, "wheel missing"
+          names = zipfile.ZipFile(whls[0]).namelist()
+          assert any(n.endswith("pytest_testpilot/schema.sql") for n in names), names
+          assert any(n.endswith("pytest_testpilot/__init__.py") for n in names), names
+          print("wheel contents ok", whls[0])
+          PY
           python -m venv /tmp/tp-wheel
           /tmp/tp-wheel/bin/pip install python/pytest-testpilot/dist/*.whl
           WORK=$(mktemp -d)
@@ -86,6 +96,15 @@ jobs:
           git commit -m init
           /tmp/tp-wheel/bin/pip install pytest coverage
           COVERAGE_CORE=ctrace /tmp/tp-wheel/bin/pytest --testpilot -q
+          /tmp/tp-wheel/bin/python - <<'PY'
+          import sqlite3
+          c = sqlite3.connect(".testpilot/db.sqlite")
+          runs = c.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
+          results = c.execute("SELECT COUNT(*) FROM test_results").fetchone()[0]
+          assert runs >= 1, runs
+          assert results >= 1, results
+          print("db ok", {"runs": runs, "results": results})
+          PY
 
   e2e:
     runs-on: ubuntu-latest

@@ -7,6 +7,14 @@ use crate::error::{Error, Result};
 pub const SCHEMA_VERSION: i64 = 2;
 pub const SCHEMA_SQL: &str = include_str!("../schema.sql");
 
+fn schema_version_error(found: i64, expected: i64) -> Error {
+    if found < expected {
+        Error::SchemaOutdated { found, expected }
+    } else {
+        Error::SchemaTooNew { found, expected }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct CommitRow {
     pub sha: String,
@@ -104,10 +112,7 @@ impl Store {
             if v == SCHEMA_VERSION {
                 return Ok(());
             }
-            return Err(Error::UnsupportedSchema {
-                found: v,
-                expected: SCHEMA_VERSION,
-            });
+            return Err(schema_version_error(v, SCHEMA_VERSION));
         }
 
         let tx = self.conn.unchecked_transaction()?;
@@ -128,10 +133,7 @@ impl Store {
             }
             Some(v) if v == SCHEMA_VERSION => {}
             Some(v) => {
-                return Err(Error::UnsupportedSchema {
-                    found: v,
-                    expected: SCHEMA_VERSION,
-                });
+                return Err(schema_version_error(v, SCHEMA_VERSION));
             }
         }
         tx.commit()?;
@@ -466,12 +468,13 @@ mod tests {
         let err = store.migrate().unwrap_err();
         let msg = err.to_string();
         match err {
-            Error::UnsupportedSchema {
+            Error::SchemaTooNew {
                 found: 99,
                 expected: SCHEMA_VERSION,
             } => {
-                assert!(msg.contains("delete .testpilot"), "{msg}");
-                assert!(msg.contains("testpilot init"), "{msg}");
+                assert!(msg.contains("too new"), "{msg}");
+                assert!(!msg.contains("outdated"), "{msg}");
+                assert!(msg.contains("upgrade testpilot"), "{msg}");
             }
             other => panic!("unexpected: {other}"),
         }
@@ -519,13 +522,14 @@ mod tests {
         assert!(
             matches!(
                 err,
-                Error::UnsupportedSchema {
+                Error::SchemaOutdated {
                     found: 1,
                     expected: 2
                 }
             ),
             "{err}"
         );
+        assert!(msg.contains("outdated"), "{msg}");
         assert!(msg.contains("delete .testpilot"), "{msg}");
     }
 

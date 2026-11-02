@@ -525,21 +525,62 @@ def test_paths_relative_to_git_toplevel(tmp_path: Path) -> None:
 
 
 def test_b7_venv_without_xdist(tmp_path: Path, git_repo: Path) -> None:
-    # B7: plugin must load when pytest-xdist is not installed at all.
-    # Use a clean venv + PYTHONPATH (avoid pip-installing the plugin into it —
-    # that racey hatch build can leave an empty site-packages/pytest_testpilot
-    # that shadows the editable install in the parent env).
+    # B7 / NEW-5: plugin loads when pytest-xdist is absent.
+    # symlinks=True avoids 3.10 copy-interpreter failures; install pytest/coverage
+    # from local wheels (--no-index), skip if wheels cannot be built offline.
     import venv
 
+    wheelhouse = tmp_path / "wheels"
+    wheelhouse.mkdir()
+    # Include runtime deps so --no-index install does not need PyPI.
+    to_wheel = [
+        "pytest",
+        "coverage",
+        "pluggy",
+        "iniconfig",
+        "packaging",
+        "pygments",
+    ]
+    built = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "-w",
+            str(wheelhouse),
+            *to_wheel,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if built.returncode != 0 or not list(wheelhouse.glob("*.whl")):
+        pytest.skip(f"cannot build local wheels offline: {built.stderr[-400:]}")
+
     vdir = tmp_path / "noxdist"
-    venv.EnvBuilder(with_pip=True).create(vdir)
+    venv.EnvBuilder(with_pip=True, symlinks=True).create(vdir)
     py = vdir / ("Scripts" if sys.platform == "win32" else "bin") / "python"
     plugin_src = Path(__file__).resolve().parents[1] / "src"
-    subprocess.run(
-        [str(py), "-m", "pip", "install", "-q", "pytest", "coverage"],
-        check=True,
+    installed = subprocess.run(
+        [
+            str(py),
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "--no-index",
+            f"--find-links={wheelhouse}",
+            "pytest",
+            "coverage",
+        ],
+        check=False,
         capture_output=True,
+        text=True,
     )
+    if installed.returncode != 0:
+        pytest.skip(f"offline wheel install failed: {installed.stderr[-400:]}")
     check = subprocess.run(
         [
             str(py),
@@ -549,7 +590,7 @@ def test_b7_venv_without_xdist(tmp_path: Path, git_repo: Path) -> None:
         check=False,
     )
     assert check.returncode == 0, "xdist must not be installed in this venv"
-    env = {k: v for k, v in __import__("os").environ.items()}
+    env = {k: v for k, v in os.environ.items()}
     env["COVERAGE_CORE"] = "ctrace"
     env["PYTHONPATH"] = str(plugin_src) + (
         os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
@@ -578,7 +619,7 @@ def test_b7_venv_without_xdist(tmp_path: Path, git_repo: Path) -> None:
 
 
 def test_sysmon_env_still_collects_coverage(git_repo: Path) -> None:
-    # N7: COVERAGE_CORE=sysmon must not disable collection; own ctrace Coverage.
+    # N7: without pytest-cov, own ctrace Coverage still collects under sysmon env.
     result = _run_pytest(
         git_repo,
         "tests/test_sample.py::test_pass",
@@ -590,6 +631,94 @@ def test_sysmon_env_still_collects_coverage(git_repo: Path) -> None:
     conn = _db(git_repo)
     n = conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0]
     assert n > 0, "sysmon env must not wipe coverage; own ctrace instance required"
+
+
+def test_coverage_core_restored_in_session_and_subprocess(git_repo: Path) -> None:
+    # N7: COVERAGE_CORE must be restored after plugin start (session + child procs).
+    (git_repo / "tests" / "test_env_core.py").write_text(
+        """
+import os
+import subprocess
+import sys
+
+def test_env_intact():
+    assert os.environ.get("COVERAGE_CORE") == "sysmon"
+    out = subprocess.check_output(
+        [sys.executable, "-c", "import os; print(os.environ.get('COVERAGE_CORE', ''))"],
+        text=True,
+    )
+    assert out.strip() == "sysmon"
+""",
+        encoding="utf-8",
+    )
+    result = _run_pytest(
+        git_repo,
+        "tests/test_env_core.py",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core="sysmon",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _parse_cov_total(output: str) -> str:
+    for line in output.splitlines():
+        if line.strip().startswith("TOTAL"):
+            parts = line.split()
+            return parts[-1]  # e.g. "100%"
+    raise AssertionError(f"no TOTAL line in coverage report:\n{output}")
+
+
+def test_sysmon_with_pytest_cov_does_not_break_user_report(git_repo: Path) -> None:
+    # NEW-1: second tracer must not pause pytest-cov under COVERAGE_CORE=sysmon.
+    without = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--cov=pkg",
+        "--cov-report=term-missing",
+        cov_core="sysmon",
+    )
+    assert without.returncode == 0, without.stdout + without.stderr
+    total_without = _parse_cov_total(without.stdout + without.stderr)
+
+    with_tp = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--cov=pkg",
+        "--cov-report=term-missing",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core="sysmon",
+    )
+    assert with_tp.returncode == 0, with_tp.stdout + with_tp.stderr
+    combined = with_tp.stdout + with_tp.stderr
+    total_with = _parse_cov_total(combined)
+    assert total_with == total_without, (total_with, total_without, combined)
+    assert "No data was collected" not in combined
+
+    conn = _db(git_repo)
+    n = conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0]
+    assert n > 0 or "coverage collection skipped" in combined, combined
+
+
+def test_xdist_with_pytest_cov_writes_coverage_rows(git_repo: Path) -> None:
+    # NEW-2
+    pytest.importorskip("xdist")
+    result = _run_pytest(
+        git_repo,
+        "tests",
+        "-n",
+        "2",
+        "--cov=pkg",
+        "--cov-report=",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+    )
+    assert result.returncode in (0, 1), result.stdout + result.stderr
+    conn = _db(git_repo)
+    assert conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0] == 1
+    n = conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0]
+    assert n > 0, result.stdout + result.stderr
 
 
 def test_stale_schema_v1_is_reported(git_repo: Path) -> None:
@@ -625,10 +754,67 @@ def test_stale_schema_v1_is_reported(git_repo: Path) -> None:
         "--testpilot-strict",
     )
     combined = result.stdout + result.stderr
-    assert "schema outdated" in combined or "delete .testpilot" in combined, combined
+    assert combined.count("schema outdated") == 1, combined
+    assert "delete .testpilot" in combined
     assert result.returncode != 0
-    # No successful run written with new schema
     conn2 = sq.connect(db)
     ver = conn2.execute("SELECT version FROM schema_version").fetchone()[0]
     assert ver == 1
     conn2.close()
+
+
+def test_stale_schema_non_strict_does_not_fail_user_tests(git_repo: Path) -> None:
+    import sqlite3 as sq
+
+    db = git_repo / ".testpilot" / "db.sqlite"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sq.connect(db)
+    conn.executescript(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);"
+        "INSERT INTO schema_version(version) VALUES (1);"
+    )
+    conn.close()
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--testpilot",
+        f"--testpilot-db={db}",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    combined = result.stdout + result.stderr
+    assert "schema outdated" in combined
+    assert combined.count("schema outdated") == 1
+
+
+def test_nodeid_norm_cache_is_session_scoped() -> None:
+    # NEW-3: norm_cache must live on the plugin (session), not be rebuilt per file.
+    import inspect
+
+    from pytest_testpilot.plugin import TestPilotPlugin
+
+    src = inspect.getsource(TestPilotPlugin._collect_coverage_rows)
+    assert "self._nodeid_norm_cache" in src
+    assert "norm_cache: dict" not in src and "norm_cache = {}" not in src
+
+
+def test_schema_too_new_message(git_repo: Path) -> None:
+    import sqlite3 as sq
+
+    db = git_repo / ".testpilot" / "db.sqlite"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sq.connect(db)
+    conn.executescript(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);"
+        "INSERT INTO schema_version(version) VALUES (99);"
+    )
+    conn.close()
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--testpilot",
+        f"--testpilot-db={db}",
+    )
+    combined = result.stdout + result.stderr
+    assert "schema too new" in combined
+    assert "outdated" not in combined
+    assert result.returncode == 0

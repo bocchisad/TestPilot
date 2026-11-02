@@ -8,14 +8,21 @@ from typing import Any
 SCHEMA_VERSION = 2
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
-STALE_SCHEMA_MSG = (
-    f"schema outdated (need version {SCHEMA_VERSION}): "
-    "delete .testpilot and run `testpilot init`"
-)
-
 
 class StoreError(RuntimeError):
     pass
+
+
+def schema_version_message(found: int, expected: int = SCHEMA_VERSION) -> str:
+    if found < expected:
+        return (
+            f"schema outdated (version {found}; need {expected}): "
+            "delete .testpilot and run `testpilot init`"
+        )
+    return (
+        f"schema too new (version {found}; this build supports {expected}): "
+        "upgrade testpilot"
+    )
 
 
 class Store:
@@ -43,10 +50,7 @@ class Store:
             found = int(row[0])
             if found == SCHEMA_VERSION:
                 return
-            raise StoreError(
-                f"schema outdated (version {found}; need {SCHEMA_VERSION}): "
-                "delete .testpilot and run `testpilot init`"
-            )
+            raise StoreError(schema_version_message(found))
 
         schema = SCHEMA_PATH.read_text(encoding="utf-8")
         statements = [s.strip() for s in schema.split(";") if s.strip()]
@@ -60,10 +64,7 @@ class Store:
                     "INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,)
                 )
             elif int(row[0]) != SCHEMA_VERSION:
-                raise StoreError(
-                    f"schema outdated (version {row[0]}; need {SCHEMA_VERSION}): "
-                    "delete .testpilot and run `testpilot init`"
-                )
+                raise StoreError(schema_version_message(int(row[0])))
             self.conn.execute("COMMIT")
         except Exception:
             with contextlib.suppress(sqlite3.Error):
