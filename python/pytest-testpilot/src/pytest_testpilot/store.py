@@ -5,8 +5,13 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+STALE_SCHEMA_MSG = (
+    f"schema outdated (need version {SCHEMA_VERSION}): "
+    "delete .testpilot and run `testpilot init`"
+)
 
 
 class StoreError(RuntimeError):
@@ -28,8 +33,22 @@ class Store:
         self.conn.execute("PRAGMA busy_timeout=5000")
 
     def migrate(self) -> None:
+        # N1: validate existing version before applying DDL so a v1 DB does not
+        # die with "no such column: test_pk" while creating new indexes.
+        try:
+            row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        except sqlite3.Error:
+            row = None
+        if row is not None:
+            found = int(row[0])
+            if found == SCHEMA_VERSION:
+                return
+            raise StoreError(
+                f"schema outdated (version {found}; need {SCHEMA_VERSION}): "
+                "delete .testpilot and run `testpilot init`"
+            )
+
         schema = SCHEMA_PATH.read_text(encoding="utf-8")
-        # Apply DDL statements individually inside one transaction (executescript auto-commits).
         statements = [s.strip() for s in schema.split(";") if s.strip()]
         try:
             self.conn.execute("BEGIN IMMEDIATE")
@@ -42,7 +61,8 @@ class Store:
                 )
             elif int(row[0]) != SCHEMA_VERSION:
                 raise StoreError(
-                    f"unsupported schema_version {row[0]}; expected {SCHEMA_VERSION}"
+                    f"schema outdated (version {row[0]}; need {SCHEMA_VERSION}): "
+                    "delete .testpilot and run `testpilot init`"
                 )
             self.conn.execute("COMMIT")
         except Exception:

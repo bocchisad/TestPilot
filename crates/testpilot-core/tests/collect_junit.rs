@@ -153,6 +153,38 @@ fn input_hash_ignores_paths_uses_contents() {
 }
 
 #[test]
+fn full_sha_ingests_outside_git_repo() {
+    // N4: 40-hex sha must work with no .git present
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join("j.xml"),
+        r#"<?xml version="1.0"?><testsuite>
+           <testcase classname="tests.t" name="test_a" time="0.1"/></testsuite>"#,
+    )
+    .unwrap();
+    let mut store = Store::open(&tmp.path().join("db.sqlite")).unwrap();
+    let sha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    let st = collect_junit(
+        &mut store,
+        CollectJunitOpts {
+            glob: "j.xml",
+            sha,
+            started_at: Some(1),
+            meta: None,
+            force: false,
+            cwd: tmp.path(),
+        },
+    )
+    .unwrap();
+    assert!(!st.skipped_dedup);
+    let got: String = store
+        .connection()
+        .query_row("SELECT sha FROM test_runs", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(got, sha);
+}
+
+#[test]
 fn timestamp_offset_applied_on_ingest() {
     let tmp = TempDir::new().unwrap();
     git(tmp.path(), &["init", "-b", "main"]);

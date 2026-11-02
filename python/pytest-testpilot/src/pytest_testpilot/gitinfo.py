@@ -26,11 +26,16 @@ def collect_gitinfo(cwd: Path | None = None) -> GitInfo:
         root = git_toplevel(root)
     sha = _run(["git", "rev-parse", "HEAD"], root).strip()
 
-    # B10: ignore .testpilot/ and .coverage* when deciding dirty
-    porcelain = _run(["git", "status", "--porcelain", "-uall"], root)
+    # Fast dirty probe: default untracked listing (dirs as single entries).
+    # Avoid `status -uall` here — it walks every file under untracked dirs and
+    # dominated sessionfinish (~150ms on 200 tiny tests).
+    porcelain = _run(["git", "status", "--porcelain"], root)
     relevant_lines = []
     for line in porcelain.splitlines():
         path = line[3:] if len(line) >= 3 else line
+        # rename lines: "R  old -> new" — take the new path after " -> "
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
         path = path.strip().strip('"')
         if _ignored_for_dirty(path):
             continue
@@ -44,7 +49,7 @@ def collect_gitinfo(cwd: Path | None = None) -> GitInfo:
     h.update(b"tracked\0")
     h.update(tracked.encode("utf-8", errors="surrogateescape"))
     h.update(b"\0untracked\0")
-    # B14: list every untracked file (including under dirs)
+    # B14: list every untracked file (including under dirs) only when dirty
     others = _run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         root,
@@ -60,7 +65,6 @@ def collect_gitinfo(cwd: Path | None = None) -> GitInfo:
         if p.is_file():
             h.update(p.read_bytes())
         h.update(b"\0")
-    # Also hash relevant porcelain lines for modified tracked files already in diff
     for line in relevant_lines:
         h.update(line.encode())
         h.update(b"\0")
@@ -68,11 +72,14 @@ def collect_gitinfo(cwd: Path | None = None) -> GitInfo:
 
 
 def _ignored_for_dirty(path: str) -> bool:
-    norm = path.replace("\\", "/").lstrip("./")
-    if norm.startswith(".testpilot/") or norm == ".testpilot":
+    # N2: strip "./" prefix only — never lstrip("./") which eats leading dots.
+    norm = path.replace("\\", "/")
+    while norm.startswith("./"):
+        norm = norm.removeprefix("./")
+    if norm == ".testpilot" or norm.startswith(".testpilot/"):
         return True
     name = Path(norm).name
-    return bool(name.startswith(".coverage"))
+    return bool(name == ".coverage" or name.startswith(".coverage."))
 
 
 def _run(cmd: list[str], cwd: Path, check: bool = True) -> str:

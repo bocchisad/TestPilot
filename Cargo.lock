@@ -1876,6 +1876,7 @@ dependencies = [
  "anyhow",
  "clap",
  "serde_json",
+ "tempfile",
  "testpilot-core",
  "tracing",
  "tracing-subscriber",

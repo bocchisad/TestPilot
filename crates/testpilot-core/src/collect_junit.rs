@@ -119,9 +119,23 @@ pub fn collect_junit(store: &mut Store, opts: CollectJunitOpts<'_>) -> Result<Co
     })
 }
 
+/// Accept a full 40-hex SHA without opening a repo (N4). Resolve HEAD / refs / short
+/// SHAs via gix, with a clear error when no repository is available.
 pub fn resolve_sha(cwd: &Path, rev: &str) -> Result<String> {
-    let repo = GixRepo::open(cwd)?;
-    Ok(repo.rev_parse(rev)?.as_str().to_string())
+    if is_full_sha(rev) {
+        return Ok(rev.to_ascii_lowercase());
+    }
+    match GixRepo::open(cwd) {
+        Ok(repo) => Ok(repo.rev_parse(rev)?.as_str().to_string()),
+        Err(e) => Err(Error::Git(format!(
+            "cannot resolve {rev:?} without a git repository ({e}); \
+             pass a full 40-character hex sha to work outside a repo or in a shallow clone"
+        ))),
+    }
+}
+
+fn is_full_sha(s: &str) -> bool {
+    s.len() == 40 && s.as_bytes().iter().all(u8::is_ascii_hexdigit)
 }
 
 fn now_secs() -> i64 {
@@ -129,4 +143,30 @@ fn now_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod resolve_sha_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn full_sha_accepted_outside_repo() {
+        let tmp = TempDir::new().unwrap();
+        let sha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let got = resolve_sha(tmp.path(), sha).unwrap();
+        assert_eq!(got, sha);
+    }
+
+    #[test]
+    fn head_without_repo_is_clear_error() {
+        let tmp = TempDir::new().unwrap();
+        let err = resolve_sha(tmp.path(), "HEAD").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("git repository") || msg.contains("repository"),
+            "{msg}"
+        );
+        assert!(msg.contains("40") || msg.contains("hex"), "{msg}");
+    }
 }

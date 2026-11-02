@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{Error, Result};
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 pub const SCHEMA_SQL: &str = include_str!("../schema.sql");
 
 #[derive(Debug, Clone)]
@@ -89,6 +89,27 @@ impl Store {
     }
 
     pub fn migrate(&self) -> Result<()> {
+        // N1: if a prior schema_version row exists, validate it *before* applying
+        // DDL — CREATE INDEX IF NOT EXISTS on new columns would otherwise fail
+        // on a v1 database with a cryptic "no such column" error.
+        let existing: Option<i64> = self
+            .conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+                r.get(0)
+            })
+            .optional()
+            .unwrap_or(None);
+
+        if let Some(v) = existing {
+            if v == SCHEMA_VERSION {
+                return Ok(());
+            }
+            return Err(Error::UnsupportedSchema {
+                found: v,
+                expected: SCHEMA_VERSION,
+            });
+        }
+
         let tx = self.conn.unchecked_transaction()?;
         tx.execute_batch(SCHEMA_SQL)?;
 
@@ -368,6 +389,21 @@ impl Store {
             .map_err(Into::into)
     }
 
+    /// Newest pytest run for `sha` that has at least one coverage row (N5).
+    pub fn latest_pytest_run_with_coverage_for_sha(&self, sha: &str) -> Result<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT r.id FROM test_runs r
+                 WHERE r.sha = ?1 AND r.source = 'pytest'
+                   AND EXISTS (SELECT 1 FROM test_coverage c WHERE c.run_id = r.id)
+                 ORDER BY r.id DESC LIMIT 1",
+                params![sha],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     pub fn coverage_for(
         &self,
         run_id: i64,
@@ -428,13 +464,69 @@ mod tests {
             .execute("UPDATE schema_version SET version = 99", [])
             .unwrap();
         let err = store.migrate().unwrap_err();
+        let msg = err.to_string();
         match err {
             Error::UnsupportedSchema {
                 found: 99,
                 expected: SCHEMA_VERSION,
-            } => {}
+            } => {
+                assert!(msg.contains("delete .testpilot"), "{msg}");
+                assert!(msg.contains("testpilot init"), "{msg}");
+            }
             other => panic!("unexpected: {other}"),
         }
+    }
+
+    #[test]
+    fn schema_v1_db_rejected_with_upgrade_hint() {
+        // N1: a v1 DB (pre-tests dictionary) must not be silently reused.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+                 INSERT INTO schema_version(version) VALUES (1);
+                 CREATE TABLE test_runs (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   sha TEXT NOT NULL,
+                   source TEXT NOT NULL,
+                   started_at INTEGER NOT NULL,
+                   finished_at INTEGER,
+                   dirty INTEGER NOT NULL DEFAULT 0,
+                   diff_hash TEXT,
+                   input_hash TEXT,
+                   meta TEXT
+                 );
+                 CREATE TABLE test_results (
+                   run_id INTEGER NOT NULL,
+                   test_id TEXT NOT NULL,
+                   outcome TEXT NOT NULL,
+                   duration_ms INTEGER NOT NULL,
+                   message TEXT,
+                   flaky INTEGER NOT NULL DEFAULT 0,
+                   attempts INTEGER NOT NULL DEFAULT 1,
+                   PRIMARY KEY (run_id, test_id)
+                 );",
+            )
+            .unwrap();
+        }
+        let err = match Store::open(&path) {
+            Ok(_) => panic!("expected schema version error"),
+            Err(e) => e,
+        };
+        let msg = err.to_string();
+        assert!(
+            matches!(
+                err,
+                Error::UnsupportedSchema {
+                    found: 1,
+                    expected: 2
+                }
+            ),
+            "{err}"
+        );
+        assert!(msg.contains("delete .testpilot"), "{msg}");
     }
 
     #[test]

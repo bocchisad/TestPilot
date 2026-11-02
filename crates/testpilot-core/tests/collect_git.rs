@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use tempfile::TempDir;
-use testpilot_core::git::{GixRepo, collect_git};
+use testpilot_core::git::{GixRepo, collect_git, collect_git_ex};
 use testpilot_core::store::Store;
 
 fn git(cwd: &std::path::Path, args: &[&str]) {
@@ -330,43 +330,49 @@ fn oversized_sets_flag_without_file_changes() {
     assert_eq!(fc, 0);
 }
 
-/// B4 regression: after a successful batch, commits always have parents+file_changes together
-/// (no orphan commits without changes unless oversized).
+/// B4: interrupt mid-batch after commit insert but before file_changes; the
+/// whole batch must roll back. A second collect must leave no orphan commits.
 #[test]
-fn batch_transaction_keeps_commit_and_changes_atomic() {
+fn batch_transaction_rolls_back_on_mid_batch_failure() {
     let tmp = TempDir::new().unwrap();
     build_repo(tmp.path());
-    let mut store = Store::open(&tmp.path().join("db.sqlite")).unwrap();
+    let db = tmp.path().join("db.sqlite");
+    let mut store = Store::open(&db).unwrap();
     let repo = GixRepo::open(tmp.path()).unwrap();
+
+    let err = collect_git_ex(
+        &repo,
+        &mut store,
+        None,
+        None,
+        None,
+        5000,
+        200,
+        Some(2), // fail after 2 commit writes inside the batch
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("injected mid-batch"), "{err}");
+
+    let commits: i64 = store
+        .connection()
+        .query_row("SELECT COUNT(*) FROM commits", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(commits, 0, "failed batch must not leave partial commits");
+
+    // Retry without injection — full collect succeeds and has no orphans.
     collect_git(&repo, &mut store, None, None, None, 5000).unwrap();
     let orphans: i64 = store
         .connection()
         .query_row(
             "SELECT COUNT(*) FROM commits c
              WHERE c.oversized = 0
-               AND NOT EXISTS (SELECT 1 FROM file_changes f WHERE f.sha = c.sha)
-               AND EXISTS (SELECT 1 FROM commit_parents p WHERE p.sha = c.sha OR 1=1)",
+               AND NOT EXISTS (SELECT 1 FROM file_changes f WHERE f.sha = c.sha)",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    // Root may have file_changes; every non-oversized commit should have ≥0 changes
-    // (root has additions). Check no commit lacks parents when it has parents in git.
-    let _ = orphans;
-    let missing_parents_for_non_root: i64 = store
-        .connection()
-        .query_row(
-            "SELECT COUNT(*) FROM commits c
-             WHERE EXISTS (
-               SELECT 1 FROM commit_parents p2 WHERE p2.parent_sha = c.sha
-             )
-             AND NOT EXISTS (SELECT 1 FROM commit_parents p WHERE p.sha = c.sha)
-             AND c.sha NOT IN (
-               SELECT sha FROM commits ORDER BY rowid LIMIT 1
-             )",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(missing_parents_for_non_root, 0);
+    assert_eq!(
+        orphans, 0,
+        "non-oversized commits must have file_changes after re-collect"
+    );
 }

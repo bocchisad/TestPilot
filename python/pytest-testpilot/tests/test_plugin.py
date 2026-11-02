@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import subprocess
 import sys
@@ -45,8 +46,9 @@ def test_skip():
         encoding="utf-8",
     )
     (root / "pytest.ini").write_text("[pytest]\npythonpath = .\n", encoding="utf-8")
+    # B10/N2: do NOT pre-ignore .testpilot/ or .coverage* — dirty filter must handle them.
     (root / ".gitignore").write_text(
-        ".pytest_cache/\n__pycache__/\n*.pyc\n.coverage*\n.testpilot/\n",
+        ".pytest_cache/\n__pycache__/\n*.pyc\n",
         encoding="utf-8",
     )
     _git_init(root)
@@ -61,14 +63,33 @@ def _git_init(root: Path) -> None:
     subprocess.run(["git", "commit", "-m", "init"], cwd=root, check=True, capture_output=True)
 
 
-def _run_pytest(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+_PLUGIN_SRC = Path(__file__).resolve().parents[1] / "src"
+
+
+def _run_pytest(
+    root: Path,
+    *args: str,
+    cov_core: str | None = "ctrace",
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    env = {k: v for k, v in os.environ.items()}
+    if cov_core is None:
+        env.pop("COVERAGE_CORE", None)
+    else:
+        env["COVERAGE_CORE"] = cov_core
+    # Ensure subprocesses see the plugin even if the editable install is flaky.
+    src = str(_PLUGIN_SRC)
+    prev = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = src if not prev else src + os.pathsep + prev
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, "-m", "pytest", *args],
         cwd=root,
         check=False,
         capture_output=True,
         text=True,
-        env={**dict(**{k: v for k, v in __import__("os").environ.items()}), "COVERAGE_CORE": "ctrace"},
+        env=env,
     )
 
 
@@ -306,7 +327,20 @@ def test_xdist_smoke(git_repo: Path) -> None:
 
 
 def test_clean_tree_not_dirty(git_repo: Path) -> None:
-    # B10: .testpilot writes must not mark dirty
+    # B10/N2: .testpilot and .coverage must not mark dirty even when not gitignored
+    (git_repo / ".testpilot").mkdir(exist_ok=True)
+    (git_repo / ".testpilot" / "db.sqlite").write_bytes(b"")
+    (git_repo / ".coverage").write_text("x", encoding="utf-8")
+    (git_repo / ".coverage.gw0").write_text("y", encoding="utf-8")
+    # Ensure they are NOT ignored via gitignore/exclude
+    gi = (git_repo / ".gitignore").read_text(encoding="utf-8")
+    assert ".testpilot" not in gi
+    assert ".coverage" not in gi
+    exclude = git_repo / ".git" / "info" / "exclude"
+    if exclude.exists():
+        assert ".testpilot" not in exclude.read_text(encoding="utf-8")
+        assert ".coverage" not in exclude.read_text(encoding="utf-8")
+
     result = _run_pytest(
         git_repo,
         "tests/test_sample.py::test_pass",
@@ -317,6 +351,33 @@ def test_clean_tree_not_dirty(git_repo: Path) -> None:
     conn = _db(git_repo)
     dirty = conn.execute("SELECT dirty FROM test_runs").fetchone()[0]
     assert dirty == 0
+
+
+def test_coveragerc_not_ignored_for_dirty(git_repo: Path) -> None:
+    # N2: .coveragerc must NOT be treated like .coverage
+    (git_repo / ".coveragerc").write_text("[run]\nbranch = False\n", encoding="utf-8")
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    conn = _db(git_repo)
+    dirty = conn.execute("SELECT dirty FROM test_runs").fetchone()[0]
+    assert dirty == 1
+
+
+def test_ignored_for_dirty_removeprefix() -> None:
+    # N2 unit: lstrip("./") would mangle ".testpilot/..." — removeprefix must not
+    from pytest_testpilot.gitinfo import _ignored_for_dirty
+
+    assert _ignored_for_dirty(".testpilot/db.sqlite")
+    assert _ignored_for_dirty("./.testpilot/db.sqlite")
+    assert _ignored_for_dirty(".coverage")
+    assert _ignored_for_dirty(".coverage.123")
+    assert not _ignored_for_dirty(".coveragerc")
+    assert not _ignored_for_dirty("pkg/foo.py")
 
 
 def test_codec_varint_overflow() -> None:
@@ -449,23 +510,11 @@ def test_paths_relative_to_git_toplevel(tmp_path: Path) -> None:
     )
     _git_init(root)
     db = root / ".testpilot" / "db.sqlite"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "tests/test_f.py",
-            "--testpilot",
-            f"--testpilot-db={db}",
-        ],
-        cwd=sub,
-        check=False,
-        capture_output=True,
-        text=True,
-        env={
-            **dict(**{k: v for k, v in __import__("os").environ.items()}),
-            "COVERAGE_CORE": "ctrace",
-        },
+    result = _run_pytest(
+        sub,
+        "tests/test_f.py",
+        "--testpilot",
+        f"--testpilot-db={db}",
     )
     assert result.returncode == 0, result.stdout + result.stderr
     conn = sqlite3.connect(db)
@@ -475,16 +524,111 @@ def test_paths_relative_to_git_toplevel(tmp_path: Path) -> None:
     assert any(p == "sub/pkg/__init__.py" or p.endswith("sub/pkg/__init__.py") for p in paths), paths
 
 
-def test_runs_without_xdist_installed(git_repo: Path) -> None:
-    # Smoke that core path works even when this process has xdist available;
-    # CI also has a dedicated job with xdist uninstalled.
-    result = _run_pytest(
-        git_repo,
-        "tests/test_sample.py::test_pass",
-        "--testpilot",
-        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+def test_b7_venv_without_xdist(tmp_path: Path, git_repo: Path) -> None:
+    # B7: plugin must load when pytest-xdist is not installed at all.
+    # Use a clean venv + PYTHONPATH (avoid pip-installing the plugin into it —
+    # that racey hatch build can leave an empty site-packages/pytest_testpilot
+    # that shadows the editable install in the parent env).
+    import venv
+
+    vdir = tmp_path / "noxdist"
+    venv.EnvBuilder(with_pip=True).create(vdir)
+    py = vdir / ("Scripts" if sys.platform == "win32" else "bin") / "python"
+    plugin_src = Path(__file__).resolve().parents[1] / "src"
+    subprocess.run(
+        [str(py), "-m", "pip", "install", "-q", "pytest", "coverage"],
+        check=True,
+        capture_output=True,
+    )
+    check = subprocess.run(
+        [
+            str(py),
+            "-c",
+            "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('xdist') is None else 1)",
+        ],
+        check=False,
+    )
+    assert check.returncode == 0, "xdist must not be installed in this venv"
+    env = {k: v for k, v in __import__("os").environ.items()}
+    env["COVERAGE_CORE"] = "ctrace"
+    env["PYTHONPATH"] = str(plugin_src) + (
+        os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
+    )
+    result = subprocess.run(
+        [
+            str(py),
+            "-m",
+            "pytest",
+            "-p",
+            "pytest_testpilot.plugin",
+            "tests/test_sample.py::test_pass",
+            "--testpilot",
+            f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        ],
+        cwd=git_repo,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "unknown hook" not in (result.stdout + result.stderr).lower()
     conn = _db(git_repo)
     assert conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0] == 1
+
+
+def test_sysmon_env_still_collects_coverage(git_repo: Path) -> None:
+    # N7: COVERAGE_CORE=sysmon must not disable collection; own ctrace Coverage.
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core="sysmon",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    conn = _db(git_repo)
+    n = conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0]
+    assert n > 0, "sysmon env must not wipe coverage; own ctrace instance required"
+
+
+def test_stale_schema_v1_is_reported(git_repo: Path) -> None:
+    # N1: opening a v1 DB must surface a clear error (and not write a run).
+    import sqlite3 as sq
+
+    db = git_repo / ".testpilot" / "db.sqlite"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sq.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+        INSERT INTO schema_version(version) VALUES (1);
+        CREATE TABLE test_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sha TEXT NOT NULL,
+          source TEXT NOT NULL,
+          started_at INTEGER NOT NULL,
+          finished_at INTEGER,
+          dirty INTEGER NOT NULL DEFAULT 0,
+          diff_hash TEXT,
+          input_hash TEXT,
+          meta TEXT
+        );
+        """
+    )
+    conn.close()
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--testpilot",
+        f"--testpilot-db={db}",
+        "--testpilot-strict",
+    )
+    combined = result.stdout + result.stderr
+    assert "schema outdated" in combined or "delete .testpilot" in combined, combined
+    assert result.returncode != 0
+    # No successful run written with new schema
+    conn2 = sq.connect(db)
+    ver = conn2.execute("SELECT version FROM schema_version").fetchone()[0]
+    assert ver == 1
+    conn2.close()

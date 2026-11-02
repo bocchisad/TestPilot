@@ -3,23 +3,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SAMPLE="$ROOT/tests/fixtures/sample_project"
 
-# Build with whatever cargo resolves (rust-toolchain.toml / CI's +1.85.0).
-# Prefer an already-built binary so local SDK mismatches on MSRV don't block e2e.
-candidates=(
-  "${CARGO_TARGET_DIR:-}/debug/testpilot"
-  "$ROOT/target/debug/testpilot"
-)
-BIN=""
-for c in "${candidates[@]}"; do
-  if [[ -n "$c" && -x "$c" ]]; then
-    BIN="$c"
-    break
-  fi
-done
-if [[ -z "$BIN" ]]; then
-  (cd "$ROOT" && cargo build -p testpilot-cli --locked)
-  BIN="${CARGO_TARGET_DIR:-$ROOT/target}/debug/testpilot"
-fi
+# Always rebuild so e2e never silently uses a stale binary.
+(cd "$ROOT" && cargo build -p testpilot-cli --locked)
+BIN="${CARGO_TARGET_DIR:-$ROOT/target}/debug/testpilot"
 if [[ ! -x "$BIN" ]]; then
   echo "testpilot binary not found at $BIN" >&2
   exit 1
@@ -36,6 +22,13 @@ git add .
 git commit -m "init"
 
 "$BIN" init
+# Confirm exclude does not special-case .coverage (N2 / e2e requirement).
+EXCLUDE="$(git rev-parse --git-path info/exclude)"
+if grep -q '^\.coverage' "$EXCLUDE" 2>/dev/null; then
+  echo "exclude must not list .coverage*; dirty filter handles it" >&2
+  exit 1
+fi
+
 if [[ -x "$ROOT/.venv/bin/python" ]]; then
   PYTHON="$ROOT/.venv/bin/python"
 elif [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then

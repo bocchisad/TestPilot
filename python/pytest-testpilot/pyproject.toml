@@ -31,8 +31,8 @@ testpilot = "pytest_testpilot.plugin"
 [tool.hatch.build.targets.wheel]
 packages = ["src/pytest_testpilot"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/pytest_testpilot" = "pytest_testpilot"
+[tool.hatch.build.targets.sdist]
+include = ["src/pytest_testpilot", "README.md", "pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

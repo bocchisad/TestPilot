@@ -5,7 +5,9 @@ pub enum Error {
     #[error("sqlite: {0}")]
     Sqlite(#[from] rusqlite::Error),
 
-    #[error("unsupported schema_version {found}; expected {expected}")]
+    #[error(
+        "schema outdated (version {found}; need {expected}): delete .testpilot and run `testpilot init`"
+    )]
     UnsupportedSchema { found: i64, expected: i64 },
 
     #[error("schema_version missing; database may be corrupt")]

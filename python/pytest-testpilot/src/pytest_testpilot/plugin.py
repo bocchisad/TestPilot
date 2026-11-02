@@ -66,6 +66,7 @@ class TestPilotPlugin:
     store: Store | None = None
     coverage: Any = None
     repo_root: Path = field(default_factory=Path.cwd)
+    repo_root_str: str = ""
     started_at: float = 0.0
     results: dict[str, list[Attempt]] = field(default_factory=lambda: defaultdict(list))
     phase_duration: dict[str, float] = field(default_factory=dict)
@@ -75,6 +76,8 @@ class TestPilotPlugin:
     coverage_disabled_reason: str | None = None
     wrote_run: bool = False
     session_failed_hard: bool = False
+    _last_cov_ctx: str | None = None
+    force_fail_exit: bool = False
 
     def _db_path(self) -> Path:
         explicit = self.config.getoption("--testpilot-db")
@@ -88,6 +91,7 @@ class TestPilotPlugin:
             self.repo_root = git_toplevel(Path(session.config.rootpath))
         except Exception:
             self.repo_root = Path(session.config.rootpath).resolve()
+        self.repo_root_str = str(self.repo_root)
         try:
             # B6: xdist controller must NOT create Coverage
             if self.worker or not self._is_xdist_controller():
@@ -107,40 +111,41 @@ class TestPilotPlugin:
     def _start_coverage(self) -> None:
         if Coverage is None:
             raise StoreError("coverage package is required for --testpilot")
-        core = os.environ.get("COVERAGE_CORE", "").lower()
-        if core == "sysmon":
-            self.coverage_disabled_reason = (
-                "COVERAGE_CORE=sysmon does not support dynamic contexts; coverage collection disabled"
-            )
-            self.coverage = None
-            return
-        os.environ["COVERAGE_CORE"] = "ctrace"
+        env_core = os.environ.get("COVERAGE_CORE", "").lower()
 
+        # Reuse an already-running Coverage (e.g. pytest-cov) unless the session
+        # asked for sysmon, which cannot do dynamic contexts — then we own ctrace.
         existing = Coverage.current()
-        if existing is not None:
+        if existing is not None and env_core != "sysmon":
             self.coverage = existing
             self.own_coverage = False
             with contextlib.suppress(Exception):
                 self.coverage.set_option("run:core", "ctrace")
             return
 
+        # N7: create our own Coverage with core=ctrace without permanently mutating
+        # COVERAGE_CORE for the rest of the session / child processes.
         self.coverage = Coverage(
             data_file=None,
-            source=[str(self.repo_root)],
+            source=[self.repo_root_str or str(self.repo_root)],
             config_file=False,
         )
-        try:
+        with contextlib.suppress(Exception):
             self.coverage.set_option("run:core", "ctrace")
             self.coverage.set_option("run:dynamic_context", None)
-            # Silence "No data was collected" under filterwarnings=error
-            if hasattr(self.coverage, "_no_warn"):
-                pass
             self.coverage._warn_no_data = False  # type: ignore[attr-defined]
-        except Exception:
-            pass
         with contextlib.suppress(Exception):
             self.coverage.disable_warnings("no-data-collected")
-        self.coverage.start()
+
+        prev = os.environ.get("COVERAGE_CORE")
+        os.environ["COVERAGE_CORE"] = "ctrace"
+        try:
+            self.coverage.start()
+        finally:
+            if prev is None:
+                os.environ.pop("COVERAGE_CORE", None)
+            else:
+                os.environ["COVERAGE_CORE"] = prev
         self.own_coverage = True
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
@@ -148,10 +153,14 @@ class TestPilotPlugin:
         # B9: reset duration at setup so only last attempt's setup+call count
         self.phase_duration[tid] = 0.0
         if self.coverage is not None:
-            try:
-                self.coverage.switch_context(item.nodeid)
-            except Exception as exc:
-                self.errors.append(f"switch_context: {exc}")
+            ctx = item.nodeid
+            # Avoid redundant switch_context when context is unchanged (perf).
+            if ctx != self._last_cov_ctx:
+                try:
+                    self.coverage.switch_context(ctx)
+                    self._last_cov_ctx = ctx
+                except Exception as exc:
+                    self.errors.append(f"switch_context: {exc}")
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_makereport(self, item: pytest.Item, call: pytest.CallInfo[Any]):
@@ -262,6 +271,11 @@ class TestPilotPlugin:
             if self.store is not None:
                 self.store.close()
                 self.store = None
+            # N1: stale schema / plugin errors — non-zero exit in strict mode
+            if (self.force_fail_exit or (
+                self.errors and self.config.getoption("--testpilot-strict")
+            )) and exitstatus == 0:
+                session.exitstatus = 1
 
     def pytest_terminal_summary(
         self, terminalreporter: Any, exitstatus: int, config: pytest.Config
@@ -391,10 +405,15 @@ class TestPilotPlugin:
                     if not ctx:
                         continue
                     by_test[ctx].append(int(lineno))
+            norm_cache: dict[str, str] = {}
             for test_id, lines in by_test.items():
+                tid = norm_cache.get(test_id)
+                if tid is None:
+                    tid = self._normalize_nodeid(test_id)
+                    norm_cache[test_id] = tid
                 rows.append(
                     {
-                        "test_id": self._normalize_nodeid(test_id),
+                        "test_id": tid,
                         "path": rel,
                         "lines": encode_lines(lines),
                     }
@@ -448,19 +467,28 @@ class TestPilotPlugin:
         return out
 
     def _test_id(self, item: pytest.Item) -> str:
+        # Cache on the item — called from setup + every makereport phase (perf).
+        cached = getattr(item, "_testpilot_tid", None)
+        if cached is not None:
+            return cached
         path = getattr(item, "path", None) or getattr(item, "fspath", None)
         if path is not None:
-            p = Path(str(path)).resolve()
+            p = Path(str(path))
+            if not p.is_absolute():
+                p = (Path(self.config.rootpath) / p).resolve()
             try:
                 rel = p.relative_to(self.repo_root).as_posix()
             except ValueError:
-                rel = Path(str(path)).as_posix()
+                try:
+                    rel = p.resolve().relative_to(self.repo_root).as_posix()
+                except ValueError:
+                    rel = p.as_posix()
             node = item.nodeid
-            if "::" in node:
-                _, rest = node.split("::", 1)
-                return f"{rel}::{rest}"
-            return rel
-        return self._normalize_nodeid(item.nodeid)
+            tid = f"{rel}::{node.split('::', 1)[1]}" if "::" in node else rel
+        else:
+            tid = self._normalize_nodeid(item.nodeid)
+        item._testpilot_tid = tid  # type: ignore[attr-defined]
+        return tid
 
     def _normalize_nodeid(self, nodeid: str) -> str:
         if "::" not in nodeid:
@@ -469,9 +497,12 @@ class TestPilotPlugin:
         p = Path(path_part)
         if p.is_absolute():
             try:
-                path_part = p.resolve().relative_to(self.repo_root).as_posix()
+                path_part = p.relative_to(self.repo_root).as_posix()
             except ValueError:
-                path_part = p.as_posix()
+                try:
+                    path_part = p.resolve().relative_to(self.repo_root).as_posix()
+                except ValueError:
+                    path_part = p.as_posix()
         else:
             path_part = path_part.replace("\\", "/")
             # relative to rootpath — rebase onto git toplevel
@@ -483,8 +514,10 @@ class TestPilotPlugin:
         return f"{path_part}::{rest}"
 
     def _handle_error(self, exc: BaseException) -> None:
-        msg = f"{type(exc).__name__}: {exc}"
+        msg = str(exc) if isinstance(exc, StoreError) else f"{type(exc).__name__}: {exc}"
         self.errors.append(msg)
+        if "schema outdated" in msg or "delete .testpilot" in msg:
+            self.force_fail_exit = True
         if self.config.getoption("--testpilot-strict"):
-            raise RuntimeError(msg) from exc
-        # B6: never warnings.warn — accumulate for terminal summary
+            self.force_fail_exit = True
+            # Defer non-zero exit to sessionfinish so terminal summary still prints.
