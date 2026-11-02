@@ -3,9 +3,8 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn bin() -> std::path::PathBuf {
-    std::env::var_os("CARGO_BIN_EXE_testpilot")
-        .map(std::path::PathBuf::from)
-        .expect("CARGO_BIN_EXE_testpilot")
+    // Compile-time path injected by cargo for integration tests.
+    std::path::PathBuf::from(env!("CARGO_BIN_EXE_testpilot"))
 }
 
 fn git(cwd: &std::path::Path, args: &[&str]) {
