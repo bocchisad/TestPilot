@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -123,7 +124,11 @@ class TestPilotPlugin:
         return bool(getattr(self.config.option, "cov_source", None))
 
     def _sysmon_blocks_contexts(self) -> bool:
-        return os.environ.get("COVERAGE_CORE", "").lower() == "sysmon"
+        # On 3.10 coverage falls back from sysmon and still supports contexts.
+        return (
+            os.environ.get("COVERAGE_CORE", "").lower() == "sysmon"
+            and hasattr(sys, "monitoring")
+        )
 
     def _skip_coverage_collection(self, reason: str) -> None:
         """Stop collecting/switching contexts; leave any pytest-cov tracer alone."""
@@ -487,8 +492,12 @@ class TestPilotPlugin:
         name = type(core).__name__.lower() if core is not None else ""
         if "sysmon" in name or "sysmonitor" in name:
             return False
-        # Env may force sysmon even when _core attribute shape differs.
-        return not (os.environ.get("COVERAGE_CORE", "").lower() == "sysmon" and not self.own_coverage)
+        # Env may force sysmon when the core is actually SysMonitor.
+        return not (
+            os.environ.get("COVERAGE_CORE", "").lower() == "sysmon"
+            and not self.own_coverage
+            and hasattr(sys, "monitoring")
+        )
 
     def _collect_coverage_rows(self) -> list[dict[str, Any]]:
         if self.coverage is None:

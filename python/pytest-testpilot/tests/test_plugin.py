@@ -749,6 +749,8 @@ def test_no_cov_overrides_addopts_cov_still_collects(git_repo: Path) -> None:
 
 def test_sysmon_cov_skip_does_not_warn_under_filterwarnings_error(git_repo: Path) -> None:
     # R4-2: skipped collection must not call switch_context (CoverageWarning → error).
+    if not hasattr(sys, "monitoring"):
+        pytest.skip("COVERAGE_CORE=sysmon needs Python 3.12+ sys.monitoring")
     (git_repo / "pytest.ini").write_text(
         "[pytest]\npythonpath = .\nfilterwarnings =\n    error\n",
         encoding="utf-8",
@@ -770,6 +772,8 @@ def test_sysmon_cov_skip_does_not_warn_under_filterwarnings_error(git_repo: Path
 
 def test_sysmon_xdist_cov_surfaces_skip_warning(git_repo: Path) -> None:
     # R4-4: workers skip under sysmon+cov; controller must print one warning.
+    if not hasattr(sys, "monitoring"):
+        pytest.skip("COVERAGE_CORE=sysmon needs Python 3.12+ sys.monitoring")
     pytest.importorskip("xdist")
     result = _run_pytest(
         git_repo,
