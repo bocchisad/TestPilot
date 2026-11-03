@@ -524,40 +524,47 @@ def test_paths_relative_to_git_toplevel(tmp_path: Path) -> None:
     assert any(p == "sub/pkg/__init__.py" or p.endswith("sub/pkg/__init__.py") for p in paths), paths
 
 
+def _require_or_skip_noxdist(msg: str) -> None:
+    # R4-3: CI sets TESTPILOT_REQUIRE_NO_XDIST=1 so a silent skip cannot greenwash.
+    if os.environ.get("TESTPILOT_REQUIRE_NO_XDIST") == "1":
+        pytest.fail(msg)
+    pytest.skip(msg)
+
+
 def test_b7_venv_without_xdist(tmp_path: Path, git_repo: Path) -> None:
-    # B7 / NEW-5: plugin loads when pytest-xdist is absent.
-    # symlinks=True avoids 3.10 copy-interpreter failures; install pytest/coverage
-    # from local wheels (--no-index), skip if wheels cannot be built offline.
+    # B7 / NEW-5 / R4-3: plugin loads when pytest-xdist is absent.
+    # Prefer a pre-built wheelhouse (TESTPILOT_WHEELHOUSE from CI `pip download`);
+    # otherwise try a local download. Never hit PyPI during the venv install itself.
     import venv
 
-    wheelhouse = tmp_path / "wheels"
-    wheelhouse.mkdir()
-    # Include runtime deps so --no-index install does not need PyPI.
-    to_wheel = [
-        "pytest",
-        "coverage",
-        "pluggy",
-        "iniconfig",
-        "packaging",
-        "pygments",
-    ]
-    built = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "-w",
-            str(wheelhouse),
-            *to_wheel,
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if built.returncode != 0 or not list(wheelhouse.glob("*.whl")):
-        pytest.skip(f"cannot build local wheels offline: {built.stderr[-400:]}")
+    preset = os.environ.get("TESTPILOT_WHEELHOUSE")
+    if preset:
+        wheelhouse = Path(preset)
+        if not wheelhouse.is_dir() or not list(wheelhouse.glob("*.whl")):
+            _require_or_skip_noxdist(f"TESTPILOT_WHEELHOUSE empty: {wheelhouse}")
+    else:
+        wheelhouse = tmp_path / "wheels"
+        wheelhouse.mkdir()
+        # Transitive deps (exceptiongroup/tomli on 3.10) come along without --no-deps.
+        downloaded = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "-d",
+                str(wheelhouse),
+                "pytest",
+                "coverage",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if downloaded.returncode != 0 or not list(wheelhouse.glob("*.whl")):
+            _require_or_skip_noxdist(
+                f"cannot download wheels for no-xdist venv: {downloaded.stderr[-400:]}"
+            )
 
     vdir = tmp_path / "noxdist"
     venv.EnvBuilder(with_pip=True, symlinks=True).create(vdir)
@@ -580,7 +587,7 @@ def test_b7_venv_without_xdist(tmp_path: Path, git_repo: Path) -> None:
         text=True,
     )
     if installed.returncode != 0:
-        pytest.skip(f"offline wheel install failed: {installed.stderr[-400:]}")
+        _require_or_skip_noxdist(f"offline wheel install failed: {installed.stderr[-400:]}")
     check = subprocess.run(
         [
             str(py),
@@ -719,6 +726,68 @@ def test_xdist_with_pytest_cov_writes_coverage_rows(git_repo: Path) -> None:
     assert conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0] == 1
     n = conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0]
     assert n > 0, result.stdout + result.stderr
+
+
+def test_no_cov_overrides_addopts_cov_still_collects(git_repo: Path) -> None:
+    # R4-1: IDE debug often adds --no-cov on top of addopts=--cov.
+    (git_repo / "pytest.ini").write_text(
+        "[pytest]\npythonpath = .\naddopts = --cov=pkg\n",
+        encoding="utf-8",
+    )
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--no-cov",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    conn = _db(git_repo)
+    n = conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0]
+    assert n > 0, result.stdout + result.stderr
+
+
+def test_sysmon_cov_skip_does_not_warn_under_filterwarnings_error(git_repo: Path) -> None:
+    # R4-2: skipped collection must not call switch_context (CoverageWarning → error).
+    (git_repo / "pytest.ini").write_text(
+        "[pytest]\npythonpath = .\nfilterwarnings =\n    error\n",
+        encoding="utf-8",
+    )
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--cov=pkg",
+        "--cov-report=",
+        "--testpilot",
+        "--testpilot-strict",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core="sysmon",
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "coverage collection skipped" in combined, combined
+
+
+def test_sysmon_xdist_cov_surfaces_skip_warning(git_repo: Path) -> None:
+    # R4-4: workers skip under sysmon+cov; controller must print one warning.
+    pytest.importorskip("xdist")
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "-n",
+        "2",
+        "--cov=pkg",
+        "--cov-report=",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core="sysmon",
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert combined.count("coverage collection skipped") == 1, combined
+    conn = _db(git_repo)
+    assert conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0] == 0
 
 
 def test_stale_schema_v1_is_reported(git_repo: Path) -> None:

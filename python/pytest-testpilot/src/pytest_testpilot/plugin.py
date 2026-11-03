@@ -40,7 +40,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--testpilot-strict",
         action="store_true",
         default=False,
-        help="Fail the session if TestPilot collection errors",
+        help="Make TestPilot errors fail the session (non-zero exit after the summary)",
     )
 
 
@@ -116,48 +116,37 @@ class TestPilotPlugin:
         return bool(numproc)
 
     def _pytest_cov_active(self) -> bool:
-        # Only when the user actually passed --cov* — not merely because pytest-cov
-        # is installed. Note: cov_source defaults to [] (truthy-check, not `is not None`).
-        cov_source = getattr(self.config.option, "cov_source", None)
-        if cov_source:
-            return True
-        no_cov = getattr(self.config.option, "no_cov", False)
-        if no_cov:
+        # --no-cov wins over addopts=--cov (common IDE debug pattern). Decide from
+        # config.option only — cov_source defaults to [] when --cov was not used.
+        if getattr(self.config.option, "no_cov", False):
             return False
-        args = [
-            str(a)
-            for a in (
-                getattr(getattr(self.config, "invocation_params", None), "args", None) or []
-            )
-        ]
-        return any(a == "--cov" or a.startswith("--cov=") for a in args)
+        return bool(getattr(self.config.option, "cov_source", None))
+
+    def _sysmon_blocks_contexts(self) -> bool:
+        return os.environ.get("COVERAGE_CORE", "").lower() == "sysmon"
+
+    def _skip_coverage_collection(self, reason: str) -> None:
+        """Stop collecting/switching contexts; leave any pytest-cov tracer alone."""
+        if self.coverage_disabled_reason is None:
+            self.coverage_disabled_reason = reason
+        self.coverage = None
+        self.own_coverage = False
+        self._await_pytest_cov = False
 
     def _coverage_from_pytest_cov(self) -> Any | None:
         """Fall back to pytest-cov's CovController.cov when Coverage.current() is unset."""
         pm = self.config.pluginmanager
-        for name in ("pytest_cov", "_cov", "cov"):
-            plugin = pm.get_plugin(name)
-            if plugin is None:
-                continue
-            controller = getattr(plugin, "cov_controller", None)
-            if controller is None:
-                continue
-            cov = getattr(controller, "cov", None)
-            if cov is not None:
-                return cov
-        # Some pytest-cov versions store the plugin under a generated name.
-        for plugin in pm._name2plugin.values():
-            controller = getattr(plugin, "cov_controller", None)
-            if controller is None:
-                continue
-            cov = getattr(controller, "cov", None)
-            if cov is not None:
-                return cov
-        return None
+        if not pm.hasplugin("_cov"):
+            return None
+        plugin = pm.get_plugin("_cov")
+        controller = getattr(plugin, "cov_controller", None)
+        if controller is None:
+            return None
+        return getattr(controller, "cov", None)
 
     def _reuse_existing_coverage(self) -> bool:
-        """Attach to an already-running Coverage. Never start a second tracer."""
-        if Coverage is None:
+        """Attach to pytest-cov's Coverage. Never start a second tracer."""
+        if Coverage is None or self.coverage_disabled_reason:
             return False
         existing = Coverage.current()
         if existing is None:
@@ -167,6 +156,12 @@ class TestPilotPlugin:
         self.coverage = existing
         self.own_coverage = False
         self._await_pytest_cov = False
+        # R4-2: sysmon cannot record dynamic contexts — detach so we never switch_context.
+        if not self._coverage_supports_contexts():
+            self._skip_coverage_collection(
+                "coverage core=sysmon does not support dynamic contexts; "
+                "testpilot coverage collection skipped (pytest-cov report left intact)"
+            )
         return True
 
     def _start_own_ctrace(self) -> None:
@@ -200,39 +195,45 @@ class TestPilotPlugin:
         if Coverage is None:
             raise StoreError("coverage package is required for --testpilot")
 
-        # NEW-1: if any Coverage is already running (pytest-cov), always reuse it.
-        # Starting a second tracer pauses the first and zeroes pytest-cov totals.
-        if self._reuse_existing_coverage():
-            return
-
+        # R4-1: when pytest-cov is disabled (--no-cov), collect with our own tracer.
         if self._pytest_cov_active():
-            # pytest-cov will start shortly — wait; never create a rival tracer.
+            # NEW-1: never start a second tracer under pytest-cov.
+            # R4-2: under sysmon, skip early — do not attach or switch_context.
+            if self._sysmon_blocks_contexts():
+                self._skip_coverage_collection(
+                    "coverage core=sysmon does not support dynamic contexts; "
+                    "testpilot coverage collection skipped (pytest-cov report left intact)"
+                )
+                return
+            if self._reuse_existing_coverage():
+                return
             self._await_pytest_cov = True
             return
 
         self._start_own_ctrace()
 
     def _ensure_coverage_attached(self) -> None:
-        if self.coverage is not None:
+        if self.coverage_disabled_reason or self.coverage is not None:
             return
         if self._reuse_existing_coverage():
             return
         if self._await_pytest_cov:
-            self.coverage_disabled_reason = (
+            self._skip_coverage_collection(
                 "pytest-cov is enabled but no Coverage instance was available; "
                 "testpilot coverage collection skipped"
             )
-            self._await_pytest_cov = False
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
-        self._ensure_coverage_attached()
-        # Always prefer the live Coverage.current() / pytest-cov controller instance.
-        if self._pytest_cov_active():
-            self._reuse_existing_coverage()
+        if not self.coverage_disabled_reason:
+            self._ensure_coverage_attached()
+            # Prefer the live pytest-cov instance if it started after sessionstart.
+            if self._pytest_cov_active():
+                self._reuse_existing_coverage()
         tid = self._test_id(item)
         # B9: reset duration at setup so only last attempt's setup+call count
         self.phase_duration[tid] = 0.0
-        if self.coverage is not None:
+        # R4-2: never switch_context when collection was skipped (avoids sysmon warnings).
+        if self.coverage is not None and not self.coverage_disabled_reason:
             ctx = item.nodeid
             # Avoid redundant switch_context when context is unchanged (perf).
             if ctx != self._last_cov_ctx:
@@ -318,10 +319,11 @@ class TestPilotPlugin:
             self.session_failed_hard = True
             raise
         try:
-            self._ensure_coverage_attached()
-            # Re-bind in case pytest-cov replaced the instance after sessionstart.
-            if self._pytest_cov_active():
-                self._reuse_existing_coverage()
+            if not self.coverage_disabled_reason:
+                self._ensure_coverage_attached()
+                # Re-bind in case pytest-cov replaced the instance after sessionstart.
+                if self._pytest_cov_active():
+                    self._reuse_existing_coverage()
             if self.worker or not self._is_xdist_controller():
                 self._coverage_snapshot = self._collect_coverage_rows()
         except Exception as exc:
@@ -388,6 +390,8 @@ class TestPilotPlugin:
                 }
                 for c in coverage_rows
             ],
+            # R4-4: controller surfaces a single skip warning from workers.
+            "coverage_disabled_reason": self.coverage_disabled_reason,
         }
         workeroutput = getattr(self.config, "workeroutput", None)
         if workeroutput is not None:
@@ -407,6 +411,9 @@ class TestPilotPlugin:
 
         for payload in self.worker_payloads:
             results.extend(payload.get("results", []))
+            reason = payload.get("coverage_disabled_reason")
+            if reason and self.coverage_disabled_reason is None:
+                self.coverage_disabled_reason = reason
             for c in payload.get("coverage", []):
                 blob = bytes.fromhex(c["lines_hex"])
                 coverage_rows.append(
@@ -421,6 +428,9 @@ class TestPilotPlugin:
                         continue
                     payload = json.loads(line)
                     results.extend(payload.get("results", []))
+                    reason = payload.get("coverage_disabled_reason")
+                    if reason and self.coverage_disabled_reason is None:
+                        self.coverage_disabled_reason = reason
                     for c in payload.get("coverage", []):
                         coverage_rows.append(
                             {

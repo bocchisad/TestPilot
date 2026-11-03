@@ -35,17 +35,28 @@ jobs:
           cache-dependency-path: python/pytest-testpilot/pyproject.toml
       - name: Install plugin
         run: pip install -e 'python/pytest-testpilot[dev]'
+      - name: Offline wheelhouse for no-xdist venv test
+        run: |
+          mkdir -p /tmp/tp-wheels
+          pip download -d /tmp/tp-wheels pytest coverage
       - run: ruff check python/pytest-testpilot
-      - run: pytest python/pytest-testpilot -q
+      - name: Pytest
+        env:
+          TESTPILOT_WHEELHOUSE: /tmp/tp-wheels
+          TESTPILOT_REQUIRE_NO_XDIST: "1"
+        run: pytest python/pytest-testpilot -q
       - run: python scripts/sync_schema.py --check
 
   python-no-xdist:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: python/pytest-testpilot/pyproject.toml
       - name: Install without xdist
@@ -53,9 +64,16 @@ jobs:
           pip install -e 'python/pytest-testpilot'
           pip install pytest-cov pytest-rerunfailures ruff
           python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') is None else 1)"
+      - name: Offline wheelhouse for no-xdist venv test
+        run: |
+          mkdir -p /tmp/tp-wheels
+          pip download -d /tmp/tp-wheels pytest coverage
       - run: ruff check python/pytest-testpilot
       - name: Pytest without xdist installed
         # Do not filter with -k; xdist tests use importorskip / dedicated venv.
+        env:
+          TESTPILOT_WHEELHOUSE: /tmp/tp-wheels
+          TESTPILOT_REQUIRE_NO_XDIST: "1"
         run: pytest python/pytest-testpilot -q
 
   python-wheel:
