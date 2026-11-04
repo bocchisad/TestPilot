@@ -5,12 +5,24 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
 class StoreError(RuntimeError):
     pass
+
+
+def schema_version_message(found: int, expected: int = SCHEMA_VERSION) -> str:
+    if found < expected:
+        return (
+            f"schema outdated (version {found}; need {expected}): "
+            "delete .testpilot and run `testpilot init`"
+        )
+    return (
+        f"schema too new (version {found}; this build supports {expected}): "
+        "upgrade testpilot"
+    )
 
 
 class Store:
@@ -28,8 +40,19 @@ class Store:
         self.conn.execute("PRAGMA busy_timeout=5000")
 
     def migrate(self) -> None:
+        # N1: validate existing version before applying DDL so a v1 DB does not
+        # die with "no such column: test_pk" while creating new indexes.
+        try:
+            row = self.conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        except sqlite3.Error:
+            row = None
+        if row is not None:
+            found = int(row[0])
+            if found == SCHEMA_VERSION:
+                return
+            raise StoreError(schema_version_message(found))
+
         schema = SCHEMA_PATH.read_text(encoding="utf-8")
-        # Apply DDL statements individually inside one transaction (executescript auto-commits).
         statements = [s.strip() for s in schema.split(";") if s.strip()]
         try:
             self.conn.execute("BEGIN IMMEDIATE")
@@ -41,9 +64,7 @@ class Store:
                     "INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,)
                 )
             elif int(row[0]) != SCHEMA_VERSION:
-                raise StoreError(
-                    f"unsupported schema_version {row[0]}; expected {SCHEMA_VERSION}"
-                )
+                raise StoreError(schema_version_message(int(row[0])))
             self.conn.execute("COMMIT")
         except Exception:
             with contextlib.suppress(sqlite3.Error):

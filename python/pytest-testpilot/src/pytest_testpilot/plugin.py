@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -40,7 +41,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--testpilot-strict",
         action="store_true",
         default=False,
-        help="Fail the session if TestPilot collection errors",
+        help="Make TestPilot errors fail the session (non-zero exit after the summary)",
     )
 
 
@@ -66,6 +67,7 @@ class TestPilotPlugin:
     store: Store | None = None
     coverage: Any = None
     repo_root: Path = field(default_factory=Path.cwd)
+    repo_root_str: str = ""
     started_at: float = 0.0
     results: dict[str, list[Attempt]] = field(default_factory=lambda: defaultdict(list))
     phase_duration: dict[str, float] = field(default_factory=dict)
@@ -75,6 +77,11 @@ class TestPilotPlugin:
     coverage_disabled_reason: str | None = None
     wrote_run: bool = False
     session_failed_hard: bool = False
+    _last_cov_ctx: str | None = None
+    force_fail_exit: bool = False
+    _await_pytest_cov: bool = False
+    _store_open_failed: bool = False
+    _nodeid_norm_cache: dict[str, str] = field(default_factory=dict)
 
     def _db_path(self) -> Path:
         explicit = self.config.getoption("--testpilot-db")
@@ -88,12 +95,17 @@ class TestPilotPlugin:
             self.repo_root = git_toplevel(Path(session.config.rootpath))
         except Exception:
             self.repo_root = Path(session.config.rootpath).resolve()
+        self.repo_root_str = str(self.repo_root)
         try:
             # B6: xdist controller must NOT create Coverage
             if self.worker or not self._is_xdist_controller():
                 self._start_coverage()
             if not self.worker:
-                self.store = Store(self._db_path())
+                try:
+                    self.store = Store(self._db_path())
+                except Exception as exc:
+                    self._store_open_failed = True
+                    raise exc
         except Exception as exc:
             self._handle_error(exc)
 
@@ -104,54 +116,125 @@ class TestPilotPlugin:
         numproc = getattr(self.config.option, "numprocesses", None)
         return bool(numproc)
 
+    def _pytest_cov_active(self) -> bool:
+        # --no-cov wins over addopts=--cov (common IDE debug pattern). Decide from
+        # config.option only — cov_source defaults to [] when --cov was not used.
+        if getattr(self.config.option, "no_cov", False):
+            return False
+        return bool(getattr(self.config.option, "cov_source", None))
+
+    def _skip_coverage_collection(self, reason: str) -> None:
+        """Stop collecting/switching contexts; leave any pytest-cov tracer alone."""
+        if self.coverage_disabled_reason is None:
+            self.coverage_disabled_reason = reason
+        self.coverage = None
+        self.own_coverage = False
+        self._await_pytest_cov = False
+
+    def _coverage_from_pytest_cov(self) -> Any | None:
+        """Fall back to pytest-cov's CovController.cov when Coverage.current() is unset."""
+        pm = self.config.pluginmanager
+        if not pm.hasplugin("_cov"):
+            return None
+        plugin = pm.get_plugin("_cov")
+        controller = getattr(plugin, "cov_controller", None)
+        if controller is None:
+            return None
+        return getattr(controller, "cov", None)
+
+    def _reuse_existing_coverage(self) -> bool:
+        """Attach to pytest-cov's Coverage. Never start a second tracer."""
+        if Coverage is None or self.coverage_disabled_reason:
+            return False
+        existing = Coverage.current()
+        if existing is None:
+            existing = self._coverage_from_pytest_cov()
+        if existing is None:
+            return False
+        self.coverage = existing
+        self.own_coverage = False
+        self._await_pytest_cov = False
+        # R4-2: sysmon cannot record dynamic contexts — detach so we never switch_context.
+        if not self._coverage_supports_contexts():
+            self._skip_coverage_collection(
+                "coverage core=sysmon does not support dynamic contexts; "
+                "testpilot coverage collection skipped (pytest-cov report left intact)"
+            )
+        return True
+
+    def _start_own_ctrace(self) -> None:
+        # N7: own Coverage with core=ctrace; restore COVERAGE_CORE afterwards so
+        # the rest of the session / child processes keep the caller's value.
+        assert Coverage is not None
+        self.coverage = Coverage(
+            data_file=None,
+            source=[self.repo_root_str or str(self.repo_root)],
+            config_file=False,
+        )
+        with contextlib.suppress(Exception):
+            self.coverage.set_option("run:core", "ctrace")
+            self.coverage.set_option("run:dynamic_context", None)
+            self.coverage._warn_no_data = False  # type: ignore[attr-defined]
+        with contextlib.suppress(Exception):
+            self.coverage.disable_warnings("no-data-collected")
+
+        prev = os.environ.get("COVERAGE_CORE")
+        os.environ["COVERAGE_CORE"] = "ctrace"
+        try:
+            self.coverage.start()
+        finally:
+            if prev is None:
+                os.environ.pop("COVERAGE_CORE", None)
+            else:
+                os.environ["COVERAGE_CORE"] = prev
+        self.own_coverage = True
+
     def _start_coverage(self) -> None:
         if Coverage is None:
             raise StoreError("coverage package is required for --testpilot")
-        core = os.environ.get("COVERAGE_CORE", "").lower()
-        if core == "sysmon":
-            self.coverage_disabled_reason = (
-                "COVERAGE_CORE=sysmon does not support dynamic contexts; coverage collection disabled"
+
+        # R4-1: when pytest-cov is disabled (--no-cov), collect with our own tracer.
+        if self._pytest_cov_active():
+            # NEW-1: never start a second tracer under pytest-cov.
+            # R4-6: whether contexts work is decided after attach via
+            # cov._core.supports_dynamic_contexts (not COVERAGE_CORE env alone).
+            if self._reuse_existing_coverage():
+                return
+            self._await_pytest_cov = True
+            return
+
+        self._start_own_ctrace()
+
+    def _ensure_coverage_attached(self) -> None:
+        if self.coverage_disabled_reason or self.coverage is not None:
+            return
+        if self._reuse_existing_coverage():
+            return
+        if self._await_pytest_cov:
+            self._skip_coverage_collection(
+                "pytest-cov is enabled but no Coverage instance was available; "
+                "testpilot coverage collection skipped"
             )
-            self.coverage = None
-            return
-        os.environ["COVERAGE_CORE"] = "ctrace"
-
-        existing = Coverage.current()
-        if existing is not None:
-            self.coverage = existing
-            self.own_coverage = False
-            with contextlib.suppress(Exception):
-                self.coverage.set_option("run:core", "ctrace")
-            return
-
-        self.coverage = Coverage(
-            data_file=None,
-            source=[str(self.repo_root)],
-            config_file=False,
-        )
-        try:
-            self.coverage.set_option("run:core", "ctrace")
-            self.coverage.set_option("run:dynamic_context", None)
-            # Silence "No data was collected" under filterwarnings=error
-            if hasattr(self.coverage, "_no_warn"):
-                pass
-            self.coverage._warn_no_data = False  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        with contextlib.suppress(Exception):
-            self.coverage.disable_warnings("no-data-collected")
-        self.coverage.start()
-        self.own_coverage = True
 
     def pytest_runtest_setup(self, item: pytest.Item) -> None:
+        if not self.coverage_disabled_reason:
+            self._ensure_coverage_attached()
+            # Prefer the live pytest-cov instance if it started after sessionstart.
+            if self._pytest_cov_active():
+                self._reuse_existing_coverage()
         tid = self._test_id(item)
         # B9: reset duration at setup so only last attempt's setup+call count
         self.phase_duration[tid] = 0.0
-        if self.coverage is not None:
-            try:
-                self.coverage.switch_context(item.nodeid)
-            except Exception as exc:
-                self.errors.append(f"switch_context: {exc}")
+        # R4-2: never switch_context when collection was skipped (avoids sysmon warnings).
+        if self.coverage is not None and not self.coverage_disabled_reason:
+            ctx = item.nodeid
+            # Avoid redundant switch_context when context is unchanged (perf).
+            if ctx != self._last_cov_ctx:
+                try:
+                    self.coverage.switch_context(ctx)
+                    self._last_cov_ctx = ctx
+                except Exception as exc:
+                    self.errors.append(f"switch_context: {exc}")
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_makereport(self, item: pytest.Item, call: pytest.CallInfo[Any]):
@@ -217,18 +300,33 @@ class TestPilotPlugin:
                     )
                 )
 
-    @pytest.hookimpl(hookwrapper=True, trylast=True)
+    @pytest.hookimpl(wrapper=True, trylast=True)
     def pytest_runtestloop(self, session: pytest.Session):
-        # B5: read coverage after the loop (after pytest-cov combines), before sessionfinish.
-        outcome = yield
+        # xdist controller never collects coverage — do not attach to DistMaster's
+        # Coverage here or the controller would invent coverage_disabled_reason
+        # without workeroutput (R4-7).
+        collect_here = self.worker or not self._is_xdist_controller()
+        if collect_here and not self.coverage_disabled_reason:
+            self._ensure_coverage_attached()
+        # B5 / NEW-2: trylast wrapper so our after-section runs BEFORE pytest-cov's
+        # (default-order) finish(), which stop()+save()s the worker data.
         try:
-            if outcome.excinfo is not None:
-                self.session_failed_hard = True
-            if self.worker or not self._is_xdist_controller():
+            result = yield
+        except BaseException:
+            self.session_failed_hard = True
+            raise
+        try:
+            if collect_here:
+                if not self.coverage_disabled_reason:
+                    self._ensure_coverage_attached()
+                    # Re-bind in case pytest-cov replaced the instance after sessionstart.
+                    if self._pytest_cov_active():
+                        self._reuse_existing_coverage()
                 self._coverage_snapshot = self._collect_coverage_rows()
         except Exception as exc:
             self._handle_error(exc)
             self._coverage_snapshot = []
+        return result
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node: Any, error: Any | None) -> None:
@@ -262,6 +360,11 @@ class TestPilotPlugin:
             if self.store is not None:
                 self.store.close()
                 self.store = None
+            # N1: stale schema / plugin errors — non-zero exit in strict mode
+            if (self.force_fail_exit or (
+                self.errors and self.config.getoption("--testpilot-strict")
+            )) and exitstatus == 0:
+                session.exitstatus = 1
 
     def pytest_terminal_summary(
         self, terminalreporter: Any, exitstatus: int, config: pytest.Config
@@ -284,6 +387,8 @@ class TestPilotPlugin:
                 }
                 for c in coverage_rows
             ],
+            # R4-4: controller surfaces a single skip warning from workers.
+            "coverage_disabled_reason": self.coverage_disabled_reason,
         }
         workeroutput = getattr(self.config, "workeroutput", None)
         if workeroutput is not None:
@@ -301,8 +406,12 @@ class TestPilotPlugin:
         results = self._collapse_results()
         coverage_rows = list(getattr(self, "_coverage_snapshot", None) or [])
 
+        reasons_from_workers: list[str] = []
         for payload in self.worker_payloads:
             results.extend(payload.get("results", []))
+            reason = payload.get("coverage_disabled_reason")
+            if reason:
+                reasons_from_workers.append(reason)
             for c in payload.get("coverage", []):
                 blob = bytes.fromhex(c["lines_hex"])
                 coverage_rows.append(
@@ -317,6 +426,9 @@ class TestPilotPlugin:
                         continue
                     payload = json.loads(line)
                     results.extend(payload.get("results", []))
+                    reason = payload.get("coverage_disabled_reason")
+                    if reason:
+                        reasons_from_workers.append(reason)
                     for c in payload.get("coverage", []):
                         coverage_rows.append(
                             {
@@ -327,14 +439,30 @@ class TestPilotPlugin:
                         )
                 path.unlink(missing_ok=True)
 
+        # R4-5: idle workers may report a skip reason; only warn if nobody wrote rows.
+        # Clearing self.coverage_disabled_reason when rows exist is intentional: the
+        # xdist controller does not collect coverage itself, so any reason already on
+        # self would be stale/wrong next to real worker rows (prefer the data).
+        if coverage_rows:
+            self.coverage_disabled_reason = None
+        elif self.coverage_disabled_reason is None and reasons_from_workers:
+            self.coverage_disabled_reason = reasons_from_workers[0]
+
         results = self._collapse_result_dicts(results)
         if not results and exitstatus == 2:
             # INTERNALERROR with nothing collected
             return
+        if self._store_open_failed:
+            return
 
         info = collect_gitinfo(self.repo_root)
         if self.store is None:
-            self.store = Store(self._db_path())
+            try:
+                self.store = Store(self._db_path())
+            except Exception as exc:
+                self._store_open_failed = True
+                self._handle_error(exc)
+                return
         finished = int(time.time())
         run_id = self.store.insert_run(
             sha=info.sha,
@@ -357,8 +485,35 @@ class TestPilotPlugin:
             f"session={session_s:.2f}s collect={collect_ms:.0f}ms"
         )
 
+    def _coverage_supports_contexts(self) -> bool:
+        """Whether the attached Coverage can record dynamic contexts.
+
+        R4-6: prefer ``cov._core.supports_dynamic_contexts`` (sysmon sets this
+        False). ``type(cov._core).__name__`` is always ``Core`` in coverage 7.x
+        and must not be used. Fall back to COVERAGE_CORE env when the attribute
+        is missing (older coverage).
+        """
+        cov = self.coverage
+        if cov is None:
+            return False
+        core = getattr(cov, "_core", None)
+        if core is not None and hasattr(core, "supports_dynamic_contexts"):
+            return bool(core.supports_dynamic_contexts)
+        return not (
+            os.environ.get("COVERAGE_CORE", "").lower() == "sysmon"
+            and not self.own_coverage
+            and hasattr(sys, "monitoring")
+        )
+
     def _collect_coverage_rows(self) -> list[dict[str, Any]]:
         if self.coverage is None:
+            return []
+        if not self._coverage_supports_contexts():
+            if self.coverage_disabled_reason is None:
+                self.coverage_disabled_reason = (
+                    "coverage core=sysmon does not support dynamic contexts; "
+                    "testpilot coverage collection skipped (pytest-cov report left intact)"
+                )
             return []
         if self.own_coverage:
             try:
@@ -367,11 +522,20 @@ class TestPilotPlugin:
                 self.errors.append(f"coverage.stop: {exc}")
             self.own_coverage = False
         try:
+            # Flush tracer into CoverageData while still running (reuse path).
+            with contextlib.suppress(Exception):
+                collector = getattr(self.coverage, "_collector", None) or getattr(
+                    self.coverage, "collector", None
+                )
+                if collector is not None and hasattr(collector, "flush_data"):
+                    collector.flush_data()
             data = self.coverage.get_data()
         except Exception as exc:
             self.errors.append(f"coverage.get_data: {exc}")
             return []
         rows: list[dict[str, Any]] = []
+        saw_lines = False
+        saw_contexts = False
         for abs_path in data.measured_files():
             # Skip zip members
             if ".zip/" in abs_path.replace("\\", "/") or abs_path.lower().endswith(".zip"):
@@ -387,18 +551,38 @@ class TestPilotPlugin:
                 continue
             by_test: dict[str, list[int]] = defaultdict(list)
             for lineno, contexts in contexts_map.items():
+                saw_lines = True
                 for ctx in contexts:
                     if not ctx:
                         continue
-                    by_test[ctx].append(int(lineno))
+                    saw_contexts = True
+                    # pytest-cov --cov-context=test uses "nodeid|when" — keep nodeid only.
+                    ctx_id = ctx.split("|", 1)[0] if "|" in ctx else ctx
+                    by_test[ctx_id].append(int(lineno))
+            # NEW-3: session-level cache (not per measured file)
             for test_id, lines in by_test.items():
+                tid = self._nodeid_norm_cache.get(test_id)
+                if tid is None:
+                    tid = self._normalize_nodeid(test_id)
+                    self._nodeid_norm_cache[test_id] = tid
                 rows.append(
                     {
-                        "test_id": self._normalize_nodeid(test_id),
+                        "test_id": tid,
                         "path": rel,
                         "lines": encode_lines(lines),
                     }
                 )
+        if (
+            not rows
+            and saw_lines
+            and not saw_contexts
+            and not self.own_coverage
+            and self.coverage_disabled_reason is None
+        ):
+            self.coverage_disabled_reason = (
+                "pytest-cov Coverage has no dynamic context data; "
+                "testpilot coverage collection skipped"
+            )
         return rows
 
     def _collapse_results(self) -> list[dict[str, Any]]:
@@ -448,19 +632,28 @@ class TestPilotPlugin:
         return out
 
     def _test_id(self, item: pytest.Item) -> str:
+        # Cache on the item — called from setup + every makereport phase (perf).
+        cached = getattr(item, "_testpilot_tid", None)
+        if cached is not None:
+            return cached
         path = getattr(item, "path", None) or getattr(item, "fspath", None)
         if path is not None:
-            p = Path(str(path)).resolve()
+            p = Path(str(path))
+            if not p.is_absolute():
+                p = (Path(self.config.rootpath) / p).resolve()
             try:
                 rel = p.relative_to(self.repo_root).as_posix()
             except ValueError:
-                rel = Path(str(path)).as_posix()
+                try:
+                    rel = p.resolve().relative_to(self.repo_root).as_posix()
+                except ValueError:
+                    rel = p.as_posix()
             node = item.nodeid
-            if "::" in node:
-                _, rest = node.split("::", 1)
-                return f"{rel}::{rest}"
-            return rel
-        return self._normalize_nodeid(item.nodeid)
+            tid = f"{rel}::{node.split('::', 1)[1]}" if "::" in node else rel
+        else:
+            tid = self._normalize_nodeid(item.nodeid)
+        item._testpilot_tid = tid  # type: ignore[attr-defined]
+        return tid
 
     def _normalize_nodeid(self, nodeid: str) -> str:
         if "::" not in nodeid:
@@ -469,9 +662,12 @@ class TestPilotPlugin:
         p = Path(path_part)
         if p.is_absolute():
             try:
-                path_part = p.resolve().relative_to(self.repo_root).as_posix()
+                path_part = p.relative_to(self.repo_root).as_posix()
             except ValueError:
-                path_part = p.as_posix()
+                try:
+                    path_part = p.resolve().relative_to(self.repo_root).as_posix()
+                except ValueError:
+                    path_part = p.as_posix()
         else:
             path_part = path_part.replace("\\", "/")
             # relative to rootpath — rebase onto git toplevel
@@ -483,8 +679,10 @@ class TestPilotPlugin:
         return f"{path_part}::{rest}"
 
     def _handle_error(self, exc: BaseException) -> None:
-        msg = f"{type(exc).__name__}: {exc}"
-        self.errors.append(msg)
+        msg = str(exc) if isinstance(exc, StoreError) else f"{type(exc).__name__}: {exc}"
+        if msg not in self.errors:
+            self.errors.append(msg)
+        # Schema mismatch / plugin errors: warn by default; fail only in --testpilot-strict.
         if self.config.getoption("--testpilot-strict"):
-            raise RuntimeError(msg) from exc
-        # B6: never warnings.warn — accumulate for terminal summary
+            self.force_fail_exit = True
+            # Defer non-zero exit to sessionfinish so terminal summary still prints.

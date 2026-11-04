@@ -35,11 +35,48 @@ jobs:
           cache-dependency-path: python/pytest-testpilot/pyproject.toml
       - name: Install plugin
         run: pip install -e 'python/pytest-testpilot[dev]'
+      - name: Offline wheelhouse for no-xdist venv test
+        run: |
+          mkdir -p /tmp/tp-wheels
+          pip download -d /tmp/tp-wheels pytest coverage
       - run: ruff check python/pytest-testpilot
-      - run: pytest python/pytest-testpilot -q
+      - name: Pytest
+        env:
+          TESTPILOT_WHEELHOUSE: /tmp/tp-wheels
+          TESTPILOT_REQUIRE_NO_XDIST: "1"
+        run: pytest python/pytest-testpilot -q
       - run: python scripts/sync_schema.py --check
 
   python-no-xdist:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: python/pytest-testpilot/pyproject.toml
+      - name: Install without xdist
+        run: |
+          pip install -e 'python/pytest-testpilot'
+          pip install pytest-cov pytest-rerunfailures ruff
+          python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') is None else 1)"
+      - name: Offline wheelhouse for no-xdist venv test
+        run: |
+          mkdir -p /tmp/tp-wheels
+          pip download -d /tmp/tp-wheels pytest coverage
+      - run: ruff check python/pytest-testpilot
+      - name: Pytest without xdist installed
+        # Do not filter with -k; xdist tests use importorskip / dedicated venv.
+        env:
+          TESTPILOT_WHEELHOUSE: /tmp/tp-wheels
+          TESTPILOT_REQUIRE_NO_XDIST: "1"
+        run: pytest python/pytest-testpilot -q
+
+  python-wheel:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,15 +85,44 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: python/pytest-testpilot/pyproject.toml
-      - name: Install without xdist
+      - name: Build wheel
         run: |
-          pip install -e 'python/pytest-testpilot'
-          pip install pytest-cov pytest-rerunfailures ruff
-      - run: ruff check python/pytest-testpilot
-      - name: Pytest without xdist installed
+          pip install build
+          python -m build python/pytest-testpilot
+          ls python/pytest-testpilot/dist/*.whl
+      - name: Install wheel in clean venv and smoke
         run: |
-          python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') is None else 1)" || pip uninstall -y pytest-xdist
-          pytest python/pytest-testpilot -q -k 'not xdist'
+          set -euo pipefail
+          python - <<'PY'
+          import glob, zipfile
+          whls = glob.glob("python/pytest-testpilot/dist/*.whl")
+          assert whls, "wheel missing"
+          names = zipfile.ZipFile(whls[0]).namelist()
+          assert any(n.endswith("pytest_testpilot/schema.sql") for n in names), names
+          assert any(n.endswith("pytest_testpilot/__init__.py") for n in names), names
+          print("wheel contents ok", whls[0])
+          PY
+          python -m venv /tmp/tp-wheel
+          /tmp/tp-wheel/bin/pip install python/pytest-testpilot/dist/*.whl
+          WORK=$(mktemp -d)
+          cp -R tests/fixtures/sample_project/. "$WORK/"
+          cd "$WORK"
+          git init -b main
+          git config user.email e2e@example.com
+          git config user.name E2E
+          git add .
+          git commit -m init
+          /tmp/tp-wheel/bin/pip install pytest coverage
+          COVERAGE_CORE=ctrace /tmp/tp-wheel/bin/pytest --testpilot -q
+          /tmp/tp-wheel/bin/python - <<'PY'
+          import sqlite3
+          c = sqlite3.connect(".testpilot/db.sqlite")
+          runs = c.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
+          results = c.execute("SELECT COUNT(*) FROM test_results").fetchone()[0]
+          assert runs >= 1, runs
+          assert results >= 1, results
+          print("db ok", {"runs": runs, "results": results})
+          PY
 
   e2e:
     runs-on: ubuntu-latest

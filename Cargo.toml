@@ -27,7 +27,8 @@ serde_json = "1"
 sha2 = "0.10"
 hex = "0.4"
 tempfile = "3"
-# gix: no default features (avoids transport/protocol/url); only walk + blob diff
+# gix: default-features off. Note: `revision` + `blob-diff` still pull gix-protocol
+# (and thus transport/url) transitively via attributes/index — that is expected for 0.70.
 gix = { version = "0.70", default-features = false, features = [
     "revision",
     "blob-diff",

@@ -463,14 +463,39 @@ pub fn collect_git<R: GitRepo>(
     max: Option<usize>,
     max_files_per_commit: usize,
 ) -> Result<CollectGitStats> {
+    collect_git_ex(
+        repo,
+        store,
+        since_sha,
+        since_date,
+        max,
+        max_files_per_commit,
+        200,
+        None,
+    )
+}
+
+/// Like [`collect_git`], with injectable batch size and mid-batch failure (B4 tests).
+#[allow(clippy::too_many_arguments)]
+pub fn collect_git_ex<R: GitRepo>(
+    repo: &R,
+    store: &mut Store,
+    since_sha: Option<&str>,
+    since_date: Option<i64>,
+    max: Option<usize>,
+    max_files_per_commit: usize,
+    batch_size: usize,
+    fail_after_commit_writes: Option<usize>,
+) -> Result<CollectGitStats> {
     let commits = repo.walk_topo_old_to_new(since_sha, since_date)?;
     let mut inserted = 0usize;
     let mut skipped = 0usize;
     let mut oversized = 0usize;
+    let mut writes_done = 0usize;
 
-    // Precompute diffs only for candidates we might insert — but need exists check inside txn.
-    // Process in batches of 200; each batch is one transaction (B4).
+    // Process in batches; each batch is one transaction (B4).
     let mut pending: Vec<(CommitMeta, Vec<FileChange>, bool)> = Vec::new();
+    let batch_size = batch_size.max(1);
 
     for meta in commits {
         if store.commit_exists(meta.sha.as_str())? {
@@ -496,12 +521,22 @@ pub fn collect_git<R: GitRepo>(
         }
         pending.push((meta, changes, is_oversized));
 
-        if pending.len() >= 200 {
-            let n = flush_batch(store, &mut pending)?;
+        if pending.len() >= batch_size {
+            let n = flush_batch(
+                store,
+                &mut pending,
+                &mut writes_done,
+                fail_after_commit_writes,
+            )?;
             inserted += n;
         }
     }
-    inserted += flush_batch(store, &mut pending)?;
+    inserted += flush_batch(
+        store,
+        &mut pending,
+        &mut writes_done,
+        fail_after_commit_writes,
+    )?;
 
     Ok(CollectGitStats {
         inserted,
@@ -513,6 +548,8 @@ pub fn collect_git<R: GitRepo>(
 fn flush_batch(
     store: &mut Store,
     pending: &mut Vec<(CommitMeta, Vec<FileChange>, bool)>,
+    writes_done: &mut usize,
+    fail_after_commit_writes: Option<usize>,
 ) -> Result<usize> {
     if pending.is_empty() {
         return Ok(0);
@@ -535,8 +572,14 @@ fn flush_batch(
                     .map(|p| p.as_str().to_string())
                     .collect(),
             };
+            // Insert commit+parents first; file_changes follow. A mid-batch failure
+            // must roll back the whole transaction (B4).
             if !Store::insert_commit_on(tx, &row)? {
                 continue;
+            }
+            *writes_done += 1;
+            if fail_after_commit_writes == Some(*writes_done) {
+                return Err(Error::Other("injected mid-batch failure".into()));
             }
             if !is_oversized {
                 let rows: Vec<FileChangeRow> = changes
