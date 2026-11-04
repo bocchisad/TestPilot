@@ -123,13 +123,6 @@ class TestPilotPlugin:
             return False
         return bool(getattr(self.config.option, "cov_source", None))
 
-    def _sysmon_blocks_contexts(self) -> bool:
-        # On 3.10 coverage falls back from sysmon and still supports contexts.
-        return (
-            os.environ.get("COVERAGE_CORE", "").lower() == "sysmon"
-            and hasattr(sys, "monitoring")
-        )
-
     def _skip_coverage_collection(self, reason: str) -> None:
         """Stop collecting/switching contexts; leave any pytest-cov tracer alone."""
         if self.coverage_disabled_reason is None:
@@ -203,13 +196,8 @@ class TestPilotPlugin:
         # R4-1: when pytest-cov is disabled (--no-cov), collect with our own tracer.
         if self._pytest_cov_active():
             # NEW-1: never start a second tracer under pytest-cov.
-            # R4-2: under sysmon, skip early — do not attach or switch_context.
-            if self._sysmon_blocks_contexts():
-                self._skip_coverage_collection(
-                    "coverage core=sysmon does not support dynamic contexts; "
-                    "testpilot coverage collection skipped (pytest-cov report left intact)"
-                )
-                return
+            # R4-6: whether contexts work is decided after attach via
+            # cov._core.supports_dynamic_contexts (not COVERAGE_CORE env alone).
             if self._reuse_existing_coverage():
                 return
             self._await_pytest_cov = True
@@ -414,11 +402,12 @@ class TestPilotPlugin:
         results = self._collapse_results()
         coverage_rows = list(getattr(self, "_coverage_snapshot", None) or [])
 
+        reasons_from_workers: list[str] = []
         for payload in self.worker_payloads:
             results.extend(payload.get("results", []))
             reason = payload.get("coverage_disabled_reason")
-            if reason and self.coverage_disabled_reason is None:
-                self.coverage_disabled_reason = reason
+            if reason:
+                reasons_from_workers.append(reason)
             for c in payload.get("coverage", []):
                 blob = bytes.fromhex(c["lines_hex"])
                 coverage_rows.append(
@@ -434,8 +423,8 @@ class TestPilotPlugin:
                     payload = json.loads(line)
                     results.extend(payload.get("results", []))
                     reason = payload.get("coverage_disabled_reason")
-                    if reason and self.coverage_disabled_reason is None:
-                        self.coverage_disabled_reason = reason
+                    if reason:
+                        reasons_from_workers.append(reason)
                     for c in payload.get("coverage", []):
                         coverage_rows.append(
                             {
@@ -445,6 +434,12 @@ class TestPilotPlugin:
                             }
                         )
                 path.unlink(missing_ok=True)
+
+        # R4-5: idle workers may report a skip reason; only warn if nobody wrote rows.
+        if coverage_rows:
+            self.coverage_disabled_reason = None
+        elif self.coverage_disabled_reason is None and reasons_from_workers:
+            self.coverage_disabled_reason = reasons_from_workers[0]
 
         results = self._collapse_result_dicts(results)
         if not results and exitstatus == 2:
@@ -484,15 +479,19 @@ class TestPilotPlugin:
         )
 
     def _coverage_supports_contexts(self) -> bool:
-        """sysmon cannot record dynamic contexts (coverage warning no-sysmon-context)."""
+        """Whether the attached Coverage can record dynamic contexts.
+
+        R4-6: prefer ``cov._core.supports_dynamic_contexts`` (sysmon sets this
+        False). ``type(cov._core).__name__`` is always ``Core`` in coverage 7.x
+        and must not be used. Fall back to COVERAGE_CORE env when the attribute
+        is missing (older coverage).
+        """
         cov = self.coverage
         if cov is None:
             return False
         core = getattr(cov, "_core", None)
-        name = type(core).__name__.lower() if core is not None else ""
-        if "sysmon" in name or "sysmonitor" in name:
-            return False
-        # Env may force sysmon when the core is actually SysMonitor.
+        if core is not None and hasattr(core, "supports_dynamic_contexts"):
+            return bool(core.supports_dynamic_contexts)
         return not (
             os.environ.get("COVERAGE_CORE", "").lower() == "sysmon"
             and not self.own_coverage

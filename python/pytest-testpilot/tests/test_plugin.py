@@ -771,10 +771,12 @@ def test_sysmon_cov_skip_does_not_warn_under_filterwarnings_error(git_repo: Path
 
 
 def test_sysmon_xdist_cov_surfaces_skip_warning(git_repo: Path) -> None:
-    # R4-4: workers skip under sysmon+cov; controller must print one warning.
+    # R4-4 / R4-7: reason is known only on workers (via .coveragerc, not env that
+    # the controller also sees). Without workeroutput propagation this goes red.
     if not hasattr(sys, "monitoring"):
-        pytest.skip("COVERAGE_CORE=sysmon needs Python 3.12+ sys.monitoring")
+        pytest.skip("sysmon needs Python 3.12+ sys.monitoring")
     pytest.importorskip("xdist")
+    (git_repo / ".coveragerc").write_text("[run]\ncore = sysmon\n", encoding="utf-8")
     result = _run_pytest(
         git_repo,
         "tests/test_sample.py::test_pass",
@@ -784,14 +786,81 @@ def test_sysmon_xdist_cov_surfaces_skip_warning(git_repo: Path) -> None:
         "--cov-report=",
         "--testpilot",
         f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
-        cov_core="sysmon",
+        cov_core=None,
     )
     combined = result.stdout + result.stderr
     assert result.returncode == 0, combined
     assert combined.count("coverage collection skipped") == 1, combined
+    assert "switch_context:" not in combined, combined
     conn = _db(git_repo)
     assert conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0] == 0
+
+
+def test_coveragerc_sysmon_with_cov_skips_without_switch_errors(git_repo: Path) -> None:
+    # R4-6 (a): detect sysmon from the live Coverage core, not COVERAGE_CORE env.
+    if not hasattr(sys, "monitoring"):
+        pytest.skip("sysmon needs Python 3.12+ sys.monitoring")
+    (git_repo / ".coveragerc").write_text("[run]\ncore = sysmon\n", encoding="utf-8")
+    (git_repo / "pytest.ini").write_text(
+        "[pytest]\npythonpath = .\nfilterwarnings =\n    error\n",
+        encoding="utf-8",
+    )
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--cov=pkg",
+        "--cov-report=",
+        "--testpilot",
+        "--testpilot-strict",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core=None,
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert combined.count("coverage collection skipped") == 1, combined
+    assert "switch_context:" not in combined, combined
+
+
+def test_coveragerc_sysmon_without_cov_own_tracer(git_repo: Path) -> None:
+    # R4-6 (b): own tracer (forced ctrace) still records, or warns — never switch errors.
+    if not hasattr(sys, "monitoring"):
+        pytest.skip("sysmon needs Python 3.12+ sys.monitoring")
+    (git_repo / ".coveragerc").write_text("[run]\ncore = sysmon\n", encoding="utf-8")
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core=None,
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "switch_context:" not in combined, combined
+    conn = _db(git_repo)
+    n = conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0]
+    assert n > 0 or "coverage collection skipped" in combined, combined
+
+
+def test_idle_xdist_worker_does_not_false_skip_warning(git_repo: Path) -> None:
+    # R4-5: more workers than tests must not invent a skip warning when rows exist.
+    pytest.importorskip("xdist")
+    result = _run_pytest(
+        git_repo,
+        "tests/test_sample.py::test_pass",
+        "-n",
+        "4",
+        "--cov=pkg",
+        "--cov-report=",
+        "--testpilot",
+        f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
+        cov_core="ctrace",
+    )
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0, combined
+    assert "coverage collection skipped" not in combined, combined
+    conn = _db(git_repo)
+    assert conn.execute("SELECT COUNT(*) FROM test_coverage").fetchone()[0] > 0
 
 
 def test_stale_schema_v1_is_reported(git_repo: Path) -> None:
