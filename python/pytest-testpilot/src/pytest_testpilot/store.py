@@ -5,8 +5,16 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+_MIGRATE_2_TO_3 = """
+CREATE TABLE IF NOT EXISTS python_blob_cache (
+  blob_sha TEXT PRIMARY KEY,
+  imports_json TEXT NOT NULL,
+  defs_json TEXT NOT NULL
+);
+"""
 
 
 class StoreError(RuntimeError):
@@ -49,6 +57,14 @@ class Store:
         if row is not None:
             found = int(row[0])
             if found == SCHEMA_VERSION:
+                return
+            # v2 → v3: additive cache table only (no wipe).
+            if found == 2 and SCHEMA_VERSION == 3:
+                self.conn.executescript(_MIGRATE_2_TO_3)
+                self.conn.execute(
+                    "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
+                )
+                self.conn.commit()
                 return
             raise StoreError(schema_version_message(found))
 

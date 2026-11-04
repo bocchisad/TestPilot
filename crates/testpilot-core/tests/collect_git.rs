@@ -1,7 +1,7 @@
 use std::process::Command;
 
 use tempfile::TempDir;
-use testpilot_core::git::{GixRepo, collect_git, collect_git_ex};
+use testpilot_core::git::{GitRepo, GixRepo, Sha, collect_git, collect_git_ex};
 use testpilot_core::store::Store;
 
 fn git(cwd: &std::path::Path, args: &[&str]) {
@@ -375,4 +375,37 @@ fn batch_transaction_rolls_back_on_mid_batch_failure() {
         orphans, 0,
         "non-oversized commits must have file_changes after re-collect"
     );
+}
+
+#[test]
+fn file_at_rev_and_diff_hunks() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path();
+    git(dir, &["init", "-b", "main"]);
+    git(dir, &["config", "user.email", "test@example.com"]);
+    git(dir, &["config", "user.name", "Test"]);
+    write(dir, "x.py", "a\nb\nc\n");
+    git(dir, &["add", "x.py"]);
+    git(dir, &["commit", "-m", "one"]);
+    let c1 = git_out(dir, &["rev-parse", "HEAD"]);
+    write(dir, "x.py", "a\nB\nc\n");
+    git(dir, &["add", "x.py"]);
+    git(dir, &["commit", "-m", "two"]);
+    let c2 = git_out(dir, &["rev-parse", "HEAD"]);
+
+    let repo = GixRepo::open(dir).unwrap();
+    let old = Sha::from_hex(&c1);
+    let new = Sha::from_hex(&c2);
+    let blob = repo.file_at_rev(&old, "x.py").unwrap().expect("blob");
+    assert_eq!(std::str::from_utf8(&blob).unwrap(), "a\nb\nc\n");
+    assert!(repo.file_at_rev(&old, "missing.py").unwrap().is_none());
+
+    let hunks = repo.diff_hunks(&old, &new).unwrap();
+    assert_eq!(hunks.len(), 1);
+    assert_eq!(hunks[0].path, "x.py");
+    assert_eq!(hunks[0].change_type, 'M');
+    assert!(!hunks[0].old_line_ranges.is_empty() || !hunks[0].new_line_ranges.is_empty());
+
+    let paths = repo.list_paths_at_rev(&new).unwrap();
+    assert!(paths.iter().any(|p| p == "x.py"));
 }
