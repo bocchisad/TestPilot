@@ -302,8 +302,12 @@ class TestPilotPlugin:
 
     @pytest.hookimpl(wrapper=True, trylast=True)
     def pytest_runtestloop(self, session: pytest.Session):
-        # Attach to pytest-cov's Coverage before tests if it started after sessionstart.
-        self._ensure_coverage_attached()
+        # xdist controller never collects coverage — do not attach to DistMaster's
+        # Coverage here or the controller would invent coverage_disabled_reason
+        # without workeroutput (R4-7).
+        collect_here = self.worker or not self._is_xdist_controller()
+        if collect_here and not self.coverage_disabled_reason:
+            self._ensure_coverage_attached()
         # B5 / NEW-2: trylast wrapper so our after-section runs BEFORE pytest-cov's
         # (default-order) finish(), which stop()+save()s the worker data.
         try:
@@ -312,12 +316,12 @@ class TestPilotPlugin:
             self.session_failed_hard = True
             raise
         try:
-            if not self.coverage_disabled_reason:
-                self._ensure_coverage_attached()
-                # Re-bind in case pytest-cov replaced the instance after sessionstart.
-                if self._pytest_cov_active():
-                    self._reuse_existing_coverage()
-            if self.worker or not self._is_xdist_controller():
+            if collect_here:
+                if not self.coverage_disabled_reason:
+                    self._ensure_coverage_attached()
+                    # Re-bind in case pytest-cov replaced the instance after sessionstart.
+                    if self._pytest_cov_active():
+                        self._reuse_existing_coverage()
                 self._coverage_snapshot = self._collect_coverage_rows()
         except Exception as exc:
             self._handle_error(exc)
@@ -436,6 +440,9 @@ class TestPilotPlugin:
                 path.unlink(missing_ok=True)
 
         # R4-5: idle workers may report a skip reason; only warn if nobody wrote rows.
+        # Clearing self.coverage_disabled_reason when rows exist is intentional: the
+        # xdist controller does not collect coverage itself, so any reason already on
+        # self would be stale/wrong next to real worker rows (prefer the data).
         if coverage_rows:
             self.coverage_disabled_reason = None
         elif self.coverage_disabled_reason is None and reasons_from_workers:

@@ -771,12 +771,24 @@ def test_sysmon_cov_skip_does_not_warn_under_filterwarnings_error(git_repo: Path
 
 
 def test_sysmon_xdist_cov_surfaces_skip_warning(git_repo: Path) -> None:
-    # R4-4 / R4-7: reason is known only on workers (via .coveragerc, not env that
-    # the controller also sees). Without workeroutput propagation this goes red.
+    # R4-4 / R4-7: force sysmon only in xdist worker processes (PYTEST_XDIST_WORKER).
+    # The controller keeps ctrace, so it cannot invent the skip warning itself —
+    # the reason must arrive via workeroutput["testpilot"].
     if not hasattr(sys, "monitoring"):
         pytest.skip("sysmon needs Python 3.12+ sys.monitoring")
     pytest.importorskip("xdist")
-    (git_repo / ".coveragerc").write_text("[run]\ncore = sysmon\n", encoding="utf-8")
+    (git_repo / "conftest.py").write_text(
+        """
+import os
+
+# xdist sets PYTEST_XDIST_WORKER only in worker processes (before sessionstart).
+if os.environ.get("PYTEST_XDIST_WORKER"):
+    os.environ["COVERAGE_CORE"] = "sysmon"
+else:
+    os.environ["COVERAGE_CORE"] = "ctrace"
+""",
+        encoding="utf-8",
+    )
     result = _run_pytest(
         git_repo,
         "tests/test_sample.py::test_pass",
@@ -786,7 +798,7 @@ def test_sysmon_xdist_cov_surfaces_skip_warning(git_repo: Path) -> None:
         "--cov-report=",
         "--testpilot",
         f"--testpilot-db={git_repo / '.testpilot' / 'db.sqlite'}",
-        cov_core=None,
+        cov_core="ctrace",
     )
     combined = result.stdout + result.stderr
     assert result.returncode == 0, combined
