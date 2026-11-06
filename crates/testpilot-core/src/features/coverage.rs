@@ -49,49 +49,36 @@ impl CovSnapshot {
 
         for f in srcf {
             let covered = paths.get(f).cloned().unwrap_or_default();
-            if !covered.is_empty() {
-                // file covered at all
-                let hunk = hunks.iter().find(|h| h.path == *f);
-                let old_changed = hunk
-                    .map(|h| line_set(&h.old_line_ranges))
-                    .unwrap_or_default();
-                if covered.iter().any(|ln| old_changed.contains(ln))
-                    || !old_changed.is_empty() && covered.iter().any(|_| true)
-                {
-                    if covered.intersection(&old_changed).count() > 0
-                        || covered.iter().any(|l| old_changed.contains(l))
-                    {
-                        cov_file = 1;
-                    } else if !covered.is_empty() && srcf.contains(f) {
-                        // covers file even if not intersecting change lines
-                        cov_file = 1;
-                    }
-                } else if !covered.is_empty() {
-                    cov_file = 1;
-                }
+            if covered.is_empty() {
+                continue;
+            }
+            // cov_file: test covers this src file at all
+            cov_file = 1;
 
-                let inter: HashSet<_> = covered.intersection(&old_changed).cloned().collect();
-                cov_lines += inter.len() as i64;
+            let hunk = hunks.iter().find(|h| h.path == *f);
+            let old_changed = hunk
+                .map(|h| line_set(&h.old_line_ranges))
+                .unwrap_or_default();
+            let inter: HashSet<_> = covered.intersection(&old_changed).cloned().collect();
+            cov_lines += inter.len() as i64;
 
-                if let Some(src) = old_sources.get(f) {
-                    let scan = scan_python(src);
-                    let l2d = line_to_def(&scan.defs);
-                    let mut funcs: HashSet<String> = HashSet::new();
-                    for ln in &inter {
-                        if let Some(q) = l2d.get(ln) {
-                            funcs.insert(q.clone());
-                        } else {
-                            module_region_hit = true;
-                        }
+            if let Some(src) = old_sources.get(f) {
+                let scan = scan_python(src);
+                let l2d = line_to_def(&scan.defs);
+                let mut funcs: HashSet<String> = HashSet::new();
+                for ln in &inter {
+                    if let Some(q) = l2d.get(ln) {
+                        funcs.insert(q.clone());
+                    } else {
+                        module_region_hit = true;
                     }
-                    // Also: changed lines not executable by any test → module region
-                    for ln in &old_changed {
-                        if !covered.contains(ln) && !l2d.contains_key(ln) {
-                            module_region_hit = true;
-                        }
-                    }
-                    cov_func += funcs.len() as i64;
                 }
+                for ln in &old_changed {
+                    if !covered.contains(ln) && !l2d.contains_key(ln) {
+                        module_region_hit = true;
+                    }
+                }
+                cov_func += funcs.len() as i64;
             }
         }
 
@@ -172,7 +159,6 @@ impl CoverageTracker {
 
     /// Coverage for features of change with parent `base`, searching base then earlier processed ancestors.
     pub fn lookup(&self, base: &str, ancestor_chain: &[String]) -> CovSnapshot {
-        // ancestor_chain: base first, then parents processed earlier …
         for (lag, sha) in ancestor_chain.iter().enumerate() {
             if let Some(by_test) = self.snapshots.get(sha) {
                 return CovSnapshot {
@@ -182,7 +168,6 @@ impl CoverageTracker {
                 };
             }
         }
-        // Also try base alone
         if let Some(by_test) = self.snapshots.get(base) {
             return CovSnapshot {
                 sha: base.to_string(),

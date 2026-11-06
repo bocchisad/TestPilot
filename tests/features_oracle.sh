@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Generate fixture → Rust dump → Python reference → compare; schema --check.
+# Generate fixture → Rust dump → Python reference → compare all columns;
+# determinism + leakage; W2-2 sensitivity; backfill dry-run.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -13,11 +14,8 @@ BIN="$ROOT/target/debug/testpilot"
 
 "$BIN" features schema --check features_schema.json
 
-(
-  cd "$FIX/repo"
-  "$BIN" --db "$FIX/repo/.testpilot/db.sqlite" features dump --out "$FIX/pairs.parquet"
-  "$BIN" --db "$FIX/repo/.testpilot/db.sqlite" features dump --out "$FIX/pairs2.parquet"
-)
+"$BIN" --db "$FIX/repo/.testpilot/db.sqlite" features dump --repo "$FIX/repo" --out "$FIX/pairs.parquet"
+"$BIN" --db "$FIX/repo/.testpilot/db.sqlite" features dump --repo "$FIX/repo" --out "$FIX/pairs2.parquet"
 
 python3 scripts/features_reference.py \
   --repo "$FIX/repo" \
@@ -29,7 +27,21 @@ python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q pyarrow
 "$VENV/bin/python" scripts/compare_features.py --parquet "$FIX/pairs.parquet" --reference "$FIX/ref.json"
 
-# determinism: two dumps equal
+# W2-2: injecting wrong ch_add must fail the compare
+set +e
+"$VENV/bin/python" scripts/compare_features.py \
+  --parquet "$FIX/pairs.parquet" \
+  --reference "$FIX/ref.json" \
+  --inject-rust-ch-add 999999
+inj_rc=$?
+set -e
+if [[ "$inj_rc" -eq 0 ]]; then
+  echo "expected compare to fail with --inject-rust-ch-add" >&2
+  exit 1
+fi
+echo "compare sensitivity ok (inject ch_add failed as expected)"
+
+# determinism
 "$VENV/bin/python" - <<PY
 import pyarrow.parquet as pq
 a = pq.read_table("$FIX/pairs.parquet").to_pylist()
@@ -38,7 +50,7 @@ assert a == b, "determinism failed"
 print("determinism ok", len(a))
 PY
 
-# Leakage: re-dump after adding a future commit+run must leave earlier rows unchanged.
+# Leakage: re-dump after future commit must leave earlier rows unchanged.
 "$VENV/bin/python" - "$FIX" "$BIN" <<'PY'
 import os, sqlite3, subprocess, sys
 from pathlib import Path
@@ -50,8 +62,8 @@ db = repo / ".testpilot" / "db.sqlite"
 before = {(r["change"], r["test"]): r for r in pq.read_table(fix / "pairs.parquet").to_pylist()}
 env = os.environ.copy()
 env.update({
-    "GIT_AUTHOR_DATE": "2020-01-10T00:00:00+00:00",
-    "GIT_COMMITTER_DATE": "2020-01-10T00:00:00+00:00",
+    "GIT_AUTHOR_DATE": "2020-02-01T00:00:00+00:00",
+    "GIT_COMMITTER_DATE": "2020-02-01T00:00:00+00:00",
     "GIT_AUTHOR_NAME": "Fix",
     "GIT_AUTHOR_EMAIL": "fix@example.com",
     "GIT_COMMITTER_NAME": "Fix",
@@ -63,7 +75,7 @@ parent = subprocess.check_output(["git", "rev-parse", "HEAD~1"], cwd=repo, text=
 conn = sqlite3.connect(db)
 conn.execute(
     "INSERT INTO commits(sha,author_ts,message,oversized) VALUES (?,?,?,0)",
-    (fut, 1578614400, "future"),
+    (fut, 1580515200, "future"),
 )
 conn.execute(
     "INSERT INTO commit_parents(sha,parent_sha,parent_idx) VALUES (?,?,0)",
@@ -92,5 +104,18 @@ for k, row in before.items():
         assert after[k][col] == val, (k, col, val, after[k][col])
 print("leakage ok")
 PY
+
+# W2-3: backfill dry-run against a fake repo without in-tree plugin
+FAKE="$FIX/fake_ext"
+mkdir -p "$FAKE"
+git -C "$FAKE" init -b main >/dev/null
+git -C "$FAKE" config user.email e@e
+git -C "$FAKE" config user.name E
+echo x > "$FAKE/x"
+git -C "$FAKE" add x
+GIT_AUTHOR_DATE=2020-01-01T00:00:00+00:00 GIT_COMMITTER_DATE=2020-01-01T00:00:00+00:00 \
+  git -C "$FAKE" commit -m init >/dev/null
+python3 scripts/backfill.py --repo "$FAKE" --last 1 --db "$FIX/dummy.sqlite" --dry-run
+python3 scripts/backfill.py --help >/dev/null
 
 echo "features oracle ok"

@@ -6,6 +6,8 @@ pub mod coverage;
 pub mod dump;
 pub mod history;
 pub mod imports;
+#[cfg(test)]
+mod leak_test;
 pub mod names;
 pub mod python_scan;
 pub mod schema;

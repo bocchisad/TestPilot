@@ -8,7 +8,7 @@ use crate::features::change::{change_size_stats, changed_functions, is_test_path
 use crate::features::cochange::CoChangeState;
 use crate::features::coverage::{CovFeatures, CoverageTracker, decode_lines};
 use crate::features::history::HistoryState;
-use crate::features::imports::build_import_graph;
+use crate::features::imports::{build_import_graph, build_import_graph_seeded};
 use crate::features::names::name_features;
 use crate::features::writer::{self, FeatureRow};
 use crate::git::{DiffHunk, GitRepo, Sha};
@@ -317,6 +317,8 @@ pub fn dump_parquet<R: GitRepo>(
 }
 
 /// Features for a single change `base..head` (or worktree — caller supplies hunks).
+///
+/// History is accumulated only for commits up to and including `base` (early exit).
 pub fn compute_show_rows<R: GitRepo>(
     repo: &R,
     store: &Store,
@@ -325,66 +327,56 @@ pub fn compute_show_rows<R: GitRepo>(
     head: &Sha,
     hunks: &[DiffHunk],
 ) -> Result<Vec<FeatureRow>> {
-    // Build history by dumping up through base (exclusive of head change itself).
-    // Simpler approach: full dump filter is wrong; walk until base inclusive for counters,
-    // then emit for base..head without updating.
     let commits = repo.walk_topo_old_to_new(None, None)?;
     let mut history = HistoryState::new();
     let mut cochange = CoChangeState::new();
     let mut cov_tracker = CoverageTracker::new();
-    let mut processed: Vec<String> = Vec::new();
     let base_s = base.as_str().to_string();
 
     for meta in &commits {
         let sha = meta.sha.as_str();
-        // Stop updating after we've processed `base`.
-        let past_base = processed.iter().any(|p| p == &base_s) && sha != base_s;
 
         if let Some(parent) = meta.parents.first() {
             if let Some(primary_id) = store.last_clean_run_with_results(sha)? {
-                if !past_base {
-                    let parent_sha = parent.clone();
-                    let hs = repo.diff_hunks(&parent_sha, &meta.sha).unwrap_or_default();
-                    let srcf = src_files(&hs);
-                    let old_sources = old_sources_for_hunks(repo, &parent_sha, &hs)?;
-                    let funcs = all_changed_funcs(&hs, &old_sources);
-                    let results = store.results_for_run(primary_id)?;
-                    for r in &results {
-                        let tf = test_file_of(&r.test_id);
-                        history.update_primary(
-                            &r.test_id,
-                            &tf,
-                            &r.outcome,
-                            r.flaky,
-                            r.duration_ms,
-                            meta.author_ts,
-                            &srcf,
-                            &funcs,
-                        );
-                    }
-                    for other_id in store.other_clean_runs(sha, primary_id)? {
-                        for r in store.results_for_run(other_id)? {
-                            history.update_flaky_only(&r.test_id, r.flaky);
-                        }
-                    }
-                    let mut files = store.file_paths_for_commit(sha)?;
-                    if files.is_empty() {
-                        files = hs.iter().map(|h| h.path.clone()).collect();
-                    }
-                    cochange.record(&files, meta.author_ts);
+                let parent_sha = parent.clone();
+                let hs = repo.diff_hunks(&parent_sha, &meta.sha).unwrap_or_default();
+                let srcf = src_files(&hs);
+                let old_sources = old_sources_for_hunks(repo, &parent_sha, &hs)?;
+                let funcs = all_changed_funcs(&hs, &old_sources);
+                let results = store.results_for_run(primary_id)?;
+                for r in &results {
+                    let tf = test_file_of(&r.test_id);
+                    history.update_primary(
+                        &r.test_id,
+                        &tf,
+                        &r.outcome,
+                        r.flaky,
+                        r.duration_ms,
+                        meta.author_ts,
+                        &srcf,
+                        &funcs,
+                    );
                 }
+                for other_id in store.other_clean_runs(sha, primary_id)? {
+                    for r in store.results_for_run(other_id)? {
+                        history.update_flaky_only(&r.test_id, r.flaky);
+                    }
+                }
+                let mut files = store.file_paths_for_commit(sha)?;
+                if files.is_empty() {
+                    files = hs.iter().map(|h| h.path.clone()).collect();
+                }
+                cochange.record(&files, meta.author_ts);
             }
         }
         if let Ok(Some(run_id)) = store.last_clean_run_with_coverage(sha) {
-            if !past_base {
-                if let Ok(m) = load_cov_map(store, run_id) {
-                    cov_tracker.record(sha, m);
-                }
+            if let Ok(m) = load_cov_map(store, run_id) {
+                cov_tracker.record(sha, m);
             }
         }
-        processed.push(sha.to_string());
+        // W2-1: do not walk / diff / query commits strictly after base.
         if sha == base_s {
-            // continue loop to mark past_base on next iters
+            break;
         }
     }
 
@@ -426,9 +418,23 @@ pub fn compute_show_rows<R: GitRepo>(
     }
     let cov = cov_tracker.lookup(&base_s, &chain);
 
-    let paths = repo.list_paths_at_rev(base)?;
-    let py_paths: Vec<String> = paths.into_iter().filter(|p| p.ends_with(".py")).collect();
-    let graph = build_import_graph(repo, store, base, &py_paths)?;
+    // Import graph: index all paths for resolution, parse only seeds (srcf + tests).
+    let all_paths = repo.list_paths_at_rev(base)?;
+    let py_index: Vec<String> = all_paths
+        .into_iter()
+        .filter(|p| p.ends_with(".py"))
+        .collect();
+    let mut seeds: HashSet<String> = srcf.iter().cloned().collect();
+    for r in &results {
+        seeds.insert(test_file_of(&r.test_id));
+    }
+    for h in hunks {
+        if h.path.ends_with(".py") {
+            seeds.insert(h.path.clone());
+        }
+    }
+    let seed_list: Vec<String> = seeds.into_iter().collect();
+    let graph = build_import_graph_seeded(repo, store, base, &seed_list, &py_index)?;
     let srcf_owned = srcf.clone();
     let imp_dist_for = |tf: &str| graph.dist(tf, &srcf_owned);
 

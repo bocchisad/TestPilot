@@ -119,7 +119,7 @@ def main() -> int:
     git(out, ["commit", "-m", "c3 util bump"], "2020-01-04T00:00:00+00:00")
     c3 = run(out, ["git", "rev-parse", "HEAD"])
 
-    # C4 — fix alpha
+    # C4 — gamma
     write(
         out,
         "pkg/a.py",
@@ -129,15 +129,76 @@ def main() -> int:
     git(out, ["commit", "-m", "c4 gamma"], "2020-01-05T00:00:00+00:00")
     c4 = run(out, ["git", "rev-parse", "HEAD"])
 
-    shas = [c0, c1, c2, c3, c4]
-    times = [
-        1577836800,  # 2020-01-01
-        1577923200,
-        1578009600,
-        1578096000,
-        1578182400,
-    ]
-    msgs = ["c0 init", "c1 break alpha", "c2 util", "c3 util bump", "c4 gamma"]
+    # C5 — rename util → helpers (cochange/coverage path continuity)
+    git(out, ["mv", "pkg/util.py", "pkg/helpers.py"], "2020-01-06T00:00:00+00:00")
+    write(
+        out,
+        "tests/test_a.py",
+        "from pkg.a import alpha, beta\nfrom pkg.helpers import helper\n\ndef test_alpha():\n    assert alpha() == 99\n\ndef test_beta():\n    assert beta() == 2\n\ndef test_helper():\n    assert helper() == 4\n",
+    )
+    git(out, ["add", "."], "2020-01-06T00:00:00+00:00")
+    git(out, ["commit", "-m", "c5 rename util"], "2020-01-06T00:00:00+00:00")
+    c5 = run(out, ["git", "rev-parse", "HEAD"])
+
+    # C6 — delete dead.py
+    write(out, "pkg/dead.py", "def gone():\n    return 0\n")
+    git(out, ["add", "pkg/dead.py"], "2020-01-07T00:00:00+00:00")
+    git(out, ["commit", "-m", "c6 add dead"], "2020-01-07T00:00:00+00:00")
+    c6 = run(out, ["git", "rev-parse", "HEAD"])
+    git(out, ["rm", "pkg/dead.py"], "2020-01-08T00:00:00+00:00")
+    git(out, ["commit", "-m", "c7 delete dead"], "2020-01-08T00:00:00+00:00")
+    c7 = run(out, ["git", "rev-parse", "HEAD"])
+
+    # C8 — binary blob (should not poison ch_*)
+    (out / "pkg" / "data.bin").write_bytes(b"\x00\x01\x02\xffbinary")
+    git(out, ["add", "pkg/data.bin"], "2020-01-09T00:00:00+00:00")
+    git(out, ["commit", "-m", "c8 binary"], "2020-01-09T00:00:00+00:00")
+    c8 = run(out, ["git", "rev-parse", "HEAD"])
+
+    # C9 — broken Python syntax (dump must not panic)
+    write(out, "pkg/broken.py", "def (\nclass\nimport\n")
+    git(out, ["add", "pkg/broken.py"], "2020-01-10T00:00:00+00:00")
+    git(out, ["commit", "-m", "c9 broken py"], "2020-01-10T00:00:00+00:00")
+    c9 = run(out, ["git", "rev-parse", "HEAD"])
+
+    # C10 — merge (first-parent only for change)
+    git(out, ["checkout", "-b", "feature"], "2020-01-11T00:00:00+00:00")
+    write(out, "pkg/feat.py", "def feat():\n    return 1\n")
+    git(out, ["add", "pkg/feat.py"], "2020-01-11T00:00:00+00:00")
+    git(out, ["commit", "-m", "c10 feature"], "2020-01-11T00:00:00+00:00")
+    c10 = run(out, ["git", "rev-parse", "HEAD"])
+    git(out, ["checkout", "main"], "2020-01-12T00:00:00+00:00")
+    write(out, "pkg/mainline.py", "def mainline():\n    return 1\n")
+    git(out, ["add", "pkg/mainline.py"], "2020-01-12T00:00:00+00:00")
+    git(out, ["commit", "-m", "c11 mainline"], "2020-01-12T00:00:00+00:00")
+    c11 = run(out, ["git", "rev-parse", "HEAD"])
+    git(out, ["merge", "feature", "-m", "c12 merge"], "2020-01-13T00:00:00+00:00")
+    c12 = run(out, ["git", "rev-parse", "HEAD"])
+
+    # Main-line topo from HEAD: c0..c9,c11,c12 (c10 only on feature side).
+    shas_main = []
+    for line in run(out, ["git", "rev-list", "--topo-order", "--reverse", "HEAD"]).splitlines():
+        shas_main.append(line)
+    # Keep explicit labels for seeding
+    labeled = {
+        "c0": c0,
+        "c1": c1,
+        "c2": c2,
+        "c3": c3,
+        "c4": c4,
+        "c5": c5,
+        "c6": c6,
+        "c7": c7,
+        "c8": c8,
+        "c9": c9,
+        "c10": c10,
+        "c11": c11,
+        "c12": c12,
+    }
+    shas = shas_main
+    # author times from git
+    times = [int(run(out, ["git", "show", "-s", "--format=%at", s])) for s in shas]
+    msgs = [run(out, ["git", "show", "-s", "--format=%s", s]) for s in shas]
 
     db_path = out / ".testpilot" / "db.sqlite"
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,25 +206,37 @@ def main() -> int:
     conn.executescript(ROOT_SCHEMA.read_text())
     conn.execute("INSERT INTO schema_version(version) VALUES (3)")
 
-    for sha, ts, msg in zip(shas, times, msgs):
+    # Insert ALL reachable commits (including feature tip) for parent links
+    all_shas = set(shas) | {c10}
+    for s in all_shas:
+        ts = int(run(out, ["git", "show", "-s", "--format=%at", s]))
+        msg = run(out, ["git", "show", "-s", "--format=%s", s])
+        oversized = 1 if s == c8 else 0  # treat binary commit as oversized edge
         conn.execute(
-            "INSERT INTO commits(sha, author_ts, message, oversized) VALUES (?,?,?,0)",
-            (sha, ts, msg),
+            "INSERT INTO commits(sha, author_ts, message, oversized) VALUES (?,?,?,?)",
+            (s, ts, msg, oversized),
         )
-    for i, sha in enumerate(shas):
-        if i == 0:
-            continue
-        conn.execute(
-            "INSERT INTO commit_parents(sha, parent_sha, parent_idx) VALUES (?,?,0)",
-            (sha, shas[i - 1]),
-        )
+    for s in all_shas:
+        parents = run(out, ["git", "rev-list", "--parents", "-n", "1", s]).split()[1:]
+        for idx, p in enumerate(parents):
+            conn.execute(
+                "INSERT INTO commit_parents(sha, parent_sha, parent_idx) VALUES (?,?,?)",
+                (s, p, idx),
+            )
 
-    # file_changes (simplified — dump also uses git hunks)
-    def add_fc(sha: str, path: str, ct: str = "M", add: int = 1, rm: int = 1) -> None:
+    def add_fc(
+        sha: str,
+        path: str,
+        ct: str = "M",
+        add: int = 1,
+        rm: int = 1,
+        old_path: str | None = None,
+        binary: int = 0,
+    ) -> None:
         conn.execute(
             "INSERT INTO file_changes(sha,path,change_type,old_path,lines_added,lines_deleted,is_binary)"
-            " VALUES (?,?,?,NULL,?,?,0)",
-            (sha, path, ct, add, rm),
+            " VALUES (?,?,?,?,?,?,?)",
+            (sha, path, ct, old_path, add, rm, binary),
         )
 
     add_fc(c1, "pkg/a.py")
@@ -171,6 +244,15 @@ def main() -> int:
     add_fc(c2, "tests/test_a.py")
     add_fc(c3, "pkg/util.py")
     add_fc(c4, "pkg/a.py")
+    add_fc(c5, "pkg/helpers.py", "R", 0, 0, old_path="pkg/util.py")
+    add_fc(c5, "tests/test_a.py")
+    add_fc(c6, "pkg/dead.py", "A", 2, 0)
+    add_fc(c7, "pkg/dead.py", "D", 0, 2)
+    add_fc(c8, "pkg/data.bin", "A", 0, 0, binary=1)
+    add_fc(c9, "pkg/broken.py", "A", 3, 0)
+    add_fc(c11, "pkg/mainline.py", "A", 2, 0)
+    # merge first-parent change vs c11
+    add_fc(c12, "pkg/feat.py", "A", 2, 0)
 
     def upsert_test(tid: str) -> int:
         conn.execute("INSERT OR IGNORE INTO tests(test_id) VALUES (?)", (tid,))
@@ -266,12 +348,35 @@ def main() -> int:
         ],
         [(t_alpha, "pkg/a.py", [1, 2, 7])],
     )
+    # c5 rename — coverage on new path
+    insert_run(
+        c5,
+        [
+            (t_alpha, "pass", 14, 0),
+            (t_beta, "pass", 11, 0),
+            (t_helper, "pass", 6, 0),
+        ],
+        [
+            (t_helper, "pkg/helpers.py", [1, 2]),
+            (t_alpha, "pkg/a.py", [1, 2]),
+        ],
+    )
+    for sha in (c6, c7, c8, c9, c11, c12):
+        insert_run(
+            sha,
+            [
+                (t_alpha, "pass", 14, 0),
+                (t_beta, "pass", 11, 0),
+                (t_helper, "pass", 6, 0),
+            ],
+        )
 
     conn.commit()
     conn.close()
 
     meta = out / "FIXTURE.txt"
-    meta.write_text("\n".join(shas) + "\n")
+    lines = [f"{k}={v}" for k, v in labeled.items()] + shas
+    meta.write_text("\n".join(lines) + "\n")
     print(f"fixture ready at {out}")
     print(f"db={db_path}")
     for s in shas:

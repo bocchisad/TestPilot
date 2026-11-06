@@ -59,34 +59,55 @@ impl ImportGraph {
     }
 }
 
-/// Build import graph from all `.py` blobs reachable via `paths` at `sha` (typically changed + neighbors).
-/// For dump/show we scan every path provided (caller supplies the file list at base).
+/// Build import graph by scanning every path in `paths` (full dump).
 pub fn build_import_graph<R: GitRepo>(
     repo: &R,
     store: &Store,
     sha: &Sha,
     paths: &[String],
 ) -> Result<ImportGraph> {
-    let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
-    let path_set: HashSet<String> = paths.iter().cloned().collect();
-    let modules = index_modules(paths);
+    build_import_graph_seeded(repo, store, sha, paths, paths)
+}
 
-    for path in paths {
-        if !path.ends_with(".py") {
+/// Scan only `seeds` (and BFS-discovered import targets up to [`MAX_IMPORT_DIST`]).
+/// `index_paths` supplies the module index / resolution universe (usually all `.py` at rev).
+pub fn build_import_graph_seeded<R: GitRepo>(
+    repo: &R,
+    store: &Store,
+    sha: &Sha,
+    seeds: &[String],
+    index_paths: &[String],
+) -> Result<ImportGraph> {
+    let path_set: HashSet<String> = index_paths.iter().cloned().collect();
+    let modules = index_modules(index_paths);
+    let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut queue: VecDeque<(String, i64)> = seeds
+        .iter()
+        .filter(|p| p.ends_with(".py"))
+        .map(|p| (p.clone(), 0i64))
+        .collect();
+    let mut enqueued: HashSet<String> = seeds.iter().cloned().collect();
+
+    while let Some((path, depth)) = queue.pop_front() {
+        if edges.contains_key(&path) {
             continue;
         }
-        let Some(bytes) = repo.file_at_rev(sha, path)? else {
+        let Some(bytes) = repo.file_at_rev(sha, &path)? else {
+            edges.insert(path, HashSet::new());
             continue;
         };
         let blob_sha = hex::encode(Sha256::digest(&bytes));
         let scan = cached_scan(store, &blob_sha, &bytes)?;
         let mut nbrs = HashSet::new();
         for edge in &scan.imports {
-            if let Some(resolved) = resolve_import(path, edge, &modules, &path_set) {
+            if let Some(resolved) = resolve_import(&path, edge, &modules, &path_set) {
+                if depth < MAX_IMPORT_DIST && enqueued.insert(resolved.clone()) {
+                    queue.push_back((resolved.clone(), depth + 1));
+                }
                 nbrs.insert(resolved);
             }
         }
-        edges.insert(path.clone(), nbrs);
+        edges.insert(path, nbrs);
     }
     Ok(ImportGraph::from_edges(edges))
 }
