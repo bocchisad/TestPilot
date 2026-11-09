@@ -560,9 +560,9 @@ impl Store {
 
     /// All parent SHAs for `sha` (any parent_idx), for ancestor walks.
     pub fn all_parents(&self, sha: &str) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT parent_sha FROM commit_parents WHERE sha = ?1 ORDER BY parent_idx",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT parent_sha FROM commit_parents WHERE sha = ?1 ORDER BY parent_idx")?;
         let rows = stmt.query_map(params![sha], |r| r.get(0))?;
         let mut out = Vec::new();
         for row in rows {

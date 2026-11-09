@@ -48,11 +48,7 @@ impl CoChangeState {
             }
         }
         let file_set: HashSet<String> = files.iter().cloned().collect();
-        self.events.push(CoChangeEvent {
-            files,
-            file_set,
-            t,
-        });
+        self.events.push(CoChangeEvent { files, file_set, t });
     }
 
     /// `cc_max`, `cc_sum` for srcf files vs test file `tf` at change time `t0`.

@@ -6,13 +6,13 @@ use std::path::Path;
 use crate::error::{Error, Result};
 use crate::features::change::{change_size_stats, changed_functions, is_test_path, src_files};
 use crate::features::cochange::CoChangeState;
-use crate::features::coverage::{CovFeatures, CovSnapshot, CovSrcPrep, CoverageTracker, decode_lines};
+use crate::features::coverage::{
+    CovFeatures, CovSnapshot, CovSrcPrep, CoverageTracker, decode_lines,
+};
 use crate::features::history::HistoryState;
 use crate::features::imports::{build_import_graph, build_import_graph_seeded};
 use crate::features::names::name_features;
-use crate::features::snapshot::{
-    find_snapshot_on_lineage, save_snapshot, should_save_snapshot,
-};
+use crate::features::snapshot::{find_snapshot_on_lineage, save_snapshot, should_save_snapshot};
 use crate::features::writer::{self, FeatureRow};
 use crate::git::{DiffHunk, GitRepo, Sha};
 use crate::store::Store;
