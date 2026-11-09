@@ -1,5 +1,7 @@
 //! Decaying co-change features (`cc_max`, `cc_sum`).
 
+use std::collections::HashSet;
+
 pub const TAU_DAYS: f64 = 180.0;
 const MAX_FILES: usize = 50;
 const SECS_PER_DAY: f64 = 86400.0;
@@ -7,6 +9,7 @@ const SECS_PER_DAY: f64 = 86400.0;
 #[derive(Debug, Clone)]
 pub struct CoChangeEvent {
     pub files: Vec<String>,
+    pub file_set: HashSet<String>,
     pub t: i64,
 }
 
@@ -44,7 +47,12 @@ impl CoChangeState {
                 return;
             }
         }
-        self.events.push(CoChangeEvent { files, t });
+        let file_set: HashSet<String> = files.iter().cloned().collect();
+        self.events.push(CoChangeEvent {
+            files,
+            file_set,
+            t,
+        });
     }
 
     /// `cc_max`, `cc_sum` for srcf files vs test file `tf` at change time `t0`.
@@ -52,23 +60,19 @@ impl CoChangeState {
         if srcf.is_empty() {
             return (0.0, 0.0);
         }
-        let mut per_src: Vec<f64> = Vec::with_capacity(srcf.len());
+        let mut max = 0.0_f64;
         let mut sum = 0.0;
         for f in srcf {
             let mut w_tf = 0.0;
             for ev in &self.events {
-                if !ev.files.iter().any(|p| p == f) {
-                    continue;
-                }
-                if !ev.files.iter().any(|p| p == tf) {
+                if !ev.file_set.contains(f) || !ev.file_set.contains(tf) {
                     continue;
                 }
                 w_tf += decay(t0, ev.t);
             }
-            per_src.push(w_tf);
+            max = max.max(w_tf);
             sum += w_tf;
         }
-        let max = per_src.into_iter().fold(0.0_f64, f64::max);
         (max, sum)
     }
 }

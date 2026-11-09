@@ -79,10 +79,9 @@ CREATE TABLE IF NOT EXISTS python_blob_cache (
   defs_json TEXT NOT NULL
 );
 
--- v4: incremental feature history snapshot after each dump commit (for fast show).
+-- v5: compact feature history snapshots (zstd+postcard payload) for fast show.
 CREATE TABLE IF NOT EXISTS feature_history_snapshot (
   sha TEXT PRIMARY KEY,
-  history_json TEXT NOT NULL,
-  cochange_json TEXT NOT NULL,
+  payload BLOB NOT NULL,
   cov_source_sha TEXT
 );

@@ -17,6 +17,15 @@ pub struct CovSnapshot {
     pub by_test: HashMap<String, HashMap<String, HashSet<u32>>>,
 }
 
+/// Precomputed per-srcf data for coverage features (avoid re-scanning Python per test).
+#[derive(Debug, Clone)]
+pub struct CovSrcPrep {
+    pub path: String,
+    pub old_changed: HashSet<u32>,
+    /// `None` when old source bytes were unavailable (skip func/module attribution).
+    pub line_to_def: Option<HashMap<u32, String>>,
+}
+
 impl CovSnapshot {
     pub fn empty() -> Self {
         Self {
@@ -26,12 +35,34 @@ impl CovSnapshot {
         }
     }
 
-    pub fn features_for(
-        &self,
-        test_id: &str,
+    /// Build scan/line maps once per changed source file.
+    pub fn prepare_src(
         srcf: &[String],
         hunks: &[DiffHunk],
         old_sources: &HashMap<String, String>,
+    ) -> Vec<CovSrcPrep> {
+        let mut out = Vec::with_capacity(srcf.len());
+        for f in srcf {
+            let hunk = hunks.iter().find(|h| h.path == *f);
+            let old_changed = hunk
+                .map(|h| line_set(&h.old_line_ranges))
+                .unwrap_or_default();
+            let line_map = old_sources
+                .get(f)
+                .map(|src| line_to_def(&scan_python(src).defs));
+            out.push(CovSrcPrep {
+                path: f.clone(),
+                old_changed,
+                line_to_def: line_map,
+            });
+        }
+        out
+    }
+
+    pub fn features_for(
+        &self,
+        test_id: &str,
+        src_prep: &[CovSrcPrep],
         imp_dist: i64,
     ) -> CovFeatures {
         let Some(paths) = self.by_test.get(test_id) else {
@@ -47,39 +78,33 @@ impl CovSnapshot {
             cov_breadth += lines.len() as i64;
         }
 
-        for f in srcf {
-            let covered = paths.get(f).cloned().unwrap_or_default();
+        for prep in src_prep {
+            let covered = paths.get(&prep.path).cloned().unwrap_or_default();
             if covered.is_empty() {
                 continue;
             }
-            // cov_file: test covers this src file at all
             cov_file = 1;
 
-            let hunk = hunks.iter().find(|h| h.path == *f);
-            let old_changed = hunk
-                .map(|h| line_set(&h.old_line_ranges))
-                .unwrap_or_default();
-            let inter: HashSet<_> = covered.intersection(&old_changed).cloned().collect();
+            let inter: HashSet<_> = covered.intersection(&prep.old_changed).cloned().collect();
             cov_lines += inter.len() as i64;
 
-            if let Some(src) = old_sources.get(f) {
-                let scan = scan_python(src);
-                let l2d = line_to_def(&scan.defs);
-                let mut funcs: HashSet<String> = HashSet::new();
-                for ln in &inter {
-                    if let Some(q) = l2d.get(ln) {
-                        funcs.insert(q.clone());
-                    } else {
-                        module_region_hit = true;
-                    }
+            let Some(l2d) = prep.line_to_def.as_ref() else {
+                continue;
+            };
+            let mut funcs: HashSet<String> = HashSet::new();
+            for ln in &inter {
+                if let Some(q) = l2d.get(ln) {
+                    funcs.insert(q.clone());
+                } else {
+                    module_region_hit = true;
                 }
-                for ln in &old_changed {
-                    if !covered.contains(ln) && !l2d.contains_key(ln) {
-                        module_region_hit = true;
-                    }
-                }
-                cov_func += funcs.len() as i64;
             }
+            for ln in &prep.old_changed {
+                if !covered.contains(ln) && !l2d.contains_key(ln) {
+                    module_region_hit = true;
+                }
+            }
+            cov_func += funcs.len() as i64;
         }
 
         let cov_mod = if module_region_hit && imp_dist < 99 {

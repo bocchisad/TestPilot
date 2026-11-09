@@ -3,14 +3,16 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::features::change::{change_size_stats, changed_functions, is_test_path, src_files};
 use crate::features::cochange::CoChangeState;
-use crate::features::coverage::{CovFeatures, CoverageTracker, decode_lines};
+use crate::features::coverage::{CovFeatures, CovSnapshot, CovSrcPrep, CoverageTracker, decode_lines};
 use crate::features::history::HistoryState;
 use crate::features::imports::{build_import_graph, build_import_graph_seeded};
 use crate::features::names::name_features;
-use crate::features::snapshot::{find_snapshot_on_lineage, save_snapshot};
+use crate::features::snapshot::{
+    find_snapshot_on_lineage, save_snapshot, should_save_snapshot,
+};
 use crate::features::writer::{self, FeatureRow};
 use crate::git::{DiffHunk, GitRepo, Sha};
 use crate::store::Store;
@@ -85,14 +87,13 @@ struct EmitCtx<'a> {
     parent: &'a str,
     commit_idx: i64,
     time: i64,
-    hunks: &'a [DiffHunk],
     srcf: &'a [String],
     funcs: &'a [String],
-    old_sources: &'a HashMap<String, String>,
     history: &'a HistoryState,
     cochange: &'a CoChangeState,
     imp_dist_for: &'a dyn Fn(&str) -> i64,
-    cov: &'a crate::features::coverage::CovSnapshot,
+    cov: &'a CovSnapshot,
+    cov_prep: &'a [CovSrcPrep],
     ch_nfiles: i64,
     ch_nsrc: i64,
     ch_add: i64,
@@ -115,9 +116,7 @@ fn emit_row(ctx: &EmitCtx<'_>, test_id: &str, outcome: &str, flaky: bool) -> Fea
         cov_breadth,
         cov_mod,
         cov_lag,
-    } = ctx
-        .cov
-        .features_for(test_id, ctx.srcf, ctx.hunks, ctx.old_sources, imp_dist);
+    } = ctx.cov.features_for(test_id, ctx.cov_prep, imp_dist);
 
     FeatureRow {
         repo: ctx.repo_name.to_string(),
@@ -178,6 +177,7 @@ pub fn compute_dump_rows<R: GitRepo>(
     let mut processed: Vec<String> = Vec::new();
     let mut rows = Vec::new();
     let mut commit_idx = 0i64;
+    let mut topo_idx = 0usize;
 
     for meta in &commits {
         let sha = meta.sha.as_str();
@@ -189,8 +189,11 @@ pub fn compute_dump_rows<R: GitRepo>(
                     cov_source_sha = Some(sha.to_string());
                 }
             }
-            let _ = save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref());
+            if should_save_snapshot(topo_idx, false) {
+                let _ = save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref());
+            }
             processed.push(sha.to_string());
+            topo_idx += 1;
             continue;
         };
 
@@ -201,8 +204,11 @@ pub fn compute_dump_rows<R: GitRepo>(
                     cov_source_sha = Some(sha.to_string());
                 }
             }
-            let _ = save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref());
+            if should_save_snapshot(topo_idx, false) {
+                let _ = save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref());
+            }
             processed.push(sha.to_string());
+            topo_idx += 1;
             continue;
         };
 
@@ -247,6 +253,7 @@ pub fn compute_dump_rows<R: GitRepo>(
         let results = store.results_for_run(primary_id)?;
         commit_idx += 1;
         let t0 = meta.author_ts;
+        let cov_prep = CovSnapshot::prepare_src(&srcf, &hunks, &old_sources);
 
         for r in &results {
             let ctx = EmitCtx {
@@ -255,14 +262,13 @@ pub fn compute_dump_rows<R: GitRepo>(
                 parent: &parent_s,
                 commit_idx,
                 time: t0,
-                hunks: &hunks,
                 srcf: &srcf,
                 funcs: &funcs,
-                old_sources: &old_sources,
                 history: &history,
                 cochange: &cochange,
                 imp_dist_for: &imp_dist_for,
                 cov: &cov,
+                cov_prep: &cov_prep,
                 ch_nfiles,
                 ch_nsrc,
                 ch_add,
@@ -304,8 +310,11 @@ pub fn compute_dump_rows<R: GitRepo>(
                 cov_source_sha = Some(sha.to_string());
             }
         }
-        save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref())?;
+        if should_save_snapshot(topo_idx, true) {
+            save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref())?;
+        }
         processed.push(sha.to_string());
+        topo_idx += 1;
     }
 
     writer::sort_rows(&mut rows);
@@ -324,10 +333,19 @@ pub fn dump_parquet<R: GitRepo>(
     Ok(n)
 }
 
+fn show_timings_enabled() -> bool {
+    std::env::var_os("TESTPILOT_SHOW_TIMINGS").is_some()
+}
+
+fn mark(t0: std::time::Instant) -> f64 {
+    t0.elapsed().as_secs_f64() * 1000.0
+}
+
 /// Features for a single change `base..head` (or worktree — caller supplies hunks).
 ///
-/// Loads a dump-time history snapshot at `base` (or nearest first-parent ancestor)
-/// instead of replaying the full topo walk.
+/// Loads a dump-time history snapshot at `base` (or nearest first-parent ancestor
+/// plus topo catch-up). Missing snapshots are an error (W2-12): never silently invent
+/// first-parent-only history.
 pub fn compute_show_rows<R: GitRepo>(
     repo: &R,
     store: &Store,
@@ -337,55 +355,49 @@ pub fn compute_show_rows<R: GitRepo>(
     hunks: &[DiffHunk],
 ) -> Result<Vec<FeatureRow>> {
     let base_s = base.as_str().to_string();
+    let timed = show_timings_enabled();
+    let t_all = std::time::Instant::now();
 
-    // W2-8: never walk_topo_old_to_new(None, None). Prefer snapshot at base.
+    let t = std::time::Instant::now();
     let (history, cochange, cov_source_sha) = match find_snapshot_on_lineage(store, &base_s)? {
         Some((snap_sha, h, c, cov)) if snap_sha == base_s => (h, c, cov),
         Some((snap_sha, mut h, mut c, mut cov)) => {
-            // Short catch-up along first-parent chain from snap_sha → base.
-            catch_up_first_parent(repo, store, &snap_sha, &base_s, &mut h, &mut c, &mut cov)?;
+            // Short topo catch-up: same emit-then-update rules as dump, only for
+            // ancestors of `base` after `snap_sha` (W2-12 option b).
+            catch_up_topo(repo, store, &snap_sha, &base_s, &mut h, &mut c, &mut cov)?;
             (h, c, cov)
         }
         None => {
-            // No snapshot yet — build via first-parent chain only (not full topo).
-            let mut h = HistoryState::new();
-            let mut c = CoChangeState::new();
-            let mut cov = None;
-            catch_up_first_parent(repo, store, "", &base_s, &mut h, &mut c, &mut cov)?;
-            (h, c, cov)
+            return Err(Error::Other(format!(
+                "no feature snapshot for {base_s}; run `testpilot features dump` first"
+            )));
         }
     };
+    let ms_snap = mark(t);
 
-    // Tests: last clean run at base or earlier (SQLite first-parent only).
-    let mut test_run = store.last_clean_run_with_results(base.as_str())?;
-    if test_run.is_none() {
-        let mut cur = base.as_str().to_string();
-        for _ in 0..10_000 {
-            let Some(p) = store.first_parent(&cur)? else {
-                break;
-            };
-            test_run = store.last_clean_run_with_results(&p)?;
-            if test_run.is_some() {
-                break;
-            }
-            cur = p;
-        }
-    }
-    let Some(run_id) = test_run else {
+    // Tests: last clean run at base or any ancestor (all parents), preferring newest author_ts.
+    let t = std::time::Instant::now();
+    let Some(run_id) = last_clean_run_at_or_before(store, &base_s)? else {
         return Ok(vec![]);
     };
     let results = store.results_for_run(run_id)?;
+    let ms_tests = mark(t);
 
+    let t = std::time::Instant::now();
     let srcf = src_files(hunks);
     let old_sources = old_sources_for_hunks(repo, base, hunks)?;
     let funcs = all_changed_funcs(hunks, &old_sources);
     let (ch_nfiles, ch_nsrc, ch_add, ch_rm, _) = change_size_stats(hunks);
     let ch_nfunc = funcs.len() as i64;
     let changed_paths: HashSet<String> = hunks.iter().map(|h| h.path.clone()).collect();
+    let ms_diff = mark(t);
 
+    let t = std::time::Instant::now();
     let cov = resolve_cov_from_source(store, &base_s, cov_source_sha.as_deref())?;
+    let cov_prep = CovSnapshot::prepare_src(&srcf, hunks, &old_sources);
+    let ms_cov = mark(t);
 
-    // Import graph: index all paths for resolution, parse only seeds (srcf + tests).
+    let t = std::time::Instant::now();
     let all_paths = repo.list_paths_at_rev(base)?;
     let py_index: Vec<String> = all_paths
         .into_iter()
@@ -402,15 +414,23 @@ pub fn compute_show_rows<R: GitRepo>(
     }
     let seed_list: Vec<String> = seeds.into_iter().collect();
     let graph = build_import_graph_seeded(repo, store, base, &seed_list, &py_index)?;
-    let srcf_owned = srcf.clone();
-    let imp_dist_for = |tf: &str| graph.dist(tf, &srcf_owned);
+    let mut dist_cache: HashMap<String, i64> = HashMap::new();
+    for r in &results {
+        let tf = test_file_of(&r.test_id);
+        dist_cache
+            .entry(tf.clone())
+            .or_insert_with(|| graph.dist(&tf, &srcf));
+    }
+    let imp_dist_for = |tf: &str| dist_cache.get(tf).copied().unwrap_or(99);
+    let ms_imports = mark(t);
 
     let t0 = store
         .commit_author_ts(head.as_str())?
         .or(store.commit_author_ts(base.as_str())?)
         .unwrap_or(0);
 
-    let mut rows = Vec::new();
+    let t = std::time::Instant::now();
+    let mut rows = Vec::with_capacity(results.len());
     for r in &results {
         let ctx = EmitCtx {
             repo_name,
@@ -418,14 +438,13 @@ pub fn compute_show_rows<R: GitRepo>(
             parent: base.as_str(),
             commit_idx: 0,
             time: t0,
-            hunks,
             srcf: &srcf,
             funcs: &funcs,
-            old_sources: &old_sources,
             history: &history,
             cochange: &cochange,
             imp_dist_for: &imp_dist_for,
             cov: &cov,
+            cov_prep: &cov_prep,
             ch_nfiles,
             ch_nsrc,
             ch_add,
@@ -436,12 +455,77 @@ pub fn compute_show_rows<R: GitRepo>(
         rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky));
     }
     writer::sort_rows(&mut rows);
+    let ms_emit = mark(t);
+
+    if timed {
+        eprintln!(
+            "show timings_ms: snapshot={ms_snap:.1} tests={ms_tests:.1} diff={ms_diff:.1} \
+             cov={ms_cov:.1} imports={ms_imports:.1} emit={ms_emit:.1} total={:.1} rows={}",
+            mark(t_all),
+            rows.len()
+        );
+    }
+
     Ok(rows)
 }
 
-/// Apply history updates for first-parent commits after `after_sha` up to and including `until_sha`.
-/// If `after_sha` is empty, start from the root of the first-parent chain.
-fn catch_up_first_parent<R: GitRepo>(
+/// Last clean run on `base` or an ancestor.
+///
+/// Fast path: exact sha, then first-parent chain. If still none, BFS over all parents
+/// (merge second-parent lineage) and pick the newest by author_ts.
+fn last_clean_run_at_or_before(store: &Store, base: &str) -> Result<Option<i64>> {
+    if let Some(run_id) = store.last_clean_run_with_results(base)? {
+        return Ok(Some(run_id));
+    }
+    let mut cur = base.to_string();
+    for _ in 0..100_000 {
+        let Some(p) = store.first_parent(&cur)? else {
+            break;
+        };
+        if let Some(run_id) = store.last_clean_run_with_results(&p)? {
+            return Ok(Some(run_id));
+        }
+        cur = p;
+    }
+
+    let mut best: Option<(i64, i64)> = None; // (author_ts, run_id)
+    let mut stack = vec![base.to_string()];
+    let mut seen = HashSet::new();
+    while let Some(sha) = stack.pop() {
+        if !seen.insert(sha.clone()) {
+            continue;
+        }
+        if let Some(run_id) = store.last_clean_run_with_results(&sha)? {
+            let ts = store.commit_author_ts(&sha)?.unwrap_or(0);
+            best = Some(match best {
+                Some((bts, brid)) if bts > ts || (bts == ts && brid > run_id) => (bts, brid),
+                _ => (ts, run_id),
+            });
+        }
+        for p in store.all_parents(&sha)? {
+            stack.push(p);
+        }
+    }
+    Ok(best.map(|(_, id)| id))
+}
+
+fn ancestor_set(store: &Store, tip: &str) -> Result<HashSet<String>> {
+    let mut out = HashSet::new();
+    let mut stack = vec![tip.to_string()];
+    while let Some(sha) = stack.pop() {
+        if !out.insert(sha.clone()) {
+            continue;
+        }
+        for p in store.all_parents(&sha)? {
+            stack.push(p);
+        }
+    }
+    Ok(out)
+}
+
+/// Replay dump-style history updates for topo commits after `after_sha` up to `until_sha`,
+/// restricted to ancestors of `until_sha` (includes `until_sha`, excludes `after_sha`).
+fn catch_up_topo<R: GitRepo>(
     repo: &R,
     store: &Store,
     after_sha: &str,
@@ -450,64 +534,68 @@ fn catch_up_first_parent<R: GitRepo>(
     cochange: &mut CoChangeState,
     cov_source_sha: &mut Option<String>,
 ) -> Result<()> {
-    // Collect first-parent chain from until back to after (exclusive), then reverse.
-    let mut chain_rev = Vec::new();
-    let mut cur = until_sha.to_string();
-    for _ in 0..100_000 {
-        if !after_sha.is_empty() && cur == after_sha {
+    let ancestors = ancestor_set(store, until_sha)?;
+    // Walk only the segment after the snapshot tip — still bounded by every-K gap in practice.
+    let commits = repo.walk_topo_old_to_new(Some(after_sha), None)?;
+    for meta in commits {
+        let sha = meta.sha.as_str();
+        if !ancestors.contains(sha) {
+            continue;
+        }
+        apply_history_update_for_commit(repo, store, sha, history, cochange, cov_source_sha)?;
+        if sha == until_sha {
             break;
         }
-        chain_rev.push(cur.clone());
-        let Some(p) = store.first_parent(&cur)? else {
-            break;
-        };
-        if !after_sha.is_empty() && p == after_sha {
-            break;
-        }
-        cur = p;
     }
-    chain_rev.reverse();
+    Ok(())
+}
 
-    for sha in chain_rev {
-        if let Some(primary_id) = store.last_clean_run_with_results(&sha)? {
-            let parent = store
-                .first_parent(&sha)?
-                .map(Sha::from_hex)
-                .unwrap_or_else(|| Sha::from_hex(sha.clone()));
-            let meta_sha = Sha::from_hex(&sha);
-            let hs = repo.diff_hunks(&parent, &meta_sha).unwrap_or_default();
-            let srcf = src_files(&hs);
-            let old_sources = old_sources_for_hunks(repo, &parent, &hs)?;
-            let funcs = all_changed_funcs(&hs, &old_sources);
-            let results = store.results_for_run(primary_id)?;
-            let t0 = store.commit_author_ts(&sha)?.unwrap_or(0);
-            for r in &results {
-                let tf = test_file_of(&r.test_id);
-                history.update_primary(
-                    &r.test_id,
-                    &tf,
-                    &r.outcome,
-                    r.flaky,
-                    r.duration_ms,
-                    t0,
-                    &srcf,
-                    &funcs,
-                );
-            }
-            for other_id in store.other_clean_runs(&sha, primary_id)? {
-                for r in store.results_for_run(other_id)? {
-                    history.update_flaky_only(&r.test_id, r.flaky);
-                }
-            }
-            let mut files = store.file_paths_for_commit(&sha)?;
-            if files.is_empty() {
-                files = hs.iter().map(|h| h.path.clone()).collect();
-            }
-            cochange.record(&files, t0);
+fn apply_history_update_for_commit<R: GitRepo>(
+    repo: &R,
+    store: &Store,
+    sha: &str,
+    history: &mut HistoryState,
+    cochange: &mut CoChangeState,
+    cov_source_sha: &mut Option<String>,
+) -> Result<()> {
+    if let Some(primary_id) = store.last_clean_run_with_results(sha)? {
+        let parent = store
+            .first_parent(sha)?
+            .map(Sha::from_hex)
+            .unwrap_or_else(|| Sha::from_hex(sha.to_string()));
+        let meta_sha = Sha::from_hex(sha);
+        let hs = repo.diff_hunks(&parent, &meta_sha).unwrap_or_default();
+        let srcf = src_files(&hs);
+        let old_sources = old_sources_for_hunks(repo, &parent, &hs)?;
+        let funcs = all_changed_funcs(&hs, &old_sources);
+        let results = store.results_for_run(primary_id)?;
+        let t0 = store.commit_author_ts(sha)?.unwrap_or(0);
+        for r in &results {
+            let tf = test_file_of(&r.test_id);
+            history.update_primary(
+                &r.test_id,
+                &tf,
+                &r.outcome,
+                r.flaky,
+                r.duration_ms,
+                t0,
+                &srcf,
+                &funcs,
+            );
         }
-        if let Ok(Some(_)) = store.last_clean_run_with_coverage(&sha) {
-            *cov_source_sha = Some(sha);
+        for other_id in store.other_clean_runs(sha, primary_id)? {
+            for r in store.results_for_run(other_id)? {
+                history.update_flaky_only(&r.test_id, r.flaky);
+            }
         }
+        let mut files = store.file_paths_for_commit(sha)?;
+        if files.is_empty() {
+            files = hs.iter().map(|h| h.path.clone()).collect();
+        }
+        cochange.record(&files, t0);
+    }
+    if let Ok(Some(_)) = store.last_clean_run_with_coverage(sha) {
+        *cov_source_sha = Some(sha.to_string());
     }
     Ok(())
 }

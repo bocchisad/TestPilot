@@ -14,10 +14,10 @@ pub struct TestStats {
 #[derive(Debug, Default)]
 pub struct HistoryState {
     pub tests: HashMap<String, TestStats>,
-    /// (file, test) → (fails, samples)
-    pub file_test: HashMap<(String, String), (i64, i64)>,
-    /// (func_qual, test) → (fails, samples)
-    pub func_test: HashMap<(String, String), (i64, i64)>,
+    /// test_id → file → (fails, samples)
+    pub file_test: HashMap<String, HashMap<String, (i64, i64)>>,
+    /// test_id → func_qual → (fails, samples)
+    pub func_test: HashMap<String, HashMap<String, (i64, i64)>>,
     /// test_file → distinct tests observed
     pub tests_in_file: HashMap<String, std::collections::HashSet<String>>,
 }
@@ -72,9 +72,12 @@ impl HistoryState {
     }
 
     pub fn pf_max(&self, srcf: &[String], test_id: &str) -> f64 {
+        let Some(by_file) = self.file_test.get(test_id) else {
+            return -1.0;
+        };
         let mut best: Option<f64> = None;
         for f in srcf {
-            if let Some(&(fails, samples)) = self.file_test.get(&(f.clone(), test_id.to_string())) {
+            if let Some(&(fails, samples)) = by_file.get(f) {
                 if samples > 0 {
                     let r = fails as f64 / samples as f64;
                     best = Some(best.map_or(r, |b| b.max(r)));
@@ -85,9 +88,12 @@ impl HistoryState {
     }
 
     pub fn pq_max(&self, funcs: &[String], test_id: &str) -> f64 {
+        let Some(by_func) = self.func_test.get(test_id) else {
+            return -1.0;
+        };
         let mut best: Option<f64> = None;
         for q in funcs {
-            if let Some(&(fails, samples)) = self.func_test.get(&(q.clone(), test_id.to_string())) {
+            if let Some(&(fails, samples)) = by_func.get(q) {
                 if samples > 0 {
                     let r = fails as f64 / samples as f64;
                     best = Some(best.map_or(r, |b| b.max(r)));
@@ -95,6 +101,42 @@ impl HistoryState {
             }
         }
         best.unwrap_or(-1.0)
+    }
+
+    /// Flat rows for snapshot serialization: (file, test, fails, samples).
+    pub fn file_test_rows(&self) -> Vec<(String, String, i64, i64)> {
+        let mut rows = Vec::new();
+        for (test, by_file) in &self.file_test {
+            for (file, (fails, samples)) in by_file {
+                rows.push((file.clone(), test.clone(), *fails, *samples));
+            }
+        }
+        rows
+    }
+
+    /// Flat rows for snapshot serialization: (func, test, fails, samples).
+    pub fn func_test_rows(&self) -> Vec<(String, String, i64, i64)> {
+        let mut rows = Vec::new();
+        for (test, by_func) in &self.func_test {
+            for (func, (fails, samples)) in by_func {
+                rows.push((func.clone(), test.clone(), *fails, *samples));
+            }
+        }
+        rows
+    }
+
+    pub fn insert_file_test(&mut self, file: String, test: String, fails: i64, samples: i64) {
+        self.file_test
+            .entry(test)
+            .or_default()
+            .insert(file, (fails, samples));
+    }
+
+    pub fn insert_func_test(&mut self, func: String, test: String, fails: i64, samples: i64) {
+        self.func_test
+            .entry(test)
+            .or_default()
+            .insert(func, (fails, samples));
     }
 
     /// Primary-run update (counts as an observation for fail/obs/dur/age/file/func).
@@ -129,21 +171,17 @@ impl HistoryState {
             .or_default()
             .insert(test_id.to_string());
 
+        let by_file = self.file_test.entry(test_id.to_string()).or_default();
         for f in srcf {
-            let e = self
-                .file_test
-                .entry((f.clone(), test_id.to_string()))
-                .or_insert((0, 0));
+            let e = by_file.entry(f.clone()).or_insert((0, 0));
             e.1 += 1;
             if failed {
                 e.0 += 1;
             }
         }
+        let by_func = self.func_test.entry(test_id.to_string()).or_default();
         for q in funcs {
-            let e = self
-                .func_test
-                .entry((q.clone(), test_id.to_string()))
-                .or_insert((0, 0));
+            let e = by_func.entry(q.clone()).or_insert((0, 0));
             e.1 += 1;
             if failed {
                 e.0 += 1;

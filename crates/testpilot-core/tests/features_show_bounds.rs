@@ -214,3 +214,158 @@ fn show_uses_snapshot_not_full_walk_and_ignores_post_base_runs() {
         f.list_paths
     );
 }
+
+#[test]
+fn show_without_snapshots_errors_clearly() {
+    // W2-12: deleting snapshots must not silently invent first-parent history.
+    const N: usize = 40;
+    const BASE: usize = 20;
+    const HEAD: usize = 30;
+
+    let mut commits = Vec::new();
+    for i in 0..N {
+        // Introduce a merge at 15: parents 14 and 10 (second parent brings side history).
+        let parents = if i == 0 {
+            vec![]
+        } else if i == 15 {
+            vec![Sha::from_hex(sha_n(14)), Sha::from_hex(sha_n(10))]
+        } else {
+            vec![Sha::from_hex(sha_n(i - 1))]
+        };
+        commits.push(CommitMeta {
+            sha: Sha::from_hex(sha_n(i)),
+            author_ts: i as i64,
+            message: format!("c{i}"),
+            parents,
+        });
+    }
+
+    let repo = CountingRepo {
+        commits,
+        forbidden: Rc::new(RefCell::new(HashSetWrap::default())),
+        walk_calls: Rc::new(Cell::new(0usize)),
+        base: sha_n(BASE),
+        allow_walk: Cell::new(true),
+    };
+    let mut store = Store::open_in_memory().unwrap();
+    for i in 0..N {
+        let parents = if i == 0 {
+            vec![]
+        } else if i == 15 {
+            vec![sha_n(14), sha_n(10)]
+        } else {
+            vec![sha_n(i - 1)]
+        };
+        let _ = store.insert_commit(&testpilot_core::store::CommitRow {
+            sha: sha_n(i),
+            author_ts: i as i64,
+            message: format!("c{i}"),
+            oversized: false,
+            parents,
+        });
+    }
+    for i in [5usize, 12, BASE] {
+        seed_run(&mut store, i);
+    }
+
+    let with_snap = {
+        repo.allow_walk.set(true);
+        let _ = compute_dump_rows(&repo, &store, "fixture").unwrap();
+        assert!(store.count_feature_history_snapshots().unwrap() > 0);
+        repo.allow_walk.set(false);
+        let base = Sha::from_hex(sha_n(BASE));
+        let head = Sha::from_hex(sha_n(HEAD));
+        let hunks = vec![DiffHunk {
+            path: "pkg/a.py".into(),
+            old_path: None,
+            change_type: 'M',
+            old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            is_binary: false,
+        }];
+        compute_show_rows(&repo, &store, "fixture", &base, &head, &hunks).unwrap()
+    };
+    assert!(!with_snap.is_empty());
+
+    store.clear_feature_history_snapshots().unwrap();
+    repo.allow_walk.set(false);
+    let base = Sha::from_hex(sha_n(BASE));
+    let head = Sha::from_hex(sha_n(HEAD));
+    let hunks = vec![DiffHunk {
+        path: "pkg/a.py".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        is_binary: false,
+    }];
+    let err = compute_show_rows(&repo, &store, "fixture", &base, &head, &hunks).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no feature snapshot") && msg.contains("features dump"),
+        "expected clear dump hint, got: {msg}"
+    );
+}
+
+#[test]
+fn show_base_behind_head_uses_last_clean_run_at_or_before_base() {
+    // W2-15: base far behind head still returns tests from last clean run ≤ base.
+    const N: usize = 30;
+    const RUN_AT: usize = 5;
+    const BASE: usize = 20;
+    const HEAD: usize = 29;
+
+    let mut commits = Vec::new();
+    for i in 0..N {
+        let parents = if i == 0 {
+            vec![]
+        } else {
+            vec![Sha::from_hex(sha_n(i - 1))]
+        };
+        commits.push(CommitMeta {
+            sha: Sha::from_hex(sha_n(i)),
+            author_ts: i as i64,
+            message: format!("c{i}"),
+            parents,
+        });
+    }
+    let repo = CountingRepo {
+        commits,
+        forbidden: Rc::new(RefCell::new(HashSetWrap::default())),
+        walk_calls: Rc::new(Cell::new(0usize)),
+        base: sha_n(BASE),
+        allow_walk: Cell::new(true),
+    };
+    let mut store = Store::open_in_memory().unwrap();
+    for i in 0..N {
+        let parents = if i == 0 { vec![] } else { vec![sha_n(i - 1)] };
+        let _ = store.insert_commit(&testpilot_core::store::CommitRow {
+            sha: sha_n(i),
+            author_ts: i as i64,
+            message: format!("c{i}"),
+            oversized: false,
+            parents,
+        });
+    }
+    seed_run(&mut store, RUN_AT);
+    // No runs between RUN_AT and HEAD — show(base=20) must still find run at 5.
+    let _ = compute_dump_rows(&repo, &store, "fixture").unwrap();
+
+    repo.allow_walk.set(false);
+    let base = Sha::from_hex(sha_n(BASE));
+    let head = Sha::from_hex(sha_n(HEAD));
+    let hunks = vec![DiffHunk {
+        path: "pkg/a.py".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        is_binary: false,
+    }];
+    let rows = compute_show_rows(&repo, &store, "fixture", &base, &head, &hunks).unwrap();
+    assert!(
+        !rows.is_empty(),
+        "expected tests from clean run at {RUN_AT} (≤ base {BASE})"
+    );
+    assert_eq!(rows[0].test, "tests/test_a.py::test_alpha");
+}

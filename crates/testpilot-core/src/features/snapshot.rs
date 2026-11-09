@@ -7,6 +7,13 @@ use crate::features::cochange::CoChangeState;
 use crate::features::history::{HistoryState, TestStats};
 use crate::store::Store;
 
+/// Magic prefix for zstd(postcard(FeatureSnapshot)) payloads.
+const SNAP_MAGIC: &[u8] = b"TPZS";
+
+/// Optional stride for sparse snapshots (1 = every commit). Compression is the
+/// primary size lever; K>1 requires topo catch-up on show.
+pub const SNAPSHOT_EVERY_K: usize = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureSnapshot {
     pub history: HistorySer,
@@ -62,16 +69,8 @@ impl From<&HistoryState> for HistorySer {
                     )
                 })
                 .collect(),
-            file_test: h
-                .file_test
-                .iter()
-                .map(|((f, t), (a, b))| (f.clone(), t.clone(), *a, *b))
-                .collect(),
-            func_test: h
-                .func_test
-                .iter()
-                .map(|((f, t), (a, b))| (f.clone(), t.clone(), *a, *b))
-                .collect(),
+            file_test: h.file_test_rows(),
+            func_test: h.func_test_rows(),
             tests_in_file: h
                 .tests_in_file
                 .iter()
@@ -97,10 +96,10 @@ impl From<HistorySer> for HistoryState {
             );
         }
         for (f, t, a, b) in s.file_test {
-            h.file_test.insert((f, t), (a, b));
+            h.insert_file_test(f, t, a, b);
         }
         for (f, t, a, b) in s.func_test {
-            h.func_test.insert((f, t), (a, b));
+            h.insert_func_test(f, t, a, b);
         }
         for (k, v) in s.tests_in_file {
             h.tests_in_file.insert(k, v.into_iter().collect());
@@ -134,6 +133,27 @@ impl From<CoChangeSer> for CoChangeState {
     }
 }
 
+fn encode_payload(snap: &FeatureSnapshot) -> Result<Vec<u8>> {
+    let raw = postcard::to_allocvec(snap).map_err(|e| Error::Other(e.to_string()))?;
+    let compressed =
+        zstd::encode_all(raw.as_slice(), 3).map_err(|e| Error::Other(e.to_string()))?;
+    let mut out = Vec::with_capacity(SNAP_MAGIC.len() + compressed.len());
+    out.extend_from_slice(SNAP_MAGIC);
+    out.extend_from_slice(&compressed);
+    Ok(out)
+}
+
+fn decode_payload(blob: &[u8]) -> Result<FeatureSnapshot> {
+    if let Some(rest) = blob.strip_prefix(SNAP_MAGIC) {
+        let raw = zstd::decode_all(rest).map_err(|e| Error::Other(e.to_string()))?;
+        return postcard::from_bytes(&raw).map_err(|e| Error::Other(e.to_string()));
+    }
+    // Legacy v4 JSON pair was stored as history_json TEXT; callers migrate via re-dump.
+    Err(Error::Other(
+        "unsupported feature snapshot format (re-run `testpilot features dump`)".into(),
+    ))
+}
+
 pub fn save_snapshot(
     store: &Store,
     sha: &str,
@@ -146,34 +166,33 @@ pub fn save_snapshot(
         cochange: CoChangeSer::from(cochange),
         cov_source_sha: cov_source_sha.map(|s| s.to_string()),
     };
-    let history_json =
-        serde_json::to_string(&snap.history).map_err(|e| Error::Other(e.to_string()))?;
-    let cochange_json =
-        serde_json::to_string(&snap.cochange).map_err(|e| Error::Other(e.to_string()))?;
-    store.put_feature_history_snapshot(
-        sha,
-        &history_json,
-        &cochange_json,
-        snap.cov_source_sha.as_deref(),
-    )
+    let payload = encode_payload(&snap)?;
+    store.put_feature_history_snapshot(sha, &payload, snap.cov_source_sha.as_deref())
 }
 
 pub fn load_snapshot(
     store: &Store,
     sha: &str,
 ) -> Result<Option<(HistoryState, CoChangeState, Option<String>)>> {
-    let Some((hj, cj, cov)) = store.get_feature_history_snapshot(sha)? else {
+    let Some((payload, cov)) = store.get_feature_history_snapshot(sha)? else {
         return Ok(None);
     };
-    let history_ser: HistorySer =
-        serde_json::from_str(&hj).map_err(|e| Error::Other(e.to_string()))?;
-    let cochange_ser: CoChangeSer =
-        serde_json::from_str(&cj).map_err(|e| Error::Other(e.to_string()))?;
+    let snap = decode_payload(&payload)?;
     Ok(Some((
-        HistoryState::from(history_ser),
-        CoChangeState::from(cochange_ser),
-        cov,
+        HistoryState::from(snap.history),
+        CoChangeState::from(snap.cochange),
+        cov.or(snap.cov_source_sha),
     )))
+}
+
+/// Whether dump should persist a snapshot after processing this topo index.
+pub fn should_save_snapshot(topo_idx: usize, had_primary_run: bool) -> bool {
+    // K==1 → every commit (default). Larger K is for experiments; keep catch-up correct.
+    let k = std::cmp::max(SNAPSHOT_EVERY_K, 1);
+    if k == 1 {
+        return true;
+    }
+    had_primary_run || topo_idx.rem_euclid(k) == 0
 }
 
 /// Snapshot found on first-parent lineage: `(sha, history, cochange, cov_source_sha)`.
