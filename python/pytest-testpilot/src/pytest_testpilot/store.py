@@ -5,8 +5,34 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 5
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+_MIGRATE_2_TO_3 = """
+CREATE TABLE IF NOT EXISTS python_blob_cache (
+  blob_sha TEXT PRIMARY KEY,
+  imports_json TEXT NOT NULL,
+  defs_json TEXT NOT NULL
+);
+"""
+
+_MIGRATE_3_TO_4 = """
+CREATE TABLE IF NOT EXISTS feature_history_snapshot (
+  sha TEXT PRIMARY KEY,
+  history_json TEXT NOT NULL,
+  cochange_json TEXT NOT NULL,
+  cov_source_sha TEXT
+);
+"""
+
+_MIGRATE_4_TO_5 = """
+DROP TABLE IF EXISTS feature_history_snapshot;
+CREATE TABLE feature_history_snapshot (
+  sha TEXT PRIMARY KEY,
+  payload BLOB NOT NULL,
+  cov_source_sha TEXT
+);
+"""
 
 
 class StoreError(RuntimeError):
@@ -49,6 +75,19 @@ class Store:
         if row is not None:
             found = int(row[0])
             if found == SCHEMA_VERSION:
+                return
+            # Additive upgrades only; v1 still requires delete.
+            if found in (2, 3, 4) and SCHEMA_VERSION == 5:
+                if found == 2:
+                    self.conn.executescript(_MIGRATE_2_TO_3)
+                if found <= 3:
+                    self.conn.executescript(_MIGRATE_3_TO_4)
+                if found <= 4:
+                    self.conn.executescript(_MIGRATE_4_TO_5)
+                self.conn.execute(
+                    "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
+                )
+                self.conn.commit()
                 return
             raise StoreError(schema_version_message(found))
 

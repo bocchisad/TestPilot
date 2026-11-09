@@ -1,6 +1,7 @@
 pub mod codec;
 pub mod collect_junit;
 pub mod error;
+pub mod features;
 pub mod git;
 pub mod junit;
 pub mod stats;

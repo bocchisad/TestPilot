@@ -5,7 +5,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use testpilot_core::codec;
 use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
-use testpilot_core::git::{GixRepo, collect_git};
+use testpilot_core::features::{self, FEATURES_VERSION};
+use testpilot_core::git::{GitRepo, GixRepo, collect_git};
 use testpilot_core::stats;
 use testpilot_core::store::Store;
 
@@ -33,6 +34,9 @@ enum Commands {
     Init,
     #[command(subcommand)]
     Collect(CollectCmd),
+    /// Feature vectors for (change, test) pairs
+    #[command(subcommand)]
+    Features(FeaturesCmd),
     /// Print database summary
     Stats {
         #[arg(long)]
@@ -40,6 +44,42 @@ enum Commands {
     },
     #[command(subcommand)]
     Debug(DebugCmd),
+}
+
+#[derive(Subcommand, Debug)]
+enum FeaturesCmd {
+    /// Dump training pairs over history to Parquet
+    Dump {
+        #[arg(long)]
+        out: PathBuf,
+        /// Git repository root (default: cwd)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
+    /// Features for one change (input to week-4 select).
+    /// Test list = last clean run at/before --base. Future: `--tests-from FILE`
+    /// (`pytest --collect-only -q` output) — week 4, not implemented yet.
+    Show {
+        #[arg(long)]
+        base: String,
+        #[arg(long, conflicts_with = "worktree")]
+        head: Option<String>,
+        /// Diff base against the worktree (dirty)
+        #[arg(long)]
+        worktree: bool,
+        #[arg(long, default_value = "table")]
+        format: String,
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Git repository root (default: cwd)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
+    /// Print or verify the feature column lockfile
+    Schema {
+        #[arg(long)]
+        check: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -150,6 +190,80 @@ fn run() -> Result<()> {
                 );
             }
         }
+        Commands::Features(FeaturesCmd::Dump { out, repo }) => {
+            let repo_path = resolve_repo_path(repo.as_deref())?;
+            let db = resolve_db_path_for(cli.db.as_deref(), &repo_path)?;
+            let store = Store::open(&db).context("open db")?;
+            let grepo = GixRepo::open(&repo_path).context("open git repo")?;
+            let repo_name = repo_path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| ".".into());
+            let n = features::dump_parquet(&grepo, &store, &repo_name, &out)
+                .context("features dump")?;
+            println!(
+                "wrote {n} rows (features_version={FEATURES_VERSION}) to {}",
+                out.display()
+            );
+        }
+        Commands::Features(FeaturesCmd::Show {
+            base,
+            head,
+            worktree,
+            format,
+            out,
+            repo,
+        }) => {
+            let repo_path = resolve_repo_path(repo.as_deref())?;
+            let db = resolve_db_path_for(cli.db.as_deref(), &repo_path)?;
+            let store = Store::open(&db).context("open db")?;
+            let grepo = GixRepo::open(&repo_path).context("open git repo")?;
+            let base_sha = grepo.rev_parse(&base).context("resolve --base")?;
+            let (head_sha, hunks) = if worktree {
+                let head_sha = grepo.rev_parse("HEAD").context("resolve HEAD")?;
+                let hunks = grepo.diff_worktree(&base_sha).context("worktree diff")?;
+                (head_sha, hunks)
+            } else {
+                let head = head.context("provide --head <rev> or --worktree")?;
+                let head_sha = grepo.rev_parse(&head).context("resolve --head")?;
+                let hunks = grepo
+                    .diff_hunks(&base_sha, &head_sha)
+                    .context("diff hunks")?;
+                (head_sha, hunks)
+            };
+            let repo_name = repo_path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| ".".into());
+            let rows = features::compute_show_rows(
+                &grepo, &store, &repo_name, &base_sha, &head_sha, &hunks,
+            )
+            .context("features show")?;
+            let text = features::show_format(&rows, &format, out.as_deref())?;
+            println!("{text}");
+        }
+        Commands::Features(FeaturesCmd::Schema { check }) => {
+            let json = features::schema_json();
+            if let Some(path) = check {
+                let existing = std::fs::read_to_string(&path)
+                    .with_context(|| format!("read {}", path.display()))?;
+                let expected: serde_json::Value = serde_json::from_str(&json)?;
+                let found: serde_json::Value = serde_json::from_str(&existing)
+                    .with_context(|| format!("parse {}", path.display()))?;
+                if expected != found {
+                    bail!(
+                        "features schema mismatch for {} (FEATURES_VERSION={FEATURES_VERSION})",
+                        path.display()
+                    );
+                }
+                println!(
+                    "ok: {} matches FEATURES_VERSION={FEATURES_VERSION}",
+                    path.display()
+                );
+            } else {
+                println!("{json}");
+            }
+        }
         Commands::Stats { json } => {
             let db = resolve_db_path(cli.db.as_deref())?;
             let store = Store::open(&db).context("open db")?;
@@ -190,13 +304,53 @@ fn run() -> Result<()> {
 }
 
 fn resolve_db_path(explicit: Option<&Path>) -> Result<PathBuf> {
+    resolve_db_path_for(explicit, Path::new("."))
+}
+
+fn resolve_repo_path(explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(p) = explicit {
         return Ok(p.to_path_buf());
     }
     if let Ok(root) = git_toplevel() {
+        return Ok(root);
+    }
+    Ok(PathBuf::from("."))
+}
+
+fn resolve_db_path_for(explicit: Option<&Path>, repo: &Path) -> Result<PathBuf> {
+    if let Some(p) = explicit {
+        return Ok(p.to_path_buf());
+    }
+    // Prefer .testpilot under the given repo path.
+    let under_repo = repo.join(".testpilot/db.sqlite");
+    if under_repo.exists() || explicit.is_none() {
+        // If repo is a git root, prefer its .testpilot even if not yet created.
+        if repo.join(".git").exists() || repo.join(".git").is_file() {
+            return Ok(under_repo);
+        }
+    }
+    if let Ok(root) = git_toplevel_at(repo) {
         return Ok(root.join(".testpilot/db.sqlite"));
     }
-    Ok(PathBuf::from(".testpilot/db.sqlite"))
+    if let Ok(root) = git_toplevel() {
+        return Ok(root.join(".testpilot/db.sqlite"));
+    }
+    Ok(under_repo)
+}
+
+fn git_toplevel_at(cwd: &Path) -> Result<PathBuf> {
+    let out = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(cwd)
+        .output()
+        .context("git rev-parse --show-toplevel")?;
+    if !out.status.success() {
+        bail!(
+            "not a git repository: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    Ok(PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
 }
 
 fn git_toplevel() -> Result<PathBuf> {

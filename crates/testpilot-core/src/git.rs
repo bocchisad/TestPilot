@@ -4,11 +4,13 @@
 //! sort (parents before children; author time as tie-break).
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use bytes::Bytes;
 use gix::diff::blob::Algorithm;
 use gix::diff::blob::intern::InternedInput;
-use gix::diff::blob::sink::Counter;
+use gix::diff::blob::sink::{Counter, Sink};
 use gix::object::tree::diff::{Action, Change};
 
 use crate::error::{Error, Result};
@@ -52,6 +54,25 @@ pub struct FileChange {
     pub is_binary: bool,
 }
 
+/// Inclusive 1-based line range `[start, end]` (both ends inclusive). Empty if start > end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineRange {
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiffHunk {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub change_type: char,
+    /// Changed lines on the old side (1-based inclusive). Empty for pure additions.
+    pub old_line_ranges: Vec<LineRange>,
+    /// Changed lines on the new side (1-based inclusive). Empty for pure deletions.
+    pub new_line_ranges: Vec<LineRange>,
+    pub is_binary: bool,
+}
+
 pub trait GitRepo {
     fn rev_parse(&self, rev: &str) -> Result<Sha>;
     /// All commits reachable from HEAD (optionally excluding `since_sha` and its ancestors),
@@ -62,6 +83,12 @@ pub trait GitRepo {
         since_date: Option<i64>,
     ) -> Result<Vec<CommitMeta>>;
     fn diff_against_first_parent(&self, sha: &Sha) -> Result<Vec<FileChange>>;
+    /// Blob bytes at `path` in tree of `sha`, or `None` if missing / not a blob.
+    fn file_at_rev(&self, sha: &Sha, path: &str) -> Result<Option<Bytes>>;
+    /// Structured hunks for `old_sha..new_sha` (trees). Oversized/binary → empty ranges + `is_binary`.
+    fn diff_hunks(&self, old_sha: &Sha, new_sha: &Sha) -> Result<Vec<DiffHunk>>;
+    /// All blob paths under the commit tree (files only).
+    fn list_paths_at_rev(&self, sha: &Sha) -> Result<Vec<String>>;
 }
 
 pub struct GixRepo {
@@ -77,6 +104,114 @@ impl GixRepo {
             path: path.to_path_buf(),
             repo,
         })
+    }
+
+    /// Diff `base` commit tree against the current worktree (dirty files).
+    pub fn diff_worktree(&self, base: &Sha) -> Result<Vec<DiffHunk>> {
+        let workdir = self
+            .repo
+            .work_dir()
+            .ok_or_else(|| Error::Git("repository has no worktree".into()))?;
+        // Prefer `git diff/ls-files` for the candidate set (avoids walking huge trees).
+        let mut candidates: HashSet<String> = HashSet::new();
+        let base_hex = base.as_str();
+        if let Ok(out) = std::process::Command::new("git")
+            .args(["diff", "--name-only", base_hex])
+            .current_dir(workdir)
+            .output()
+        {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if !line.is_empty() {
+                    candidates.insert(line.to_string());
+                }
+            }
+        }
+        if let Ok(out) = std::process::Command::new("git")
+            .args(["ls-files", "--others", "--exclude-standard"])
+            .current_dir(workdir)
+            .output()
+        {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if !line.is_empty() {
+                    candidates.insert(line.to_string());
+                }
+            }
+        }
+        // Also catch deletions of tracked base files removed from disk but missed by diff.
+        for path in self.list_paths_at_rev(base)? {
+            let wt = workdir.join(&path);
+            if !wt.exists() {
+                candidates.insert(path);
+            }
+        }
+
+        let mut hunks = Vec::new();
+        for path in candidates {
+            let old: Option<Vec<u8>> = self.file_at_rev(base, &path)?.map(|b| b.to_vec());
+            let wt_path = workdir.join(&path);
+            let new: Option<Vec<u8>> = if wt_path.is_file() {
+                Some(std::fs::read(&wt_path).map_err(|e| Error::Other(e.to_string()))?)
+            } else {
+                None
+            };
+            match (old, new) {
+                (None, None) => {}
+                (None, Some(n)) => {
+                    let (ranges, binary) = ranges_from_bytes(&n);
+                    hunks.push(DiffHunk {
+                        path,
+                        old_path: None,
+                        change_type: 'A',
+                        old_line_ranges: vec![],
+                        new_line_ranges: ranges,
+                        is_binary: binary,
+                    });
+                }
+                (Some(o), None) => {
+                    let (ranges, binary) = ranges_from_bytes(&o);
+                    hunks.push(DiffHunk {
+                        path,
+                        old_path: None,
+                        change_type: 'D',
+                        old_line_ranges: ranges,
+                        new_line_ranges: vec![],
+                        is_binary: binary,
+                    });
+                }
+                (Some(o), Some(n)) => {
+                    if o == n {
+                        continue;
+                    }
+                    if o.contains(&0) || n.contains(&0) {
+                        hunks.push(DiffHunk {
+                            path,
+                            old_path: None,
+                            change_type: 'M',
+                            old_line_ranges: vec![],
+                            new_line_ranges: vec![],
+                            is_binary: true,
+                        });
+                        continue;
+                    }
+                    let input = InternedInput::new(o.as_slice(), n.as_slice());
+                    let (old_r, new_r) = gix::diff::blob::diff(
+                        Algorithm::Histogram,
+                        &input,
+                        RangeCollector::default(),
+                    );
+                    hunks.push(DiffHunk {
+                        path,
+                        old_path: None,
+                        change_type: 'M',
+                        old_line_ranges: old_r,
+                        new_line_ranges: new_r,
+                        is_binary: false,
+                    });
+                }
+            }
+        }
+        hunks.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(hunks)
     }
 
     fn oid_to_sha(id: gix::ObjectId) -> Sha {
@@ -314,6 +449,271 @@ impl GitRepo for GixRepo {
 
         Ok(changes)
     }
+
+    fn file_at_rev(&self, sha: &Sha, path: &str) -> Result<Option<Bytes>> {
+        let oid = self.parse_oid(sha.as_str())?;
+        let commit = self
+            .repo
+            .find_commit(oid)
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let tree = commit.tree().map_err(|e| Error::Git(e.to_string()))?;
+        let entry = tree
+            .lookup_entry_by_path(path)
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let Some(entry) = entry else {
+            return Ok(None);
+        };
+        if !entry.mode().is_blob() && !entry.mode().is_executable() && !entry.mode().is_link() {
+            return Ok(None);
+        }
+        let blob = self
+            .repo
+            .find_blob(entry.id())
+            .map_err(|e| Error::Git(e.to_string()))?;
+        Ok(Some(Bytes::copy_from_slice(blob.data.as_slice())))
+    }
+
+    fn diff_hunks(&self, old_sha: &Sha, new_sha: &Sha) -> Result<Vec<DiffHunk>> {
+        let old_oid = self.parse_oid(old_sha.as_str())?;
+        let new_oid = self.parse_oid(new_sha.as_str())?;
+        let old_commit = self
+            .repo
+            .find_commit(old_oid)
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let new_commit = self
+            .repo
+            .find_commit(new_oid)
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let old_tree = self
+            .repo
+            .find_tree(
+                old_commit
+                    .tree_id()
+                    .map_err(|e| Error::Git(e.to_string()))?,
+            )
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let new_tree = self
+            .repo
+            .find_tree(
+                new_commit
+                    .tree_id()
+                    .map_err(|e| Error::Git(e.to_string()))?,
+            )
+            .map_err(|e| Error::Git(e.to_string()))?;
+
+        let mut hunks = Vec::new();
+        old_tree
+            .changes()
+            .map_err(|e| Error::Git(e.to_string()))?
+            .options(|opts| {
+                opts.track_path().track_rewrites(Some(Default::default()));
+            })
+            .for_each_to_obtain_tree(&new_tree, |change| {
+                match change {
+                    Change::Addition {
+                        location,
+                        entry_mode,
+                        id,
+                        ..
+                    } => {
+                        if !entry_mode.is_tree() {
+                            let (ranges, binary) = hunk_ranges_new(&id);
+                            hunks.push(DiffHunk {
+                                path: location.to_string(),
+                                old_path: None,
+                                change_type: 'A',
+                                old_line_ranges: vec![],
+                                new_line_ranges: ranges,
+                                is_binary: binary,
+                            });
+                        }
+                    }
+                    Change::Deletion {
+                        location,
+                        entry_mode,
+                        id,
+                        ..
+                    } => {
+                        if !entry_mode.is_tree() {
+                            let (ranges, binary) = hunk_ranges_old(&id);
+                            hunks.push(DiffHunk {
+                                path: location.to_string(),
+                                old_path: None,
+                                change_type: 'D',
+                                old_line_ranges: ranges,
+                                new_line_ranges: vec![],
+                                is_binary: binary,
+                            });
+                        }
+                    }
+                    Change::Modification {
+                        location,
+                        previous_id,
+                        id,
+                        entry_mode,
+                        previous_entry_mode,
+                        ..
+                    } => {
+                        if !entry_mode.is_tree() && !previous_entry_mode.is_tree() {
+                            let (old_r, new_r, binary) = hunk_ranges_mod(&previous_id, &id);
+                            hunks.push(DiffHunk {
+                                path: location.to_string(),
+                                old_path: None,
+                                change_type: 'M',
+                                old_line_ranges: old_r,
+                                new_line_ranges: new_r,
+                                is_binary: binary,
+                            });
+                        }
+                    }
+                    Change::Rewrite {
+                        source_location,
+                        location,
+                        source_id,
+                        id,
+                        entry_mode,
+                        source_entry_mode,
+                        ..
+                    } => {
+                        if !entry_mode.is_tree() && !source_entry_mode.is_tree() {
+                            let (old_r, new_r, binary) = hunk_ranges_mod(&source_id, &id);
+                            hunks.push(DiffHunk {
+                                path: location.to_string(),
+                                old_path: Some(source_location.to_string()),
+                                change_type: 'R',
+                                old_line_ranges: old_r,
+                                new_line_ranges: new_r,
+                                is_binary: binary,
+                            });
+                        }
+                    }
+                }
+                Ok::<Action, std::io::Error>(Action::Continue)
+            })
+            .map_err(|e| Error::Git(format!("{e:?}")))?;
+        Ok(hunks)
+    }
+
+    fn list_paths_at_rev(&self, sha: &Sha) -> Result<Vec<String>> {
+        let oid = self.parse_oid(sha.as_str())?;
+        let commit = self
+            .repo
+            .find_commit(oid)
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let tree = commit.tree().map_err(|e| Error::Git(e.to_string()))?;
+        let mut recorder = gix::traverse::tree::Recorder::default();
+        tree.traverse()
+            .breadthfirst(&mut recorder)
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let mut paths = Vec::new();
+        for entry in recorder.records {
+            if !(entry.mode.is_blob() || entry.mode.is_executable() || entry.mode.is_link()) {
+                continue;
+            }
+            paths.push(String::from_utf8_lossy(&entry.filepath).to_string());
+        }
+        paths.sort();
+        Ok(paths)
+    }
+}
+
+#[derive(Default)]
+struct RangeCollector {
+    old: Vec<LineRange>,
+    new: Vec<LineRange>,
+}
+
+impl Sink for RangeCollector {
+    type Out = (Vec<LineRange>, Vec<LineRange>);
+
+    fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
+        if before.start < before.end {
+            self.old.push(LineRange {
+                start: before.start + 1,
+                end: before.end,
+            });
+        }
+        if after.start < after.end {
+            self.new.push(LineRange {
+                start: after.start + 1,
+                end: after.end,
+            });
+        }
+    }
+
+    fn finish(self) -> Self::Out {
+        (self.old, self.new)
+    }
+}
+
+fn hunk_ranges_new(id: &gix::Id<'_>) -> (Vec<LineRange>, bool) {
+    match id.object().ok().and_then(|o| o.try_into_blob().ok()) {
+        Some(blob) => {
+            if blob.data.contains(&0) {
+                return (vec![], true);
+            }
+            let n = String::from_utf8_lossy(blob.data.as_slice())
+                .lines()
+                .count() as u32;
+            if n == 0 {
+                (vec![], false)
+            } else {
+                (vec![LineRange { start: 1, end: n }], false)
+            }
+        }
+        None => (vec![], false),
+    }
+}
+
+fn hunk_ranges_old(id: &gix::Id<'_>) -> (Vec<LineRange>, bool) {
+    hunk_ranges_new(id)
+}
+
+fn hunk_ranges_mod(old: &gix::Id<'_>, new: &gix::Id<'_>) -> (Vec<LineRange>, Vec<LineRange>, bool) {
+    let old_blob = old.object().ok().and_then(|o| o.try_into_blob().ok());
+    let new_blob = new.object().ok().and_then(|o| o.try_into_blob().ok());
+    match (old_blob, new_blob) {
+        (Some(o), Some(n)) => {
+            if o.data.contains(&0) || n.data.contains(&0) {
+                return (vec![], vec![], true);
+            }
+            let input = InternedInput::new(o.data.as_slice(), n.data.as_slice());
+            let (old_r, new_r) =
+                gix::diff::blob::diff(Algorithm::Histogram, &input, RangeCollector::default());
+            (old_r, new_r, false)
+        }
+        (None, Some(n)) => {
+            if n.data.contains(&0) {
+                return (vec![], vec![], true);
+            }
+            let nlines = String::from_utf8_lossy(n.data.as_slice()).lines().count() as u32;
+            let r = if nlines == 0 {
+                vec![]
+            } else {
+                vec![LineRange {
+                    start: 1,
+                    end: nlines,
+                }]
+            };
+            (vec![], r, false)
+        }
+        (Some(o), None) => {
+            if o.data.contains(&0) {
+                return (vec![], vec![], true);
+            }
+            let nlines = String::from_utf8_lossy(o.data.as_slice()).lines().count() as u32;
+            let r = if nlines == 0 {
+                vec![]
+            } else {
+                vec![LineRange {
+                    start: 1,
+                    end: nlines,
+                }]
+            };
+            (r, vec![], false)
+        }
+        _ => (vec![], vec![], false),
+    }
 }
 
 /// Kahn topological sort: parents before children; tie-break by author_ts then sha.
@@ -399,6 +799,24 @@ fn kahn_topo_sort(commits: HashMap<String, CommitMeta>) -> Vec<CommitMeta> {
         .into_iter()
         .filter_map(|s| commits.get(&s).cloned())
         .collect()
+}
+
+fn ranges_from_bytes(data: &[u8]) -> (Vec<LineRange>, bool) {
+    if data.contains(&0) {
+        return (vec![], true);
+    }
+    let nlines = String::from_utf8_lossy(data).lines().count() as u32;
+    if nlines == 0 {
+        (vec![], false)
+    } else {
+        (
+            vec![LineRange {
+                start: 1,
+                end: nlines,
+            }],
+            false,
+        )
+    }
 }
 
 fn count_lines_as_addition(data: &[u8]) -> (i64, i64, bool) {

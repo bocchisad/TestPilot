@@ -32,9 +32,19 @@ Database path defaults to `<git-toplevel>/.testpilot/db.sqlite`. `testpilot init
 
 `collect git` walks commits reachable from **HEAD** only (not `--all`), in parent-before-child order.
 
+## Features (week 2)
+
+```bash
+testpilot features dump --out pairs.parquet
+testpilot features show --base HEAD~1 --head HEAD --format json
+testpilot features schema --check features_schema.json
+```
+
+`features show` needs history snapshots written by `features dump`. Opening a schema **v4** DB upgrades in place to **v5** and **drops** `feature_history_snapshot` rows — run `features dump` again (otherwise show errors with that hint).
+
 ## Database schema
 
-Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/schema.sql). A synced copy ships inside the pytest plugin; `python scripts/sync_schema.py --check` enforces equality in CI.
+Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/schema.sql) (`SCHEMA_VERSION = 5`). A synced copy ships inside the pytest plugin; `python scripts/sync_schema.py --check` enforces equality in CI.
 
 | Table | Role |
 |-------|------|
@@ -59,6 +69,7 @@ Dirty runs (`dirty=1`, including untracked files) are recorded now; **future tra
 | `testpilot collect junit <glob> --sha <sha>` | Stream-parse JUnit XML |
 | `testpilot stats [--json]` | Summary + top slow / failing tests |
 | `testpilot debug coverage --run-id/--sha --test-id` | Decode coverage blobs |
+| `testpilot features dump\|show\|schema` | Leak-free (change, test) feature vectors / Parquet / schema lockfile |
 
 ## Development
 

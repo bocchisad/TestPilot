@@ -4,8 +4,37 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{Error, Result};
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 5;
 pub const SCHEMA_SQL: &str = include_str!("../schema.sql");
+
+/// Additive migration from collection schema v2 → features cache v3.
+const MIGRATE_2_TO_3: &str = r#"
+CREATE TABLE IF NOT EXISTS python_blob_cache (
+  blob_sha TEXT PRIMARY KEY,
+  imports_json TEXT NOT NULL,
+  defs_json TEXT NOT NULL
+);
+"#;
+
+/// Additive migration v3 → v4: feature history snapshots for fast show (JSON; superseded by v5).
+const MIGRATE_3_TO_4: &str = r#"
+CREATE TABLE IF NOT EXISTS feature_history_snapshot (
+  sha TEXT PRIMARY KEY,
+  history_json TEXT NOT NULL,
+  cochange_json TEXT NOT NULL,
+  cov_source_sha TEXT
+);
+"#;
+
+/// v4 → v5: compact binary snapshots (drop JSON table; re-dump to refill).
+const MIGRATE_4_TO_5: &str = r#"
+DROP TABLE IF EXISTS feature_history_snapshot;
+CREATE TABLE feature_history_snapshot (
+  sha TEXT PRIMARY KEY,
+  payload BLOB NOT NULL,
+  cov_source_sha TEXT
+);
+"#;
 
 fn schema_version_error(found: i64, expected: i64) -> Error {
     if found < expected {
@@ -110,6 +139,25 @@ impl Store {
 
         if let Some(v) = existing {
             if v == SCHEMA_VERSION {
+                return Ok(());
+            }
+            // Additive upgrades only; v1 still requires delete.
+            if (2..=4).contains(&v) && SCHEMA_VERSION == 5 {
+                let tx = self.conn.unchecked_transaction()?;
+                if v == 2 {
+                    tx.execute_batch(MIGRATE_2_TO_3)?;
+                }
+                if v <= 3 {
+                    tx.execute_batch(MIGRATE_3_TO_4)?;
+                }
+                if v <= 4 {
+                    tx.execute_batch(MIGRATE_4_TO_5)?;
+                }
+                tx.execute(
+                    "UPDATE schema_version SET version = ?1",
+                    params![SCHEMA_VERSION],
+                )?;
+                tx.commit()?;
                 return Ok(());
             }
             return Err(schema_version_error(v, SCHEMA_VERSION));
@@ -440,6 +488,210 @@ impl Store {
         }
         Ok(out)
     }
+
+    pub fn get_python_blob_cache(&self, blob_sha: &str) -> Result<Option<(String, String)>> {
+        self.conn
+            .query_row(
+                "SELECT imports_json, defs_json FROM python_blob_cache WHERE blob_sha = ?1",
+                params![blob_sha],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn put_python_blob_cache(
+        &self,
+        blob_sha: &str,
+        imports_json: &str,
+        defs_json: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO python_blob_cache(blob_sha, imports_json, defs_json)
+             VALUES (?1, ?2, ?3)",
+            params![blob_sha, imports_json, defs_json],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_feature_history_snapshot(
+        &self,
+        sha: &str,
+    ) -> Result<Option<(Vec<u8>, Option<String>)>> {
+        self.conn
+            .query_row(
+                "SELECT payload, cov_source_sha
+                 FROM feature_history_snapshot WHERE sha = ?1",
+                params![sha],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn put_feature_history_snapshot(
+        &self,
+        sha: &str,
+        payload: &[u8],
+        cov_source_sha: Option<&str>,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO feature_history_snapshot(
+                sha, payload, cov_source_sha
+             ) VALUES (?1, ?2, ?3)",
+            params![sha, payload, cov_source_sha],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_feature_history_snapshots(&self) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM feature_history_snapshot", [])?;
+        Ok(())
+    }
+
+    pub fn count_feature_history_snapshots(&self) -> Result<i64> {
+        self.conn
+            .query_row("SELECT COUNT(*) FROM feature_history_snapshot", [], |r| {
+                r.get(0)
+            })
+            .map_err(Into::into)
+    }
+
+    /// All parent SHAs for `sha` (any parent_idx), for ancestor walks.
+    pub fn all_parents(&self, sha: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT parent_sha FROM commit_parents WHERE sha = ?1 ORDER BY parent_idx")?;
+        let rows = stmt.query_map(params![sha], |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Last clean run on `sha` that has ≥1 test_results row (pytest or junit).
+    pub fn last_clean_run_with_results(&self, sha: &str) -> Result<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT r.id FROM test_runs r
+                 WHERE r.sha = ?1 AND r.dirty = 0
+                   AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
+                 ORDER BY r.id DESC LIMIT 1",
+                params![sha],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Other clean runs on `sha` (excluding `primary_id`) — for flaky-only updates.
+    pub fn other_clean_runs(&self, sha: &str, primary_id: i64) -> Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT r.id FROM test_runs r
+             WHERE r.sha = ?1 AND r.dirty = 0 AND r.id != ?2
+               AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
+             ORDER BY r.id ASC",
+        )?;
+        let rows = stmt.query_map(params![sha, primary_id], |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Last clean run with ≥1 coverage row on `sha` (any source).
+    pub fn last_clean_run_with_coverage(&self, sha: &str) -> Result<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT r.id FROM test_runs r
+                 WHERE r.sha = ?1 AND r.dirty = 0
+                   AND EXISTS (SELECT 1 FROM test_coverage c WHERE c.run_id = r.id)
+                 ORDER BY r.id DESC LIMIT 1",
+                params![sha],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn results_for_run(&self, run_id: i64) -> Result<Vec<TestResultRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.test_id, r.outcome, r.duration_ms, r.message, r.flaky, r.attempts
+             FROM test_results r
+             JOIN tests t ON t.id = r.test_pk
+             WHERE r.run_id = ?1
+             ORDER BY t.test_id",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| {
+            Ok(TestResultRow {
+                test_id: r.get(0)?,
+                outcome: r.get(1)?,
+                duration_ms: r.get(2)?,
+                message: r.get(3)?,
+                flaky: r.get::<_, i64>(4)? != 0,
+                attempts: r.get(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// All coverage rows for a run: (test_id, path, lines_blob).
+    pub fn coverage_rows_for_run(&self, run_id: i64) -> Result<Vec<(String, String, Vec<u8>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.test_id, c.path, c.lines
+             FROM test_coverage c
+             JOIN tests t ON t.id = c.test_pk
+             WHERE c.run_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![run_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn first_parent(&self, sha: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT parent_sha FROM commit_parents
+                 WHERE sha = ?1 AND parent_idx = 0",
+                params![sha],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn commit_author_ts(&self, sha: &str) -> Result<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT author_ts FROM commits WHERE sha = ?1",
+                params![sha],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    pub fn file_paths_for_commit(&self, sha: &str) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path FROM file_changes WHERE sha = ?1 ORDER BY path")?;
+        let rows = stmt.query_map(params![sha], |r| r.get(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -524,13 +776,97 @@ mod tests {
                 err,
                 Error::SchemaOutdated {
                     found: 1,
-                    expected: 2
+                    expected: 5
                 }
             ),
             "{err}"
         );
         assert!(msg.contains("outdated"), "{msg}");
         assert!(msg.contains("delete .testpilot"), "{msg}");
+    }
+
+    #[test]
+    fn schema_v2_upgrades_in_place_to_v5() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v2.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            // Minimal v2: version row + enough that open's migrate only needs cache DDL.
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+                 INSERT INTO schema_version(version) VALUES (2);",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let v: i64 = store
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 5);
+        let n: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='python_blob_cache'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        let n2: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='feature_history_snapshot'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n2, 1);
+        let cols: String = store
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE name='feature_history_snapshot'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(cols.contains("payload"), "{cols}");
+    }
+
+    #[test]
+    fn schema_v4_upgrades_in_place_to_v5() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v4.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+                 INSERT INTO schema_version(version) VALUES (4);
+                 CREATE TABLE feature_history_snapshot (
+                   sha TEXT PRIMARY KEY,
+                   history_json TEXT NOT NULL,
+                   cochange_json TEXT NOT NULL,
+                   cov_source_sha TEXT
+                 );",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let v: i64 = store
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 5);
+        let cols: String = store
+            .conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE name='feature_history_snapshot'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(cols.contains("payload"), "{cols}");
+        assert!(!cols.contains("history_json"), "{cols}");
     }
 
     #[test]

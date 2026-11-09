@@ -71,3 +71,17 @@ CREATE INDEX IF NOT EXISTS idx_test_coverage_path ON test_coverage(path);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_test_runs_dedup
   ON test_runs(source, sha, input_hash)
   WHERE input_hash IS NOT NULL;
+
+-- v3: parse cache for Python imports/defs (blob content-addressed). Additive only.
+CREATE TABLE IF NOT EXISTS python_blob_cache (
+  blob_sha TEXT PRIMARY KEY,
+  imports_json TEXT NOT NULL,
+  defs_json TEXT NOT NULL
+);
+
+-- v5: compact feature history snapshots (zstd+postcard payload) for fast show.
+CREATE TABLE IF NOT EXISTS feature_history_snapshot (
+  sha TEXT PRIMARY KEY,
+  payload BLOB NOT NULL,
+  cov_source_sha TEXT
+);
