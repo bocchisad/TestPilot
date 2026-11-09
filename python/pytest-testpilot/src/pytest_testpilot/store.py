@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 _MIGRATE_2_TO_3 = """
@@ -13,6 +13,15 @@ CREATE TABLE IF NOT EXISTS python_blob_cache (
   blob_sha TEXT PRIMARY KEY,
   imports_json TEXT NOT NULL,
   defs_json TEXT NOT NULL
+);
+"""
+
+_MIGRATE_3_TO_4 = """
+CREATE TABLE IF NOT EXISTS feature_history_snapshot (
+  sha TEXT PRIMARY KEY,
+  history_json TEXT NOT NULL,
+  cochange_json TEXT NOT NULL,
+  cov_source_sha TEXT
 );
 """
 
@@ -58,9 +67,18 @@ class Store:
             found = int(row[0])
             if found == SCHEMA_VERSION:
                 return
-            # v2 → v3: additive cache table only (no wipe).
-            if found == 2 and SCHEMA_VERSION == 3:
+            # Additive upgrades only; v1 still requires delete.
+            if found == 2 and SCHEMA_VERSION >= 3:
                 self.conn.executescript(_MIGRATE_2_TO_3)
+                if SCHEMA_VERSION >= 4:
+                    self.conn.executescript(_MIGRATE_3_TO_4)
+                self.conn.execute(
+                    "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
+                )
+                self.conn.commit()
+                return
+            if found == 3 and SCHEMA_VERSION == 4:
+                self.conn.executescript(_MIGRATE_3_TO_4)
                 self.conn.execute(
                     "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
                 )

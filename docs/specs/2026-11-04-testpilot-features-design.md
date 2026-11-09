@@ -105,6 +105,7 @@ A test that updates counters **before** emit must fail the leakage regression.
 
 - Change = `base..head` or `base` vs worktree (dirty diff).
 - History/coverage as of `base` (same rules as dump: coverage on `base` or earlier processed ancestor of base; never “future”).
+- **History load:** dump persists a `feature_history_snapshot` (HistoryState + CoChangeState + cov source sha) for every processed commit. `show` loads the snapshot at `base` (or nearest first-parent ancestor + short catch-up). It must **not** call `walk_topo_old_to_new(None, None)` or replay from root.
 - **Test list** = tests from the last clean run at `base` or earlier (same selection rule as dump’s “last clean with results”, walking ancestors if needed).
 - `--tests-from FILE`: reserved for week 4 (file produced by `pytest --collect-only -q`). Documented in CLI help / README; not implemented now.
 - Formats: `table` | `json` | `parquet`.
@@ -160,11 +161,12 @@ CREATE TABLE IF NOT EXISTS python_blob_cache (
 );
 ```
 
-### Schema version 3
+### Schema version 3 → 4
 
-- `SCHEMA_VERSION = 3`.
+- `SCHEMA_VERSION = 4`.
 - Migration **2 → 3**: `CREATE TABLE IF NOT EXISTS python_blob_cache …` only. **No** database wipe.
-- User-facing “delete `.testpilot`” remains for **v1 → current** only (outdated incompatible layouts). Opening v2 DB upgrades in place to v3.
+- Migration **3 → 4**: `CREATE TABLE IF NOT EXISTS feature_history_snapshot (sha PRIMARY KEY, history_json, cochange_json, cov_source_sha)`. **No** wipe.
+- User-facing “delete `.testpilot`” remains for **v1 → current** only (outdated incompatible layouts). Opening v2/v3 DB upgrades in place.
 
 ---
 

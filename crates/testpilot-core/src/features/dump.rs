@@ -10,6 +10,7 @@ use crate::features::coverage::{CovFeatures, CoverageTracker, decode_lines};
 use crate::features::history::HistoryState;
 use crate::features::imports::{build_import_graph, build_import_graph_seeded};
 use crate::features::names::name_features;
+use crate::features::snapshot::{find_snapshot_on_lineage, save_snapshot};
 use crate::features::writer::{self, FeatureRow};
 use crate::git::{DiffHunk, GitRepo, Sha};
 use crate::store::Store;
@@ -173,6 +174,7 @@ pub fn compute_dump_rows<R: GitRepo>(
     let mut history = HistoryState::new();
     let mut cochange = CoChangeState::new();
     let mut cov_tracker = CoverageTracker::new();
+    let mut cov_source_sha: Option<String> = None;
     let mut processed: Vec<String> = Vec::new();
     let mut rows = Vec::new();
     let mut commit_idx = 0i64;
@@ -184,8 +186,10 @@ pub fn compute_dump_rows<R: GitRepo>(
             if let Ok(Some(run_id)) = store.last_clean_run_with_coverage(sha) {
                 if let Ok(m) = load_cov_map(store, run_id) {
                     cov_tracker.record(sha, m);
+                    cov_source_sha = Some(sha.to_string());
                 }
             }
+            let _ = save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref());
             processed.push(sha.to_string());
             continue;
         };
@@ -194,8 +198,10 @@ pub fn compute_dump_rows<R: GitRepo>(
             if let Ok(Some(run_id)) = store.last_clean_run_with_coverage(sha) {
                 if let Ok(m) = load_cov_map(store, run_id) {
                     cov_tracker.record(sha, m);
+                    cov_source_sha = Some(sha.to_string());
                 }
             }
+            let _ = save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref());
             processed.push(sha.to_string());
             continue;
         };
@@ -295,8 +301,10 @@ pub fn compute_dump_rows<R: GitRepo>(
         if let Ok(Some(run_id)) = store.last_clean_run_with_coverage(sha) {
             if let Ok(m) = load_cov_map(store, run_id) {
                 cov_tracker.record(sha, m);
+                cov_source_sha = Some(sha.to_string());
             }
         }
+        save_snapshot(store, sha, &history, &cochange, cov_source_sha.as_deref())?;
         processed.push(sha.to_string());
     }
 
@@ -318,7 +326,8 @@ pub fn dump_parquet<R: GitRepo>(
 
 /// Features for a single change `base..head` (or worktree — caller supplies hunks).
 ///
-/// History is accumulated only for commits up to and including `base` (early exit).
+/// Loads a dump-time history snapshot at `base` (or nearest first-parent ancestor)
+/// instead of replaying the full topo walk.
 pub fn compute_show_rows<R: GitRepo>(
     repo: &R,
     store: &Store,
@@ -327,60 +336,27 @@ pub fn compute_show_rows<R: GitRepo>(
     head: &Sha,
     hunks: &[DiffHunk],
 ) -> Result<Vec<FeatureRow>> {
-    let commits = repo.walk_topo_old_to_new(None, None)?;
-    let mut history = HistoryState::new();
-    let mut cochange = CoChangeState::new();
-    let mut cov_tracker = CoverageTracker::new();
     let base_s = base.as_str().to_string();
 
-    for meta in &commits {
-        let sha = meta.sha.as_str();
+    // W2-8: never walk_topo_old_to_new(None, None). Prefer snapshot at base.
+    let (history, cochange, cov_source_sha) = match find_snapshot_on_lineage(store, &base_s)? {
+        Some((snap_sha, h, c, cov)) if snap_sha == base_s => (h, c, cov),
+        Some((snap_sha, mut h, mut c, mut cov)) => {
+            // Short catch-up along first-parent chain from snap_sha → base.
+            catch_up_first_parent(repo, store, &snap_sha, &base_s, &mut h, &mut c, &mut cov)?;
+            (h, c, cov)
+        }
+        None => {
+            // No snapshot yet — build via first-parent chain only (not full topo).
+            let mut h = HistoryState::new();
+            let mut c = CoChangeState::new();
+            let mut cov = None;
+            catch_up_first_parent(repo, store, "", &base_s, &mut h, &mut c, &mut cov)?;
+            (h, c, cov)
+        }
+    };
 
-        if let Some(parent) = meta.parents.first() {
-            if let Some(primary_id) = store.last_clean_run_with_results(sha)? {
-                let parent_sha = parent.clone();
-                let hs = repo.diff_hunks(&parent_sha, &meta.sha).unwrap_or_default();
-                let srcf = src_files(&hs);
-                let old_sources = old_sources_for_hunks(repo, &parent_sha, &hs)?;
-                let funcs = all_changed_funcs(&hs, &old_sources);
-                let results = store.results_for_run(primary_id)?;
-                for r in &results {
-                    let tf = test_file_of(&r.test_id);
-                    history.update_primary(
-                        &r.test_id,
-                        &tf,
-                        &r.outcome,
-                        r.flaky,
-                        r.duration_ms,
-                        meta.author_ts,
-                        &srcf,
-                        &funcs,
-                    );
-                }
-                for other_id in store.other_clean_runs(sha, primary_id)? {
-                    for r in store.results_for_run(other_id)? {
-                        history.update_flaky_only(&r.test_id, r.flaky);
-                    }
-                }
-                let mut files = store.file_paths_for_commit(sha)?;
-                if files.is_empty() {
-                    files = hs.iter().map(|h| h.path.clone()).collect();
-                }
-                cochange.record(&files, meta.author_ts);
-            }
-        }
-        if let Ok(Some(run_id)) = store.last_clean_run_with_coverage(sha) {
-            if let Ok(m) = load_cov_map(store, run_id) {
-                cov_tracker.record(sha, m);
-            }
-        }
-        // W2-1: do not walk / diff / query commits strictly after base.
-        if sha == base_s {
-            break;
-        }
-    }
-
-    // Tests: last clean run at base or earlier
+    // Tests: last clean run at base or earlier (SQLite first-parent only).
     let mut test_run = store.last_clean_run_with_results(base.as_str())?;
     if test_run.is_none() {
         let mut cur = base.as_str().to_string();
@@ -407,16 +383,7 @@ pub fn compute_show_rows<R: GitRepo>(
     let ch_nfunc = funcs.len() as i64;
     let changed_paths: HashSet<String> = hunks.iter().map(|h| h.path.clone()).collect();
 
-    let mut chain = vec![base_s.clone()];
-    let mut cur = base_s.clone();
-    for _ in 0..10_000 {
-        let Some(pp) = store.first_parent(&cur)? else {
-            break;
-        };
-        chain.push(pp.clone());
-        cur = pp;
-    }
-    let cov = cov_tracker.lookup(&base_s, &chain);
+    let cov = resolve_cov_from_source(store, &base_s, cov_source_sha.as_deref())?;
 
     // Import graph: index all paths for resolution, parse only seeds (srcf + tests).
     let all_paths = repo.list_paths_at_rev(base)?;
@@ -470,6 +437,132 @@ pub fn compute_show_rows<R: GitRepo>(
     }
     writer::sort_rows(&mut rows);
     Ok(rows)
+}
+
+/// Apply history updates for first-parent commits after `after_sha` up to and including `until_sha`.
+/// If `after_sha` is empty, start from the root of the first-parent chain.
+fn catch_up_first_parent<R: GitRepo>(
+    repo: &R,
+    store: &Store,
+    after_sha: &str,
+    until_sha: &str,
+    history: &mut HistoryState,
+    cochange: &mut CoChangeState,
+    cov_source_sha: &mut Option<String>,
+) -> Result<()> {
+    // Collect first-parent chain from until back to after (exclusive), then reverse.
+    let mut chain_rev = Vec::new();
+    let mut cur = until_sha.to_string();
+    for _ in 0..100_000 {
+        if !after_sha.is_empty() && cur == after_sha {
+            break;
+        }
+        chain_rev.push(cur.clone());
+        let Some(p) = store.first_parent(&cur)? else {
+            break;
+        };
+        if !after_sha.is_empty() && p == after_sha {
+            break;
+        }
+        cur = p;
+    }
+    chain_rev.reverse();
+
+    for sha in chain_rev {
+        if let Some(primary_id) = store.last_clean_run_with_results(&sha)? {
+            let parent = store
+                .first_parent(&sha)?
+                .map(Sha::from_hex)
+                .unwrap_or_else(|| Sha::from_hex(sha.clone()));
+            let meta_sha = Sha::from_hex(&sha);
+            let hs = repo.diff_hunks(&parent, &meta_sha).unwrap_or_default();
+            let srcf = src_files(&hs);
+            let old_sources = old_sources_for_hunks(repo, &parent, &hs)?;
+            let funcs = all_changed_funcs(&hs, &old_sources);
+            let results = store.results_for_run(primary_id)?;
+            let t0 = store.commit_author_ts(&sha)?.unwrap_or(0);
+            for r in &results {
+                let tf = test_file_of(&r.test_id);
+                history.update_primary(
+                    &r.test_id,
+                    &tf,
+                    &r.outcome,
+                    r.flaky,
+                    r.duration_ms,
+                    t0,
+                    &srcf,
+                    &funcs,
+                );
+            }
+            for other_id in store.other_clean_runs(&sha, primary_id)? {
+                for r in store.results_for_run(other_id)? {
+                    history.update_flaky_only(&r.test_id, r.flaky);
+                }
+            }
+            let mut files = store.file_paths_for_commit(&sha)?;
+            if files.is_empty() {
+                files = hs.iter().map(|h| h.path.clone()).collect();
+            }
+            cochange.record(&files, t0);
+        }
+        if let Ok(Some(_)) = store.last_clean_run_with_coverage(&sha) {
+            *cov_source_sha = Some(sha);
+        }
+    }
+    Ok(())
+}
+
+fn resolve_cov_from_source(
+    store: &Store,
+    base: &str,
+    cov_source_sha: Option<&str>,
+) -> Result<crate::features::coverage::CovSnapshot> {
+    use crate::features::coverage::CovSnapshot;
+
+    // Prefer dump-recorded source; else walk first-parent for a cov run.
+    let mut lag = 0i64;
+    if let Some(src) = cov_source_sha {
+        // lag = first-parent distance base → src
+        let mut cur = base.to_string();
+        let mut found_lag = None;
+        for d in 0..100_000 {
+            if cur == src {
+                found_lag = Some(d);
+                break;
+            }
+            match store.first_parent(&cur)? {
+                Some(p) => cur = p,
+                None => break,
+            }
+        }
+        if let Some(l) = found_lag {
+            if let Some(run_id) = store.last_clean_run_with_coverage(src)? {
+                return Ok(CovSnapshot {
+                    sha: src.to_string(),
+                    lag: l,
+                    by_test: load_cov_map(store, run_id)?,
+                });
+            }
+        }
+    }
+    let mut cur = base.to_string();
+    for _ in 0..100_000 {
+        if let Some(run_id) = store.last_clean_run_with_coverage(&cur)? {
+            return Ok(CovSnapshot {
+                sha: cur,
+                lag,
+                by_test: load_cov_map(store, run_id)?,
+            });
+        }
+        match store.first_parent(&cur)? {
+            Some(p) => {
+                cur = p;
+                lag += 1;
+            }
+            None => break,
+        }
+    }
+    Ok(CovSnapshot::empty())
 }
 
 pub fn show_format(rows: &[FeatureRow], format: &str, out: Option<&Path>) -> Result<String> {

@@ -1,18 +1,21 @@
-//! W2-1: `features show` must not scan commits strictly after `--base`.
+//! W2-8/W2-9: `features show` must not replay history from root or touch commits after base.
 
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use bytes::Bytes;
-use testpilot_core::features::compute_show_rows;
+use testpilot_core::features::{compute_dump_rows, compute_show_rows};
 use testpilot_core::git::{CommitMeta, DiffHunk, FileChange, GitRepo, LineRange, Sha};
 use testpilot_core::store::{Store, TestResultRow, TestRunRow};
 
 struct CountingRepo {
     commits: Vec<CommitMeta>,
-    /// SHAs strictly after base that must not appear in diff_hunks / file_at_rev / list_paths.
     forbidden: Rc<RefCell<HashSetWrap>>,
+    walk_calls: Rc<Cell<usize>>,
     base: String,
+    /// When true, walk_topo is allowed (dump). Show must leave this false.
+    allow_walk: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -24,13 +27,13 @@ struct HashSetWrap {
 
 impl CountingRepo {
     fn note_forbidden(&self, sha: &str, sink: impl FnOnce(&mut HashSetWrap, String)) {
-        if sha != self.base {
-            // topo: hex padded index; forbid if index > base index
-            let bi = self.base.parse::<usize>().unwrap_or(0);
-            if let Ok(i) = sha.parse::<usize>() {
-                if i > bi {
-                    sink(&mut self.forbidden.borrow_mut(), sha.to_string());
-                }
+        if sha == self.base {
+            return;
+        }
+        let bi = self.base.parse::<usize>().unwrap_or(0);
+        if let Ok(i) = sha.parse::<usize>() {
+            if i > bi {
+                sink(&mut self.forbidden.borrow_mut(), sha.to_string());
             }
         }
     }
@@ -46,6 +49,11 @@ impl GitRepo for CountingRepo {
         _since_sha: Option<&str>,
         _since_date: Option<i64>,
     ) -> testpilot_core::error::Result<Vec<CommitMeta>> {
+        self.walk_calls.set(self.walk_calls.get() + 1);
+        assert!(
+            self.allow_walk.get(),
+            "show must not call walk_topo_old_to_new (full history materialization)"
+        );
         Ok(self.commits.clone())
     }
 
@@ -87,8 +95,30 @@ fn sha_n(n: usize) -> String {
     format!("{n:04}")
 }
 
+fn seed_run(store: &mut Store, i: usize) {
+    let run = TestRunRow {
+        sha: sha_n(i),
+        source: "pytest".into(),
+        started_at: 1,
+        finished_at: Some(2),
+        dirty: false,
+        diff_hash: None,
+        input_hash: None,
+        meta: None,
+    };
+    let results = vec![TestResultRow {
+        test_id: "tests/test_a.py::test_alpha".into(),
+        outcome: "pass".into(),
+        duration_ms: 5,
+        message: None,
+        flaky: false,
+        attempts: 1,
+    }];
+    store.insert_run_atomic(&run, &results, &[], false).unwrap();
+}
+
 #[test]
-fn show_does_not_scan_commits_after_base() {
+fn show_uses_snapshot_not_full_walk_and_ignores_post_base_runs() {
     const N: usize = 220;
     const BASE: usize = 100;
     const HEAD: usize = 219;
@@ -109,14 +139,16 @@ fn show_does_not_scan_commits_after_base() {
     }
 
     let forbidden = Rc::new(RefCell::new(HashSetWrap::default()));
+    let walk_calls = Rc::new(Cell::new(0usize));
     let repo = CountingRepo {
         commits,
         forbidden: forbidden.clone(),
+        walk_calls: walk_calls.clone(),
         base: sha_n(BASE),
+        allow_walk: Cell::new(true),
     };
 
     let mut store = Store::open_in_memory().unwrap();
-    // Seed commits + one clean run on BASE so show has tests.
     for i in 0..N {
         let parents = if i == 0 { vec![] } else { vec![sha_n(i - 1)] };
         let _ = store.insert_commit(&testpilot_core::store::CommitRow {
@@ -127,28 +159,23 @@ fn show_does_not_scan_commits_after_base() {
             parents,
         });
     }
-    // Runs on a few early commits + base so history updates have work.
-    for i in [1usize, 50, BASE] {
-        let run = TestRunRow {
-            sha: sha_n(i),
-            source: "pytest".into(),
-            started_at: 1,
-            finished_at: Some(2),
-            dirty: false,
-            diff_hash: None,
-            input_hash: None,
-            meta: None,
-        };
-        let results = vec![TestResultRow {
-            test_id: "tests/test_a.py::test_alpha".into(),
-            outcome: "pass".into(),
-            duration_ms: 5,
-            message: None,
-            flaky: false,
-            attempts: 1,
-        }];
-        store.insert_run_atomic(&run, &results, &[], false).unwrap();
+    // Runs before/at base (for history) AND a clean run after base (W2-9).
+    for i in [1usize, 50, BASE, HEAD] {
+        seed_run(&mut store, i);
     }
+
+    // Dump writes feature_history_snapshot rows (may walk topo).
+    repo.allow_walk.set(true);
+    walk_calls.set(0);
+    let _ = compute_dump_rows(&repo, &store, "fixture").unwrap();
+    assert!(walk_calls.get() >= 1, "dump should walk topo");
+
+    // Show must not walk topo or touch commits after base.
+    repo.allow_walk.set(false);
+    walk_calls.set(0);
+    forbidden.borrow_mut().diff_hunks_new.clear();
+    forbidden.borrow_mut().file_at_rev.clear();
+    forbidden.borrow_mut().list_paths.clear();
 
     let base = Sha::from_hex(sha_n(BASE));
     let head = Sha::from_hex(sha_n(HEAD));
@@ -161,12 +188,19 @@ fn show_does_not_scan_commits_after_base() {
         is_binary: false,
     }];
 
-    let _rows = compute_show_rows(&repo, &store, "fixture", &base, &head, &hunks).unwrap();
+    let rows = compute_show_rows(&repo, &store, "fixture", &base, &head, &hunks).unwrap();
+    assert!(!rows.is_empty());
+    assert_eq!(
+        walk_calls.get(),
+        0,
+        "show must not call walk_topo_old_to_new"
+    );
 
     let f = forbidden.borrow();
     assert!(
         f.diff_hunks_new.is_empty(),
-        "diff_hunks must not target commits after base; got {:?}",
+        "diff_hunks must not target commits after base; got {:?} \
+         (W2-9: a post-base run exists — removing snapshot path would fail here)",
         f.diff_hunks_new
     );
     assert!(

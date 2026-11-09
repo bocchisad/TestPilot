@@ -5,9 +5,9 @@ const MAX_FILES: usize = 50;
 const SECS_PER_DAY: f64 = 86400.0;
 
 #[derive(Debug, Clone)]
-struct CoChangeEvent {
-    files: Vec<String>,
-    t: i64,
+pub struct CoChangeEvent {
+    pub files: Vec<String>,
+    pub t: i64,
 }
 
 /// Accumulator of past commits' file sets (updated only after emit).
@@ -21,15 +21,30 @@ impl CoChangeState {
         Self::default()
     }
 
+    pub fn events(&self) -> &[CoChangeEvent] {
+        &self.events
+    }
+
     /// Record a commit's touched paths after features for that commit were emitted.
     pub fn record(&mut self, files: &[String], t: i64) {
         if files.len() > MAX_FILES || files.len() < 2 {
             return;
         }
-        self.events.push(CoChangeEvent {
-            files: files.to_vec(),
-            t,
-        });
+        self.push_event(files.to_vec(), t);
+    }
+
+    /// Restore a previously recorded event (no size filter).
+    pub fn restore_event(&mut self, files: Vec<String>, t: i64) {
+        self.push_event(files, t);
+    }
+
+    fn push_event(&mut self, files: Vec<String>, t: i64) {
+        if let Some(last) = self.events.last() {
+            if last.t == t && last.files == files {
+                return;
+            }
+        }
+        self.events.push(CoChangeEvent { files, t });
     }
 
     /// `cc_max`, `cc_sum` for srcf files vs test file `tf` at change time `t0`.

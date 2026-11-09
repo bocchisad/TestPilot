@@ -11,6 +11,7 @@ mod leak_test;
 pub mod names;
 pub mod python_scan;
 pub mod schema;
+pub mod snapshot;
 pub mod writer;
 
 pub use dump::{compute_dump_rows, compute_show_rows, dump_parquet, show_format};
