@@ -314,15 +314,27 @@ def main() -> int:
                 env.setdefault("LC_ALL", os.environ.get("LC_ALL", "en_US.UTF-8"))
                 env.setdefault("LANG", os.environ.get("LANG", "en_US.UTF-8"))
                 junit = work_root / f"junit-{sha[:12]}.xml"
+                # Warning class names differ across pytest 8/9; resolve against the
+                # *venv* pytest so -W does not abort when the attribute is missing.
+                warn_args: list[str] = []
+                probe = run(
+                    [
+                        str(venv / "bin" / "python"),
+                        "-c",
+                        "import pytest; print(' '.join(n for n in ("
+                        "'PytestRemovedIn10Warning','PytestRemovedIn9Warning',"
+                        "'PytestDeprecationWarning') if hasattr(pytest,n)))",
+                    ],
+                    check=False,
+                )
+                for name in (probe.stdout or "").split():
+                    warn_args += ["-W", f"ignore::pytest.{name}"]
                 cmd = [
                     str(pytest),
                     "--testpilot",
                     f"--testpilot-db={db}",
                     f"--junitxml={junit}",
-                    # Older project trees still construct Node objects; do not let
-                    # PytestRemovedIn10Warning abort collection as ERROR.
-                    "-W",
-                    "ignore::pytest.PytestRemovedIn10Warning",
+                    *warn_args,
                     *args.pytest_args.split(),
                 ]
                 r = run(cmd, cwd=wt, env=env, check=False)
