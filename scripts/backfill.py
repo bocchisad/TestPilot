@@ -284,8 +284,10 @@ def main() -> int:
         if r_plugin.returncode != 0:
             print("plugin install failed:", r_plugin.stderr[-2000:])
             return 1
-        # Ensure pytest + coverage even if project groups omit them.
-        run([str(pip), "install", "pytest", "coverage"], check=False)
+        # Pin pytest<8 so historical project trees (e.g. older click fixtures using
+        # Node constructors) collect under PytestRemovedIn10Warning→ERROR on 8+/9+.
+        # Project groups may still pin a tighter range per commit.
+        run([str(pip), "install", "pytest>=7.4,<8", "coverage"], check=False)
 
         ok = skip = 0
         for sha in shas:
