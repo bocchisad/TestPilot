@@ -284,10 +284,9 @@ def main() -> int:
         if r_plugin.returncode != 0:
             print("plugin install failed:", r_plugin.stderr[-2000:])
             return 1
-        # Pin pytest<8 so historical project trees (e.g. older click fixtures using
-        # Node constructors) collect under PytestRemovedIn10Warning→ERROR on 8+/9+.
-        # Project groups may still pin a tighter range per commit.
-        run([str(pip), "install", "pytest>=7.4,<8", "coverage"], check=False)
+        # Modern pytest (plugin needs hashable plugins / current APIs). Historical
+        # trees that raise PytestRemovedIn10Warning are handled via -W ignore below.
+        run([str(pip), "install", "pytest>=8,<10", "coverage"], check=False)
 
         ok = skip = 0
         for sha in shas:
@@ -320,6 +319,10 @@ def main() -> int:
                     "--testpilot",
                     f"--testpilot-db={db}",
                     f"--junitxml={junit}",
+                    # Older project trees still construct Node objects; do not let
+                    # PytestRemovedIn10Warning abort collection as ERROR.
+                    "-W",
+                    "ignore::pytest.PytestRemovedIn10Warning",
                     *args.pytest_args.split(),
                 ]
                 r = run(cmd, cwd=wt, env=env, check=False)

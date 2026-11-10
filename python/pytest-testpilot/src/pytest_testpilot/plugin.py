@@ -60,8 +60,10 @@ class Attempt:
     message: str | None = None
 
 
-@dataclass
+@dataclass(eq=False)
 class TestPilotPlugin:
+    """eq=False keeps identity hashing — pytest fixture registry requires hashable plugins."""
+
     config: pytest.Config
     worker: bool = False
     store: Store | None = None
