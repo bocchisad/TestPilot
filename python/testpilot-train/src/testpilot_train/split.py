@@ -99,3 +99,33 @@ def split_to_json(plan: SplitPlan) -> dict:
         }
         for rs in plan.by_repo
     }
+
+
+def loro_train_val(
+    frame: pl.DataFrame, plan: SplitPlan, held_out: str
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Train/val from all repos except held_out; test = held_out chrono test third.
+
+    Early stopping uses the concatenated chrono val of the *other* repos.
+    """
+    repos = [rs.repo for rs in plan.by_repo]
+    if held_out not in repos:
+        raise ValueError(f"held_out repo {held_out!r} not in plan")
+    if len(repos) < 2:
+        raise ValueError("LORO requires ≥2 repos")
+
+    train_parts: list[pl.DataFrame] = []
+    val_parts: list[pl.DataFrame] = []
+    for rs in plan.by_repo:
+        if rs.repo == held_out:
+            continue
+        sub = frame.filter(pl.col("repo") == rs.repo)
+        train_parts.append(
+            sub.filter(pl.col("change").is_in(list(rs.train_changes)))
+        )
+        val_parts.append(sub.filter(pl.col("change").is_in(list(rs.val_changes))))
+    held = next(rs for rs in plan.by_repo if rs.repo == held_out)
+    test_df = frame.filter(
+        (pl.col("repo") == held_out) & pl.col("change").is_in(list(held.test_changes))
+    )
+    return pl.concat(train_parts), pl.concat(val_parts), test_df

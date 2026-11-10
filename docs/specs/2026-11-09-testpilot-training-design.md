@@ -107,6 +107,8 @@ new_fail = 1  iff  label==1 AND flaky==0 AND the same (repo, test) did NOT fail
                   in the same repo with label==1 & flaky==0).
 ```
 
+**Merge commits / parent choice:** the parquet `parent` column is the **first parent** (`parent_idx=0` from `commit_parents` / features dump). `new_fail` therefore compares against the first-parent history only — not against other merge parents. This matches `collect git`’s first-parent walk.
+
 - If `parent` has **no** run/results in the parquet for that repo → row is **excluded from all `new_fail` metrics**; count these as `n_rows_parent_missing`.
 - **Persistent fail:** `label==1 & flaky==0` and the test also failed on parent → `new_fail=0` and row is **excluded from the training matrix** (neither pos nor neg).
 - **Training positives:** `new_fail==1`. Training negatives: remaining rows after excluding flaky, persistent, and parent-missing rows used only for metrics exclusion.

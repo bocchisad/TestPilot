@@ -22,13 +22,20 @@ from testpilot_train.metrics import (
     useful_by_paired,
 )
 from testpilot_train.model import (
+    EARLY_STOPPING_ROUNDS,
+    NUM_BOOST_ROUND,
     per_change_metrics_for_scores,
     predict_raw,
     select_objective,
 )
 from testpilot_train.report import write_report
-from testpilot_train.schema import load_features_schema
-from testpilot_train.split import chrono_split, filter_slice, split_to_json
+from testpilot_train.schema import assert_schema_matches_model, load_features_schema
+from testpilot_train.split import (
+    chrono_split,
+    filter_slice,
+    loro_train_val,
+    split_to_json,
+)
 
 
 def _metric_block(per: list[dict[str, float]], seed: int) -> dict[str, Any]:
@@ -91,6 +98,41 @@ def _label_secondary(
     return out
 
 
+def _run_loro(
+    frame: pl.DataFrame,
+    plan,
+    schema,
+    seed: int,
+) -> dict[str, Any]:
+    repos = [rs.repo for rs in plan.by_repo]
+    if len(repos) < 2:
+        return {"skipped": True, "reason": "need ≥2 repos"}
+    per_repo = []
+    recalls = []
+    for held in repos:
+        tr, va, te = loro_train_val(frame, plan, held)
+        fit, _cands = select_objective(tr, va, schema, seed)
+        scores = predict_raw(fit.booster, te, schema)
+        per = per_change_metrics_for_scores(te, scores, "new_fail")
+        r10 = macro_mean(per, "recall@10%")
+        per_repo.append(
+            {
+                "held_out": held,
+                "recall@10%": r10,
+                "n_changes": len(per),
+                "objective": fit.objective,
+                "best_iteration": fit.best_iteration,
+            }
+        )
+        if r10 == r10:
+            recalls.append(r10)
+    return {
+        "skipped": False,
+        "per_repo": per_repo,
+        "macro_recall@10%": float(np.mean(recalls)) if recalls else float("nan"),
+    }
+
+
 def train(
     data_paths: list[Path],
     out_dir: Path,
@@ -106,7 +148,7 @@ def train(
     val_df = filter_slice(frame, plan, "val")
     test_df = filter_slice(frame, plan, "test")
 
-    fit = select_objective(train_df, val_df, schema, seed)
+    fit, candidates = select_objective(train_df, val_df, schema, seed)
 
     val_scores = predict_raw(fit.booster, val_df, schema)
     test_scores = predict_raw(fit.booster, test_df, schema)
@@ -119,7 +161,6 @@ def train(
     best_name = "random"
     best_mean = -1.0
     for name in BASELINE_NAMES:
-        # Rebuild keyed dict from baseline eval order
         keyed: dict[tuple[str, str], dict[str, float]] = {}
         for keys, grp in val_df.group_by(["repo", "change"], maintain_order=True):
             repo, change = keys  # type: ignore[misc]
@@ -162,6 +203,17 @@ def train(
         key=lambda r: -r["gain"],
     )
 
+    loro = _run_loro(frame, plan, schema, seed)
+
+    # new_fail counts per chrono slice
+    def slice_new_fail_changes(df: pl.DataFrame) -> int:
+        return int(
+            df.group_by(["repo", "change"])
+            .agg(pl.col("new_fail").sum().alias("n"))
+            .filter(pl.col("n") > 0)
+            .height
+        )
+
     trunc = fit.params.get("lambdarank_truncation_level")
     payload: dict[str, Any] = {
         "features_version": schema.features_version,
@@ -170,12 +222,25 @@ def train(
         "objective": fit.objective,
         "lightgbm_version": lgb.__version__,
         "seed": seed,
+        "num_boost_round": NUM_BOOST_ROUND,
+        "early_stopping_rounds": EARLY_STOPPING_ROUNDS,
+        "stopping_metric": fit.stopping_metric,
         "best_iteration": fit.best_iteration,
+        "candidates": [c.candidate_meta() for c in candidates],
         "params": fit.params,
         "ndcg_eval_at": trunc,
         "lambdarank_truncation_level": trunc,
         "predict_raw_score": True,
-        "splits": {"chrono": split_to_json(plan)},
+        "parent_for_new_fail": "first_parent",
+        "splits": {
+            "chrono": split_to_json(plan),
+            "n_changes_with_new_fail": {
+                "train": slice_new_fail_changes(train_df),
+                "val": slice_new_fail_changes(val_df),
+                "test": slice_new_fail_changes(test_df),
+            },
+        },
+        "loro": loro,
         "diagnostics": {
             **diag,
             "n_rows_parent_missing": loaded.n_rows_parent_missing,
@@ -235,8 +300,9 @@ def evaluate(
     slice_name: str = "test",
 ) -> dict[str, Any]:
     schema = load_features_schema(features_schema)
-    loaded = load_parquets(data_paths, schema)
     meta = json.loads((model_dir / "model.json").read_text(encoding="utf-8"))
+    assert_schema_matches_model(schema, meta)
+    loaded = load_parquets(data_paths, schema)
     booster = lgb.Booster(model_file=str(model_dir / "model.txt"))
     frame = loaded.frame
 
@@ -264,7 +330,6 @@ def evaluate(
             )
             warned = True
         if slice_name == "train" and not warned:
-            # explicit train eval always warns
             warnings.warn(
                 "evaluation slice intersects train commit_idx ranges for a known repo",
                 stacklevel=2,

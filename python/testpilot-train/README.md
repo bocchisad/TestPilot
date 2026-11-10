@@ -12,7 +12,9 @@ pip install -e 'python/testpilot-train[dev]'
 
 ## Train
 
-Primary label is **`new_fail`** (fail on change C that did not fail on parent). Metrics are tie-aware; useful-gate is a paired bootstrap of model − best val heuristic.
+Primary label is **`new_fail`** (fail on change C that did not fail on parent). The parquet `parent` is the **first parent** of the change (merge commits use `parent_idx=0` only). Metrics are tie-aware; useful-gate is a paired bootstrap of model − best val heuristic.
+
+Pinned deps: see `requirements.lock` (regenerate with `pip freeze` after `pip install -e '.[dev]'`).
 
 ```bash
 testpilot-train train \

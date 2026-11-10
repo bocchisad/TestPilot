@@ -118,6 +118,38 @@ def feature_matrix(frame: pl.DataFrame, feature_names: tuple[str, ...]) -> np.nd
     )
 
 
+def _percentile(vals: list[float], q: float) -> float:
+    if not vals:
+        return float("nan")
+    arr = np.sort(np.asarray(vals, dtype=np.float64))
+    if arr.size == 1:
+        return float(arr[0])
+    idx = q * (arr.size - 1)
+    lo = int(np.floor(idx))
+    hi = int(np.ceil(idx))
+    if lo == hi:
+        return float(arr[lo])
+    w = idx - lo
+    return float(arr[lo] * (1 - w) + arr[hi] * w)
+
+
+def _histogram(vals: list[int], edges: list[int] | None = None) -> list[dict]:
+    if edges is None:
+        edges = [0, 1, 2, 5, 10, 20, 50, 100, 10**9]
+    counts = [0] * (len(edges) - 1)
+    for v in vals:
+        for i in range(len(edges) - 1):
+            if edges[i] <= v < edges[i + 1]:
+                counts[i] += 1
+                break
+    out = []
+    for i, c in enumerate(counts):
+        hi = edges[i + 1]
+        label = f"{edges[i]}+" if hi >= 10**9 else f"[{edges[i]},{hi})"
+        out.append({"bin": label, "count": c})
+    return out
+
+
 def diagnostics(frame: pl.DataFrame) -> dict:
     changes = frame.group_by(["repo", "change"]).agg(
         pl.col("label")
@@ -126,6 +158,8 @@ def diagnostics(frame: pl.DataFrame) -> dict:
         .alias("n_fail"),
         pl.col("new_fail").sum().alias("n_new_fail"),
     )
+    fail_counts = [int(x) for x in changes["n_fail"].to_list()]
+    new_fail_counts = [int(x) for x in changes["n_new_fail"].to_list()]
     per_test = (
         frame.group_by(["repo", "test"])
         .agg(
@@ -134,7 +168,19 @@ def diagnostics(frame: pl.DataFrame) -> dict:
         )
         .with_columns((pl.col("n_fail") / pl.col("n_appear")).alias("fail_rate"))
     )
-    always_broken = int(per_test.filter(pl.col("fail_rate") >= 0.9).height)
+    always = per_test.filter(pl.col("fail_rate") >= 0.9).sort(
+        ["fail_rate", "repo", "test"], descending=[True, False, False]
+    )
+    always_list = [
+        {
+            "repo": r["repo"],
+            "test": r["test"],
+            "n_fail": int(r["n_fail"]),
+            "n_appear": int(r["n_appear"]),
+            "fail_rate": float(r["fail_rate"]),
+        }
+        for r in always.iter_rows(named=True)
+    ]
     n_label1 = int(frame.filter((pl.col("label") == 1) & (pl.col("flaky") == 0)).height)
     n_persistent = int(
         frame.filter(
@@ -147,8 +193,23 @@ def diagnostics(frame: pl.DataFrame) -> dict:
     return {
         "n_changes": int(changes.height),
         "fail_per_change_mean": float(changes["n_fail"].mean() or 0.0),
+        "fail_per_change": {
+            "min": int(min(fail_counts)) if fail_counts else 0,
+            "p50": _percentile(fail_counts, 0.50),
+            "p90": _percentile(fail_counts, 0.90),
+            "max": int(max(fail_counts)) if fail_counts else 0,
+            "histogram": _histogram(fail_counts),
+        },
         "new_fail_per_change_mean": float(changes["n_new_fail"].mean() or 0.0),
-        "n_always_broken_tests": always_broken,
+        "new_fail_per_change": {
+            "min": int(min(new_fail_counts)) if new_fail_counts else 0,
+            "p50": _percentile(new_fail_counts, 0.50),
+            "p90": _percentile(new_fail_counts, 0.90),
+            "max": int(max(new_fail_counts)) if new_fail_counts else 0,
+            "histogram": _histogram(new_fail_counts),
+        },
+        "n_always_broken_tests": len(always_list),
+        "always_broken_tests": always_list,
         "n_label1": n_label1,
         "n_persistent_among_label1": n_persistent,
         "persistent_share_among_label1": (n_persistent / n_label1) if n_label1 else 0.0,

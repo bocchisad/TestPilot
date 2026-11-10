@@ -48,3 +48,27 @@ def load_features_schema(path: Path | str) -> FeaturesSchema:
         schema_sha256=hashlib.sha256(raw).hexdigest(),
         path=p,
     )
+
+
+def assert_schema_matches_model(schema: FeaturesSchema, model_meta: dict) -> None:
+    """Gate: training-time features_schema.json hash must match model.json."""
+    expected = model_meta.get("schema_sha256")
+    if expected is None:
+        raise ValueError("model.json missing schema_sha256")
+    if schema.schema_sha256 != expected:
+        raise ValueError(
+            f"schema_sha256 mismatch: features-schema={schema.schema_sha256} "
+            f"model.json={expected}"
+        )
+    ver = model_meta.get("features_version")
+    if ver is not None and int(ver) != schema.features_version:
+        raise ValueError(
+            f"features_version mismatch: features-schema={schema.features_version} "
+            f"model.json={ver}"
+        )
+    names = model_meta.get("feature_names")
+    if names is not None and tuple(names) != schema.feature_names:
+        raise ValueError(
+            "feature_names mismatch between features-schema and model.json "
+            f"(got {len(schema.feature_names)} vs model {len(names)})"
+        )
