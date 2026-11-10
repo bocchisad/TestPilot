@@ -1,6 +1,7 @@
 /target/
 **/*.rs.bk
 .venv/
+.venv-train/
 __pycache__/
 *.py[cod]
 .pytest_cache/
