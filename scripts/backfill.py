@@ -24,19 +24,18 @@ from pathlib import Path
 
 DEFAULT_PLUGIN = Path(__file__).resolve().parents[1] / "python" / "pytest-testpilot"
 
-# Common requirement / extra names for test deps across Python projects.
-_EXTRA_CANDIDATES = ("test", "tests", "dev", "testing")
+# Test-only extras / groups. Do NOT install "dev" by default — on projects like
+# pallets/click that pulls tox/uv/ruff and dominates per-commit wall time.
+_EXTRA_CANDIDATES = ("test", "tests", "testing")
 _REQ_FILE_CANDIDATES = (
-    "requirements-dev.txt",
     "requirements-test.txt",
     "requirements-tests.txt",
-    "requirements/dev.txt",
     "requirements/test.txt",
     "requirements/tests.txt",
     "tests/requirements.txt",
     "test-requirements.txt",
 )
-_GROUP_CANDIDATES = ("tests", "test", "dev")
+_GROUP_CANDIDATES = ("tests", "test")
 
 
 def run(
