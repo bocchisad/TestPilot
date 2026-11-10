@@ -323,7 +323,8 @@ def main() -> int:
                         "-c",
                         "import pytest; print(' '.join(n for n in ("
                         "'PytestRemovedIn10Warning','PytestRemovedIn9Warning',"
-                        "'PytestDeprecationWarning') if hasattr(pytest,n)))",
+                        "'PytestDeprecationWarning','PytestUnraisableExceptionWarning'"
+                        ") if hasattr(pytest,n)))",
                     ],
                     check=False,
                 )
