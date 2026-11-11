@@ -1,6 +1,6 @@
 //! Feature column lockfile — single source of truth for dump/show/schema CLI.
 
-pub const FEATURES_VERSION: u32 = 1;
+pub const FEATURES_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FeatureColumn {
@@ -13,6 +13,8 @@ pub enum FeatureColumn {
     Test,
     Label,
     Flaky,
+    Synthetic,
+    BaseChange,
     // features
     CcMax,
     CcSum,
@@ -56,6 +58,8 @@ impl FeatureColumn {
             Self::Test => "test",
             Self::Label => "label",
             Self::Flaky => "flaky",
+            Self::Synthetic => "synthetic",
+            Self::BaseChange => "base_change",
             Self::CcMax => "cc_max",
             Self::CcSum => "cc_sum",
             Self::ImpDist => "imp_dist",
@@ -91,11 +95,12 @@ impl FeatureColumn {
     /// Arrow / Parquet logical type hint for schema JSON.
     pub const fn dtype(self) -> &'static str {
         match self {
-            Self::Repo | Self::Change | Self::Parent | Self::Test => "utf8",
+            Self::Repo | Self::Change | Self::Parent | Self::Test | Self::BaseChange => "utf8",
             Self::CommitIdx
             | Self::Time
             | Self::Label
             | Self::Flaky
+            | Self::Synthetic
             | Self::ImpDist
             | Self::ImpDirect
             | Self::NameFile
@@ -138,6 +143,8 @@ pub const FEATURE_COLUMNS: &[FeatureColumn] = &[
     FeatureColumn::Test,
     FeatureColumn::Label,
     FeatureColumn::Flaky,
+    FeatureColumn::Synthetic,
+    FeatureColumn::BaseChange,
     FeatureColumn::CcMax,
     FeatureColumn::CcSum,
     FeatureColumn::ImpDist,
@@ -198,6 +205,6 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), n);
-        assert_eq!(n, 37);
+        assert_eq!(n, 39);
     }
 }

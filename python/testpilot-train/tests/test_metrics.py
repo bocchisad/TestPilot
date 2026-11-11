@@ -1,7 +1,12 @@
 import numpy as np
 import pytest
 
-from testpilot_train.metrics import apfd_tied, paired_delta_ci, recall_at_k_tied
+from testpilot_train.metrics import (
+    apfd_tied,
+    bootstrap_ci,
+    paired_delta_ci,
+    recall_at_k_tied,
+)
 
 
 def test_all_equal_scores_recall_is_k_over_n():
@@ -25,6 +30,38 @@ def test_apfd_all_ties():
     scores = np.ones(4)
     expected = 1.0 - (2.5 + 2.5) / (2 * 4) + 1.0 / (2 * 4)
     assert apfd_tied(y, scores) == pytest.approx(expected)
+
+
+def test_cluster_bootstrap_treats_cluster_as_unit():
+    """Duplicating changes inside a cluster does not narrow the CI (M3)."""
+    per = [
+        {"recall@10%": 1.0},
+        {"recall@10%": 1.0},
+        {"recall@10%": 0.0},
+        {"recall@10%": 0.0},
+    ]
+    clusters = ["a", "a", "b", "b"]
+    pt = bootstrap_ci(per, "recall@10%", seed=7, n_boot=400, cluster_ids=clusters)
+    assert pt.mean == pytest.approx(0.5)
+    assert pt.n_changes == 4
+    assert pt.ci_high - pt.ci_low >= 0.35
+
+
+def test_cluster_bootstrap_matches_change_when_one_per_cluster():
+    a = {"recall@10%": 0.5}
+    b = {"recall@10%": 0.6}
+    c = {"recall@10%": 0.4}
+    pt_one = bootstrap_ci([a, b, c], "recall@10%", seed=3, n_boot=300, cluster_ids=["1", "2", "3"])
+    pt_dup = bootstrap_ci(
+        [a, a, b, c],
+        "recall@10%",
+        seed=3,
+        n_boot=300,
+        cluster_ids=["1", "1", "2", "3"],
+    )
+    assert pt_one.mean == pytest.approx(pt_dup.mean)
+    assert pt_one.ci_low == pytest.approx(pt_dup.ci_low, rel=0.1)
+    assert pt_one.ci_high == pytest.approx(pt_dup.ci_high, rel=0.1)
 
 
 def test_paired_delta_ci_shape():

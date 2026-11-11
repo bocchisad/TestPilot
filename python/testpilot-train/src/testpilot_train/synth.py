@@ -65,6 +65,10 @@ def generate_synthetic_parquet(
             cols["test"].append(f"tests/test_{t:03d}.py::test_x")
             cols["label"].append(int(label[t]))
             cols["flaky"].append(0)
+            if "synthetic" in cols:
+                cols["synthetic"].append(0)
+            if "base_change" in cols:
+                cols["base_change"].append("")
             for name in schema.feature_names:
                 if name == "cc_max":
                     cols[name].append(float(sig_a[t]))
@@ -83,9 +87,12 @@ def generate_synthetic_parquet(
 
     arrays = {}
     for name in schema.column_names:
-        if name in ("repo", "change", "parent", "test"):
+        if name in ("repo", "change", "parent", "test", "base_change"):
             arrays[name] = pa.array(cols[name], type=pa.string())
-        elif name in ("commit_idx", "time", "label", "flaky") or name in _INT_FEATURES:
+        elif (
+            name in ("commit_idx", "time", "label", "flaky", "synthetic")
+            or name in _INT_FEATURES
+        ):
             arrays[name] = pa.array(cols[name], type=pa.int64())
         else:
             arrays[name] = pa.array(cols[name], type=pa.float64())

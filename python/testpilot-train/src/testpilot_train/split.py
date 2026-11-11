@@ -41,7 +41,72 @@ def _ordered_changes(frame: pl.DataFrame, repo: str) -> list[tuple[str, int]]:
     return list(zip(sub["change"].to_list(), sub["commit_idx"].to_list(), strict=True))
 
 
+def _unique_commit_idxs(frame: pl.DataFrame, repo: str) -> list[int]:
+    sub = (
+        frame.filter(pl.col("repo") == repo)
+        .select("commit_idx")
+        .unique()
+        .sort("commit_idx")
+    )
+    return sub["commit_idx"].to_list()
+
+
+def _partition_by_commit_idx(
+    ordered: list[tuple[str, int]], unique_idxs: list[int], i_train: int, i_val: int
+) -> tuple[list[tuple[str, int]], list[tuple[str, int]], list[tuple[str, int]]]:
+    train_i = set(unique_idxs[:i_train])
+    val_i = set(unique_idxs[i_train:i_val])
+    test_i = set(unique_idxs[i_val:])
+    train = [(c, i) for c, i in ordered if i in train_i]
+    val = [(c, i) for c, i in ordered if i in val_i]
+    test = [(c, i) for c, i in ordered if i in test_i]
+    return train, val, test
+
+
+def _repo_split_from_chunks(
+    repo: str,
+    train: list[tuple[str, int]],
+    val: list[tuple[str, int]],
+    test: list[tuple[str, int]],
+) -> RepoSplit:
+    assert train and val and test
+
+    def rng(chunk: list[tuple[str, int]]) -> tuple[int, int]:
+        idxs = [c for _, c in chunk]
+        return (min(idxs), max(idxs))
+
+    rs = RepoSplit(
+        repo=repo,
+        train_changes=tuple(c for c, _ in train),
+        val_changes=tuple(c for c, _ in val),
+        test_changes=tuple(c for c, _ in test),
+        train_commit_idx=rng(train),
+        val_commit_idx=rng(val),
+        test_commit_idx=rng(test),
+    )
+    assert max(i for _, i in train) < min(i for _, i in val) < min(i for _, i in test)
+    return rs
+
+
 def chrono_split(frame: pl.DataFrame, min_changes: int = 10) -> SplitPlan:
+    """Partition ordered unique ``commit_idx`` values 70/15/15; all changes per idx stay together."""
+    repos = sorted(frame["repo"].unique().to_list())
+    parts: list[RepoSplit] = []
+    for repo in repos:
+        unique_idxs = _unique_commit_idxs(frame, repo)
+        ordered = _ordered_changes(frame, repo)
+        n = len(unique_idxs)
+        if n < min_changes:
+            raise ValueError(f"repo {repo!r}: only {n} commit_idx values (need >= {min_changes})")
+        i_train = int(0.70 * n)
+        i_val = int(0.85 * n)
+        train, val, test = _partition_by_commit_idx(ordered, unique_idxs, i_train, i_val)
+        parts.append(_repo_split_from_chunks(repo, train, val, test))
+    return SplitPlan(by_repo=tuple(parts))
+
+
+def _chrono_split_by_changes(frame: pl.DataFrame, min_changes: int = 10) -> SplitPlan:
+    """Legacy: partition unique (change, commit_idx) rows by change count (pre-M8)."""
     repos = sorted(frame["repo"].unique().to_list())
     parts: list[RepoSplit] = []
     for repo in repos:
@@ -52,28 +117,7 @@ def chrono_split(frame: pl.DataFrame, min_changes: int = 10) -> SplitPlan:
         i_train = int(0.70 * n)
         i_val = int(0.85 * n)
         train, val, test = ordered[:i_train], ordered[i_train:i_val], ordered[i_val:]
-        assert train and val and test
-
-        def rng(chunk: list[tuple[str, int]]) -> tuple[int, int]:
-            idxs = [c for _, c in chunk]
-            return (min(idxs), max(idxs))
-
-        rs = RepoSplit(
-            repo=repo,
-            train_changes=tuple(c for c, _ in train),
-            val_changes=tuple(c for c, _ in val),
-            test_changes=tuple(c for c, _ in test),
-            train_commit_idx=rng(train),
-            val_commit_idx=rng(val),
-            test_commit_idx=rng(test),
-        )
-        assert rs.train_commit_idx[1] < rs.val_commit_idx[0] < rs.test_commit_idx[0] or (
-            rs.train_commit_idx[1] < rs.val_commit_idx[0]
-            and rs.val_commit_idx[1] < rs.test_commit_idx[0]
-        ), rs
-        # Strict: max train < min val < min test
-        assert max(i for _, i in train) < min(i for _, i in val) < min(i for _, i in test)
-        parts.append(rs)
+        parts.append(_repo_split_from_chunks(repo, train, val, test))
     return SplitPlan(by_repo=tuple(parts))
 
 

@@ -137,8 +137,9 @@ class Store:
             cur = self.conn.execute(
                 """
                 INSERT INTO test_runs(
-                    sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta,
+                    synthetic
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
                 """,
                 (
                     sha,

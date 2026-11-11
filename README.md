@@ -51,16 +51,27 @@ testpilot-train train --data pairs.parquet --out /tmp/tp-model --features-schema
 
 Primary label is `new_fail` (see [`docs/specs/2026-11-09-testpilot-training-design.md`](docs/specs/2026-11-09-testpilot-training-design.md)). Package details: [`python/testpilot-train/README.md`](python/testpilot-train/README.md).
 
+### Mutation bootstrap (when real `new_fail` is absent)
+
+Historical green `main` histories (e.g. click/jinja) yield no ranking positives. Generate synthetic failures via AST mutants as real commits under `refs/testpilot/mutants/`, then dump with `--include-mutants`. Design: [`docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md`](docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md).
+
+```bash
+python scripts/mutate_bootstrap.py --repo "$REPO" --db "$DB" --commits 5 --mutants-per-commit 3 --seed 42
+testpilot features dump --out pairs.parquet --include-mutants
+```
+
+**Click on Linux:** install **`less`** (e.g. `apt install less`). Without it, every commit fails all `test_echo_via_pager` parametrizations for `less` — persistent env failures, not `new_fail`. Do not exclude those tests; install the pager.
+
 ## Database schema
 
-Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/schema.sql) (`SCHEMA_VERSION = 5`). A synced copy ships inside the pytest plugin; `python scripts/sync_schema.py --check` enforces equality in CI.
+Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/schema.sql) (`SCHEMA_VERSION = 6`). A synced copy ships inside the pytest plugin; `python scripts/sync_schema.py --check` enforces equality in CI.
 
 | Table | Role |
 |-------|------|
 | `commits` | Commit metadata; `oversized=1` means the diff exceeded `--max-files-per-commit` and **no** `file_changes` were stored |
 | `commit_parents` | Parent SHAs (`parent_idx=0` is first parent / merge base for diffs) |
 | `file_changes` | Per-commit path changes (`A/M/D/R`), line counts, `is_binary` |
-| `test_runs` | One row per pytest/JUnit ingest; `dirty` + `diff_hash` for unclean trees; `input_hash` for JUnit dedup |
+| `test_runs` | One row per pytest/JUnit ingest; `dirty` + `diff_hash` for unclean trees; `input_hash` for JUnit dedup; `synthetic=1` for mutant bootstrap (excluded from real history/coverage/show) |
 | `tests` | Dictionary of unique `test_id` strings (`id` referenced elsewhere) |
 | `test_results` | Outcomes (`pass/fail/error/skip`), duration, `flaky`, `attempts` (via `test_pk`) |
 | `test_coverage` | Per `(run_id, test_pk, path)` coverage blob (`WITHOUT ROWID`) |
@@ -75,7 +86,8 @@ Dirty runs (`dirty=1`, including untracked files) are recorded now; training sho
 |---------|---------|
 | `testpilot init` | Create DB + `.git/info/exclude` entry |
 | `testpilot collect git` | Incremental HEAD history via [gix](https://github.com/GitoxideLabs/gitoxide) |
-| `testpilot collect junit <glob> --sha <sha>` | Stream-parse JUnit XML |
+| `testpilot collect git --sha <sha>` | Index a single commit (mutant leaves off HEAD) |
+| `testpilot collect junit <glob> --sha <sha> [--synthetic]` | Stream-parse JUnit XML (`--synthetic` for mutants) |
 | `testpilot stats [--json]` | Summary + top slow / failing tests |
 | `testpilot debug coverage --run-id/--sha --test-id` | Decode coverage blobs |
 | `testpilot features dump\|show\|schema` | Leak-free (change, test) feature vectors / Parquet / schema lockfile |

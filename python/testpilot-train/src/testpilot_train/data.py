@@ -113,6 +113,13 @@ def training_mask(frame: pl.DataFrame) -> np.ndarray:
 
 
 def feature_matrix(frame: pl.DataFrame, feature_names: tuple[str, ...]) -> np.ndarray:
+    # M7: service columns must never enter the model matrix.
+    banned = {"synthetic", "base_change", "repo", "change", "parent", "test", "label", "flaky"}
+    leak = banned.intersection(feature_names)
+    if leak:
+        raise ValueError(f"service columns leaked into model features: {sorted(leak)}")
+    if len(feature_names) != 29:
+        raise ValueError(f"expected 29 model features, got {len(feature_names)}")
     return np.ascontiguousarray(
         frame.select(list(feature_names)).to_numpy(), dtype=np.float64
     )

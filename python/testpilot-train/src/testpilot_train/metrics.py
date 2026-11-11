@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 
 import numpy as np
@@ -143,23 +144,60 @@ def macro_mean(per_change: list[dict[str, float]], key: str) -> float:
     return float(np.mean(vals)) if vals else float("nan")
 
 
+def _cluster_indices(
+    per_change: list[dict[str, float]],
+    key: str,
+    cluster_ids: list[str],
+) -> tuple[dict[str, list[int]], list[int]]:
+    if len(cluster_ids) != len(per_change):
+        raise ValueError("cluster_ids length must match per_change")
+    valid = [i for i, c in enumerate(per_change) if c[key] == c[key]]
+    cluster_to_indices: dict[str, list[int]] = defaultdict(list)
+    for i in valid:
+        cluster_to_indices[cluster_ids[i]].append(i)
+    return cluster_to_indices, valid
+
+
 def bootstrap_ci(
     per_change: list[dict[str, float]],
     key: str,
     seed: int,
     n_boot: int = 1000,
+    cluster_ids: list[str] | None = None,
 ) -> MetricPoint:
-    vals = np.array([c[key] for c in per_change if c[key] == c[key]], dtype=np.float64)
-    n = vals.shape[0]
+    if cluster_ids is None:
+        vals = np.array(
+            [c[key] for c in per_change if c[key] == c[key]], dtype=np.float64
+        )
+        n = vals.shape[0]
+        if n == 0:
+            return MetricPoint(float("nan"), float("nan"), float("nan"), 0)
+        rng = np.random.default_rng(seed)
+        means = np.empty(n_boot, dtype=np.float64)
+        for b in range(n_boot):
+            idx = rng.integers(0, n, size=n)
+            means[b] = vals[idx].mean()
+        lo, hi = np.quantile(means, [0.025, 0.975])
+        return MetricPoint(float(vals.mean()), float(lo), float(hi), n)
+
+    cluster_to_indices, valid = _cluster_indices(per_change, key, cluster_ids)
+    n = len(valid)
     if n == 0:
         return MetricPoint(float("nan"), float("nan"), float("nan"), 0)
+    clusters = list(cluster_to_indices.keys())
+    n_clusters = len(clusters)
     rng = np.random.default_rng(seed)
     means = np.empty(n_boot, dtype=np.float64)
     for b in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        means[b] = vals[idx].mean()
+        sampled = rng.choice(clusters, size=n_clusters, replace=True)
+        vals: list[float] = []
+        for cl in sampled:
+            for i in cluster_to_indices[cl]:
+                vals.append(per_change[i][key])
+        means[b] = float(np.mean(vals))
+    all_vals = [per_change[i][key] for i in valid]
     lo, hi = np.quantile(means, [0.025, 0.975])
-    return MetricPoint(float(vals.mean()), float(lo), float(hi), n)
+    return MetricPoint(float(np.mean(all_vals)), float(lo), float(hi), n)
 
 
 def paired_delta_ci(
@@ -168,24 +206,47 @@ def paired_delta_ci(
     key: str,
     seed: int,
     n_boot: int = 1000,
+    cluster_ids: list[str] | None = None,
 ) -> MetricPoint:
     """Bootstrap CI for mean(model - baseline) on the same change order."""
     assert len(model_per) == len(base_per)
-    deltas = []
-    for m, b in zip(model_per, base_per, strict=True):
+    if cluster_ids is not None and len(cluster_ids) != len(model_per):
+        raise ValueError("cluster_ids length must match per_change lists")
+
+    paired: list[tuple[int, float]] = []
+    for i, (m, b) in enumerate(zip(model_per, base_per, strict=True)):
         if m[key] == m[key] and b[key] == b[key]:
-            deltas.append(m[key] - b[key])
-    arr = np.asarray(deltas, dtype=np.float64)
-    n = arr.shape[0]
+            paired.append((i, m[key] - b[key]))
+    n = len(paired)
     if n == 0:
         return MetricPoint(float("nan"), float("nan"), float("nan"), 0)
+    deltas = np.array([d for _, d in paired], dtype=np.float64)
+
+    if cluster_ids is None:
+        rng = np.random.default_rng(seed)
+        means = np.empty(n_boot, dtype=np.float64)
+        for b in range(n_boot):
+            idx = rng.integers(0, n, size=n)
+            means[b] = deltas[idx].mean()
+        lo, hi = np.quantile(means, [0.025, 0.975])
+        return MetricPoint(float(deltas.mean()), float(lo), float(hi), n)
+
+    cluster_to_indices: dict[str, list[int]] = defaultdict(list)
+    for pos, (orig_i, _d) in enumerate(paired):
+        cluster_to_indices[cluster_ids[orig_i]].append(pos)
+    clusters = list(cluster_to_indices.keys())
+    n_clusters = len(clusters)
     rng = np.random.default_rng(seed)
     means = np.empty(n_boot, dtype=np.float64)
     for b in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        means[b] = arr[idx].mean()
+        sampled = rng.choice(clusters, size=n_clusters, replace=True)
+        boot: list[float] = []
+        for cl in sampled:
+            for pos in cluster_to_indices[cl]:
+                boot.append(deltas[pos])
+        means[b] = float(np.mean(boot))
     lo, hi = np.quantile(means, [0.025, 0.975])
-    return MetricPoint(float(arr.mean()), float(lo), float(hi), n)
+    return MetricPoint(float(deltas.mean()), float(lo), float(hi), n)
 
 
 def useful_by_paired(delta: MetricPoint) -> bool:

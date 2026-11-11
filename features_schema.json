@@ -33,6 +33,14 @@
       "name": "flaky"
     },
     {
+      "dtype": "int64",
+      "name": "synthetic"
+    },
+    {
+      "dtype": "utf8",
+      "name": "base_change"
+    },
+    {
       "dtype": "float64",
       "name": "cc_max"
     },
@@ -149,5 +157,5 @@
       "name": "ch_nfunc"
     }
   ],
-  "features_version": 1
+  "features_version": 2
 }

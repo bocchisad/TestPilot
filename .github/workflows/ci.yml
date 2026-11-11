@@ -179,6 +179,7 @@ jobs:
           set -euo pipefail
           START=$(date +%s)
           pytest python/testpilot-train -q --durations=10
+          PYTHONPATH=scripts pytest scripts/mutate -q --durations=10
           END=$(date +%s)
           ELAPSED=$((END - START))
           echo "train-oracle elapsed=${ELAPSED}s"
