@@ -152,6 +152,37 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: cargo +1.85.0 build -p testpilot-cli --locked
+      - name: Build CLI
+        run: cargo +1.85.0 build -p testpilot-cli --locked
       - run: pip install pyarrow
       - run: bash tests/features_oracle.sh
+
+  train-oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.85.0"
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: python/testpilot-train/pyproject.toml
+      - name: Build CLI
+        run: cargo +1.85.0 build -p testpilot-cli --locked
+      - name: Install testpilot-train
+        run: pip install -e 'python/testpilot-train[dev]'
+      - name: Pytest train-oracle (<60s)
+        run: |
+          set -euo pipefail
+          START=$(date +%s)
+          pytest python/testpilot-train -q --durations=10
+          END=$(date +%s)
+          ELAPSED=$((END - START))
+          echo "train-oracle elapsed=${ELAPSED}s"
+          if [ "$ELAPSED" -ge 60 ]; then
+            echo "train-oracle exceeded 60s budget" >&2
+            exit 1
+          fi

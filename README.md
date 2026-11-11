@@ -42,6 +42,15 @@ testpilot features schema --check features_schema.json
 
 `features show` needs history snapshots written by `features dump`. Opening a schema **v4** DB upgrades in place to **v5** and **drops** `feature_history_snapshot` rows — run `features dump` again (otherwise show errors with that hint).
 
+## Training (week 3)
+
+```bash
+pip install -e 'python/testpilot-train[dev]'
+testpilot-train train --data pairs.parquet --out /tmp/tp-model --features-schema features_schema.json
+```
+
+Primary label is `new_fail` (see [`docs/specs/2026-11-09-testpilot-training-design.md`](docs/specs/2026-11-09-testpilot-training-design.md)). Package details: [`python/testpilot-train/README.md`](python/testpilot-train/README.md).
+
 ## Database schema
 
 Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/schema.sql) (`SCHEMA_VERSION = 5`). A synced copy ships inside the pytest plugin; `python scripts/sync_schema.py --check` enforces equality in CI.
@@ -58,7 +67,7 @@ Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/sche
 
 Coverage blob format: leading version byte `0x01`, then delta-encoded unsigned varints of sorted unique line numbers. Empty coverage is exactly `[0x01]`.
 
-Dirty runs (`dirty=1`, including untracked files) are recorded now; **future training will exclude them by default**.
+Dirty runs (`dirty=1`, including untracked files) are recorded now; training should exclude them by default when building datasets.
 
 ## Commands
 
@@ -70,6 +79,7 @@ Dirty runs (`dirty=1`, including untracked files) are recorded now; **future tra
 | `testpilot stats [--json]` | Summary + top slow / failing tests |
 | `testpilot debug coverage --run-id/--sha --test-id` | Decode coverage blobs |
 | `testpilot features dump\|show\|schema` | Leak-free (change, test) feature vectors / Parquet / schema lockfile |
+| `testpilot-train train\|evaluate\|baselines` | Offline LightGBM ranking on feature parquet |
 
 ## Development
 

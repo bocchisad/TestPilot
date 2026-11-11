@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "testpilot-train"
+version = "0.1.0"
+description = "Offline LightGBM training for TestPilot feature parquets"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "bocchisad" }]
+dependencies = [
+  "lightgbm==4.5.0",
+  "numpy==2.1.3",
+  "polars==1.17.1",
+  "pyarrow==18.1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.4", "ruff==0.8.4"]
+
+[project.scripts]
+testpilot-train = "testpilot_train.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
