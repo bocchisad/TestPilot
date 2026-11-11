@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -18,12 +20,17 @@ class MutantRunResult:
     junit_path: Path | None = None
     pytest_rc: int | None = None
     n_failed: int = 0
+    n_tests: int = 0
     n_flaky_rerun: int = 0
     flaky_tests: set[str] = field(default_factory=set)
-    killed: bool = False
+    n_new_fail: int = 0
+    killed: bool = False  # ≥1 new_fail vs parent C
+    high_fail_rate: bool = False  # >50% of tests failed
+    collection_error: bool = False
     collect_ok: bool = False
     collect_note: str = ""
     log_tail: str = ""
+    orphan_check_ok: bool = True
 
 
 def default_timeout_sec(duration_sec: float | None, override: int | None) -> int:
@@ -48,6 +55,14 @@ def _run(
     )
 
 
+def _case_id(case: ET.Element) -> str:
+    classname = case.get("classname") or ""
+    name = case.get("name") or ""
+    if classname:
+        return f"{classname}::{name}"
+    return name
+
+
 def _failed_from_junit(path: Path) -> list[str]:
     if not path.is_file():
         return []
@@ -55,13 +70,53 @@ def _failed_from_junit(path: Path) -> list[str]:
     failed: list[str] = []
     for case in root.iter("testcase"):
         if case.find("failure") is not None or case.find("error") is not None:
-            classname = case.get("classname") or ""
-            name = case.get("name") or ""
-            if classname:
-                failed.append(f"{classname}::{name}")
-            elif name:
-                failed.append(name)
+            failed.append(_case_id(case))
     return failed
+
+
+def _all_tests_from_junit(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    root = ET.parse(path).getroot()
+    return [_case_id(c) for c in root.iter("testcase")]
+
+
+def _merge_junit_with_flaky(
+    junit1: Path, junit2: Path | None, flaky: set[str], out: Path
+) -> None:
+    """Write a single junit where flaky tests appear as fail then pass (collapse → flaky=1)."""
+    if not junit1.is_file():
+        return
+    root = ET.parse(junit1).getroot()
+    # Collect pass outcomes from rerun for flaky ids
+    rerun_pass: set[str] = set(flaky)
+    # Emit: for each case in junit1, if flaky append a second pass case with same id
+    suite = root if root.tag == "testsuite" else root.find("testsuite")
+    if suite is None:
+        # multi-suite: wrap by concatenating raw XML
+        parts = [junit1.read_text(encoding="utf-8")]
+        if junit2 and junit2.is_file():
+            parts.append(junit2.read_text(encoding="utf-8"))
+        out.write_text("\n".join(parts), encoding="utf-8")
+        return
+
+    extras: list[ET.Element] = []
+    for case in list(suite.iter("testcase")):
+        tid = _case_id(case)
+        if tid in rerun_pass:
+            # Keep failure in junit1; add a pass sibling so collapse_reruns sees both.
+            clone = ET.Element("testcase", attrib=dict(case.attrib))
+            extras.append(clone)
+    for e in extras:
+        suite.append(e)
+    tree = ET.ElementTree(root)
+    tree.write(out, encoding="utf-8", xml_declaration=True)
+
+
+_COLLECTION_RE = re.compile(
+    r"(ERROR collecting|ImportError|ModuleNotFoundError|collected 0 items)",
+    re.I,
+)
 
 
 def _pytest_warn_args(python: Path) -> list[str]:
@@ -87,7 +142,8 @@ def _run_pytest_group(
     cwd: Path,
     env: dict[str, str],
     timeout_sec: int,
-) -> tuple[int, bool, str]:
+) -> tuple[int, bool, str, int | None]:
+    """Returns (rc, timed_out, log_tail, pgid)."""
     tail = ""
     proc = subprocess.Popen(
         cmd,
@@ -98,13 +154,21 @@ def _run_pytest_group(
         text=True,
         start_new_session=True,
     )
+    pgid = None
+    try:
+        pgid = os.getpgid(proc.pid)
+    except ProcessLookupError:
+        pgid = None
     try:
         out, _ = proc.communicate(timeout=timeout_sec)
         tail = (out or "")[-4000:]
-        return proc.returncode if proc.returncode is not None else 1, False, tail
+        return proc.returncode if proc.returncode is not None else 1, False, tail, pgid
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            if pgid is not None:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                proc.kill()
         except ProcessLookupError:
             proc.kill()
         try:
@@ -112,7 +176,49 @@ def _run_pytest_group(
             tail = (out or "")[-4000:]
         except subprocess.TimeoutExpired:
             proc.kill()
-        return 124, True, tail
+        return 124, True, tail, pgid
+
+
+def _pgid_alive(pgid: int | None) -> bool:
+    if pgid is None:
+        return False
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def parent_fail_set(db: Path, parent_sha: str) -> set[str]:
+    """Non-synthetic clean run failures on C (for new_fail)."""
+    if not db.is_file():
+        return set()
+    con = sqlite3.connect(str(db))
+    row = con.execute(
+        """
+        SELECT r.id FROM test_runs r
+        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=0
+          AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
+        ORDER BY r.id DESC LIMIT 1
+        """,
+        (parent_sha,),
+    ).fetchone()
+    if not row:
+        con.close()
+        return set()
+    fails = {
+        str(t[0])
+        for t in con.execute(
+            """
+            SELECT t.test_id FROM test_results r
+            JOIN tests t ON t.id=r.test_pk
+            WHERE r.run_id=? AND r.outcome IN ('fail','error') AND r.flaky=0
+            """,
+            (row[0],),
+        )
+    }
+    con.close()
+    return fails
 
 
 def collect_junit_synthetic(
@@ -121,7 +227,7 @@ def collect_junit_synthetic(
     sha: str,
     junit_glob: str,
     *,
-    force: bool = False,
+    force: bool = True,
     cwd: Path | None = None,
 ) -> tuple[bool, str]:
     testpilot = os.environ.get("TESTPILOT_BIN", "testpilot")
@@ -149,6 +255,7 @@ def run_mutant(
     db: Path,
     mutant_sha: str,
     *,
+    parent_sha: str,
     pytest_bin: Path,
     python_bin: Path,
     work_dir: Path,
@@ -164,8 +271,9 @@ def run_mutant(
     wt = work_dir / f"wt-{mutant_sha[:12]}"
     junit1 = work_dir / f"junit-{mutant_sha[:12]}-1.xml"
     junit2 = work_dir / f"junit-{mutant_sha[:12]}-2.xml"
+    junit_merged = work_dir / f"junit-{mutant_sha[:12]}-merged.xml"
 
-    for p in (wt, junit1, junit2):
+    for p in (wt, junit1, junit2, junit_merged):
         if p.exists() and p.is_dir():
             _run(["git", "worktree", "remove", "--force", str(p)], cwd=repo, check=False)
         elif p.is_file():
@@ -204,71 +312,112 @@ def run_mutant(
             *warn_args,
             *extra,
         ]
-        rc, timed_out, tail = _run_pytest_group(cmd, wt, env, timeout_sec)
+        rc, timed_out, tail, pgid = _run_pytest_group(cmd, wt, env, timeout_sec)
+        orphan_ok = not _pgid_alive(pgid)
         if timed_out:
-            return MutantRunResult(ok=False, timed_out=True, log_tail=tail, pytest_rc=rc)
+            # Ensure no junit retained for timed-out mutants.
+            for p in (junit1, junit2, junit_merged):
+                p.unlink(missing_ok=True)
+            return MutantRunResult(
+                ok=False,
+                timed_out=True,
+                log_tail=tail,
+                pytest_rc=rc,
+                orphan_check_ok=orphan_ok,
+            )
+
+        collection_error = bool(_COLLECTION_RE.search(tail)) or (
+            rc == 2 and not junit1.is_file()
+        )
+        if junit1.is_file() and not _all_tests_from_junit(junit1):
+            collection_error = True
 
         failed = _failed_from_junit(junit1)
+        all_tests = _all_tests_from_junit(junit1)
         n_flaky = 0
         flaky: set[str] = set()
-        if failed:
+        if failed and not collection_error:
             rerun = [
                 str(pytest_bin),
                 f"--junitxml={junit2}",
                 *warn_args,
                 *failed,
             ]
-            rc2, timed_out2, tail2 = _run_pytest_group(rerun, wt, env, timeout_sec)
+            rc2, timed_out2, tail2, pgid2 = _run_pytest_group(
+                rerun, wt, env, timeout_sec
+            )
+            orphan_ok = orphan_ok and not _pgid_alive(pgid2)
             tail = tail2 or tail
             if timed_out2:
+                for p in (junit1, junit2, junit_merged):
+                    p.unlink(missing_ok=True)
                 return MutantRunResult(
                     ok=False,
                     timed_out=True,
-                    junit_path=junit1,
                     log_tail=tail,
                     pytest_rc=rc2,
+                    orphan_check_ok=orphan_ok,
                 )
-            passed_rerun = set()
             if junit2.is_file():
                 root = ET.parse(junit2).getroot()
                 for case in root.iter("testcase"):
-                    name = case.get("name") or ""
-                    classname = case.get("classname") or ""
-                    tid = f"{classname}::{name}" if classname else name
+                    tid = _case_id(case)
                     if (
                         tid in failed
                         and case.find("failure") is None
                         and case.find("error") is None
                     ):
-                        passed_rerun.add(tid)
-            flaky = passed_rerun
+                        flaky.add(tid)
             n_flaky = len(flaky)
 
-        glob_pattern = str(work_dir / f"junit-{mutant_sha[:12]}-*.xml")
-        collect_ok, collect_msg = collect_junit_synthetic(
-            repo,
-            db,
-            mutant_sha,
-            glob_pattern,
-            force=False,
-            cwd=repo,
-        )
+        # Merge so collapse_reruns sees fail+pass → flaky=1 in DB.
+        if junit1.is_file():
+            _merge_junit_with_flaky(junit1, junit2 if junit2.is_file() else None, flaky, junit_merged)
+            collect_ok, collect_msg = collect_junit_synthetic(
+                repo,
+                db,
+                mutant_sha,
+                str(junit_merged),
+                force=True,
+                cwd=repo,
+            )
+        else:
+            collect_ok, collect_msg = False, "no junit produced"
 
-        n_failed = len(_failed_from_junit(junit1))
-        killed = n_failed > len(flaky) and n_failed > 0
+        parent_fails = parent_fail_set(db, parent_sha)
+        # Normalize ids loosely: strip module path variants
+        hard_fails = [t for t in failed if t not in flaky]
+        n_new_fail = sum(1 for t in hard_fails if t not in parent_fails)
+        # Also try matching by suffix after last '/'
+        if n_new_fail == 0 and hard_fails and parent_fails:
+            pf_suffix = {p.split("::")[-1] for p in parent_fails}
+            n_new_fail = sum(
+                1 for t in hard_fails if t.split("::")[-1] not in pf_suffix and t not in parent_fails
+            )
+
+        n_failed = len(failed)
+        n_tests = len(all_tests)
+        high_fail = n_tests > 0 and (n_failed / n_tests) > 0.5
+        if collection_error:
+            high_fail = True
 
         return MutantRunResult(
             ok=rc in (0, 1) and not timed_out,
             timed_out=False,
-            junit_path=junit1,
+            junit_path=junit_merged if junit_merged.is_file() else junit1,
             pytest_rc=rc,
             n_failed=n_failed,
+            n_tests=n_tests,
             n_flaky_rerun=n_flaky,
             flaky_tests=flaky,
-            killed=killed,
+            n_new_fail=n_new_fail,
+            killed=n_new_fail >= 1 and not collection_error,
+            high_fail_rate=high_fail,
+            collection_error=collection_error,
             collect_ok=collect_ok,
             collect_note=collect_msg,
             log_tail=tail,
+            orphan_check_ok=orphan_ok,
         )
     finally:
         _run(["git", "worktree", "remove", "--force", str(wt)], cwd=repo, check=False)

@@ -42,9 +42,22 @@ def delete_mutant_ref(repo: Path, parent_sha: str, index: int) -> None:
     _run(repo, ["update-ref", "-d", ref], check=False)
 
 
+def author_ts(repo: Path, sha: str) -> int:
+    out = _run(repo, ["log", "-1", "--format=%at", sha]).stdout.strip()
+    return int(out)
+
+
 def committer_ts(repo: Path, sha: str) -> int:
     out = _run(repo, ["log", "-1", "--format=%ct", sha]).stdout.strip()
     return int(out)
+
+
+MUTATE_IDENTITY = {
+    "GIT_AUTHOR_NAME": "testpilot-mutate",
+    "GIT_AUTHOR_EMAIL": "testpilot-mutate@localhost",
+    "GIT_COMMITTER_NAME": "testpilot-mutate",
+    "GIT_COMMITTER_EMAIL": "testpilot-mutate@localhost",
+}
 
 
 def _hash_blob(repo: Path, content: str) -> str:
@@ -79,15 +92,16 @@ def create_mutant_commit(
     *,
     message: str | None = None,
 ) -> str:
-    """Commit M with parent=C, dates committer(C)+index sec, update mutant ref."""
+    """Commit M with parent=C; author=author(C)+i, committer=committer(C)+i."""
     if not file_updates:
         raise ValueError("file_updates must not be empty")
     tree = _build_tree(repo, parent_sha, file_updates)
-    ts = committer_ts(repo, parent_sha) + index
-    date = f"@{ts}"
+    a_ts = author_ts(repo, parent_sha) + index
+    c_ts = committer_ts(repo, parent_sha) + index
     env = {
-        "GIT_AUTHOR_DATE": date,
-        "GIT_COMMITTER_DATE": date,
+        **MUTATE_IDENTITY,
+        "GIT_AUTHOR_DATE": f"@{a_ts}",
+        "GIT_COMMITTER_DATE": f"@{c_ts}",
     }
     msg = message or f"testpilot-mutant {index}"
     p = _run(

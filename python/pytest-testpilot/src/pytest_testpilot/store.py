@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 _MIGRATE_2_TO_3 = """
@@ -32,6 +32,11 @@ CREATE TABLE feature_history_snapshot (
   payload BLOB NOT NULL,
   cov_source_sha TEXT
 );
+"""
+
+_MIGRATE_5_TO_6 = """
+ALTER TABLE test_runs ADD COLUMN synthetic INTEGER NOT NULL DEFAULT 0
+  CHECK (synthetic IN (0,1));
 """
 
 
@@ -77,13 +82,20 @@ class Store:
             if found == SCHEMA_VERSION:
                 return
             # Additive upgrades only; v1 still requires delete.
-            if found in (2, 3, 4) and SCHEMA_VERSION == 5:
+            if found in (2, 3, 4, 5) and SCHEMA_VERSION == 6:
                 if found == 2:
                     self.conn.executescript(_MIGRATE_2_TO_3)
                 if found <= 3:
                     self.conn.executescript(_MIGRATE_3_TO_4)
                 if found <= 4:
                     self.conn.executescript(_MIGRATE_4_TO_5)
+                if found <= 5:
+                    cols = {
+                        r[1]
+                        for r in self.conn.execute("PRAGMA table_info(test_runs)").fetchall()
+                    }
+                    if "synthetic" not in cols:
+                        self.conn.executescript(_MIGRATE_5_TO_6)
                 self.conn.execute(
                     "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
                 )

@@ -79,13 +79,6 @@ def _cluster_ids_for_keys(
     return [_cluster_id(frame, r, c) for r, c in keys]
 
 
-def _synthetic_dominates(frame: pl.DataFrame) -> bool:
-    if "synthetic" not in frame.columns:
-        return False
-    n_syn = int(frame.filter(pl.col("synthetic") == 1).height)
-    return n_syn > frame.height - n_syn
-
-
 def _mutant_test_stats(test_df: pl.DataFrame) -> tuple[int, int]:
     """Mutant changes with ≥1 new_fail, and distinct base_change among them."""
     if "synthetic" not in test_df.columns:
@@ -286,14 +279,21 @@ def train(
     )
 
     n_test_new = len(test_keyed)
-    synth_dom = _synthetic_dominates(frame)
-    if synth_dom:
+    has_synthetic = "synthetic" in frame.columns and int(
+        frame.filter(pl.col("synthetic") == 1).height
+    ) > 0
+    # When any synthetic rows exist, gate sufficiency on synthetic test slice (M3).
+    if has_synthetic:
         n_mut, n_bases = _mutant_test_stats(test_df)
         status = "ok" if (n_mut >= 20 and n_bases >= 10) else "data_insufficient"
     else:
         status = "ok" if n_test_new >= 20 else "data_insufficient"
-    useful_on_val = useful_by_paired(delta_val)
 
+    # Real useful-gate (vs best val heuristic) — always reported.
+    useful_on_val = useful_by_paired(delta_val)
+    useful_on_val_label = "useful_on_real_val" if has_synthetic else "useful_on_val"
+
+    # Synthetic useful-gate vs cov_lines — always when synthetic rows exist (P2).
     val_syn_df = (
         val_df.filter(pl.col("synthetic") == 1)
         if "synthetic" in val_df.columns
@@ -408,7 +408,9 @@ def train(
             "n": delta_test.n_changes,
         },
         "useful_on_val": useful_on_val,
+        "useful_on_val_label": useful_on_val_label,
         "useful_on_synthetic_val": useful_on_synthetic_val,
+        "useful_on_synthetic_val_label": "useful_on_synthetic_val",
         "status": status,
         "feature_gain": feature_gain,
         "sentinel_notes": {"pf_max": -1, "pq_max": -1, "dur": -1, "imp_dist": 99},
@@ -437,7 +439,7 @@ def train(
         payload["metrics_test_new_fail_synthetic"] = _slice_metric_payload(
             test_syn_df, predict_raw(fit.booster, test_syn_df, schema), seed + 8
         )
-        if synth_dom:
+        if has_synthetic:
             n_mut, n_bases = _mutant_test_stats(test_df)
             payload["diagnostics"]["mutant_test_new_fail_changes"] = n_mut
             payload["diagnostics"]["mutant_test_distinct_base_change"] = n_bases
@@ -448,9 +450,9 @@ def train(
             "n": delta_synthetic_val_cov.n_changes,
         }
     if status == "data_insufficient":
-        if synth_dom:
+        if has_synthetic:
             payload["note"] = (
-                "synthetic-dominated data: test needs ≥20 mutant changes with "
+                "synthetic data present: test needs ≥20 mutant changes with "
                 "≥1 new_fail and ≥10 distinct base_change; metrics shown but no conclusions"
             )
         else:

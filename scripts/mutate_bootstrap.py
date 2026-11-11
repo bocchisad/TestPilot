@@ -9,6 +9,7 @@ import random
 import shutil
 import sys
 import tempfile
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,7 +46,10 @@ class BootstrapStats:
     n_timeout: int = 0
     n_equivalent: int = 0
     n_flaky_rerun: int = 0
-    n_killed: int = 0
+    n_killed: int = 0  # ≥1 new_fail vs C
+    n_collection_error: int = 0
+    n_high_fail_rate: int = 0  # >50% tests failed (shown separately)
+    attempts_by_operator: dict[str, int] = field(default_factory=dict)
     kill_by_operator: dict[str, int] = field(default_factory=dict)
     n_collect_git_failed: int = 0
     n_collect_junit_failed: int = 0
@@ -159,6 +163,9 @@ def run_bootstrap(
 
             for i, (path, site, new_src) in enumerate(chosen):
                 stats.n_mutants_attempted += 1
+                stats.attempts_by_operator[site.op_id] = (
+                    stats.attempts_by_operator.get(site.op_id, 0) + 1
+                )
                 try:
                     m_sha = create_mutant_commit(
                         repo,
@@ -183,6 +190,7 @@ def run_bootstrap(
                     repo,
                     db,
                     m_sha,
+                    parent_sha=c_sha,
                     pytest_bin=pytest,
                     python_bin=vpy,
                     work_dir=run_root,
@@ -201,19 +209,50 @@ def run_bootstrap(
                 stats.n_flaky_rerun += result.n_flaky_rerun
                 if not result.collect_ok:
                     stats.n_collect_junit_failed += 1
+                if result.collection_error:
+                    stats.n_collection_error += 1
+                if result.high_fail_rate:
+                    stats.n_high_fail_rate += 1
 
                 if result.killed:
                     stats.n_killed += 1
                     stats.kill_by_operator[site.op_id] = (
                         stats.kill_by_operator.get(site.op_id, 0) + 1
                     )
-                elif result.n_failed == 0:
+                elif result.n_new_fail == 0 and not result.collection_error:
                     stats.n_equivalent += 1
     finally:
         if temp_root:
             shutil.rmtree(owning, ignore_errors=True)
 
     return stats
+
+
+def stats_to_report(stats: BootstrapStats) -> dict:
+    kill_by_op = dict(sorted(stats.kill_by_operator.items()))
+    attempts = dict(sorted(stats.attempts_by_operator.items()))
+    return {
+        "n_eligible_C": stats.n_eligible_C,
+        "n_commits_sampled": stats.n_commits_sampled,
+        "n_mutants_attempted": stats.n_mutants_attempted,
+        "n_invalid": stats.n_invalid,
+        "n_timeout": stats.n_timeout,
+        "n_equivalent": stats.n_equivalent,
+        "n_flaky_rerun": stats.n_flaky_rerun,
+        "n_killed": stats.n_killed,
+        "n_collection_error": stats.n_collection_error,
+        "n_high_fail_rate": stats.n_high_fail_rate,
+        "attempts_by_operator": attempts,
+        "kill_by_operator": kill_by_op,
+        "kill_rate_by_operator": {
+            op: (stats.kill_by_operator.get(op, 0) / max(stats.attempts_by_operator.get(op, 0), 1))
+            for op in sorted(
+                set(stats.attempts_by_operator) | set(stats.kill_by_operator)
+            )
+        },
+        "n_collect_git_failed": stats.n_collect_git_failed,
+        "n_collect_junit_failed": stats.n_collect_junit_failed,
+    }
 
 
 def main() -> int:
@@ -252,32 +291,13 @@ def main() -> int:
         work_root=None,
     )
 
-    kill_by_op = dict(sorted(stats.kill_by_operator.items()))
-    report = {
-        "n_eligible_C": stats.n_eligible_C,
-        "n_commits_sampled": stats.n_commits_sampled,
-        "n_mutants_attempted": stats.n_mutants_attempted,
-        "n_invalid": stats.n_invalid,
-        "n_timeout": stats.n_timeout,
-        "n_equivalent": stats.n_equivalent,
-        "n_flaky_rerun": stats.n_flaky_rerun,
-        "n_killed": stats.n_killed,
-        "kill_rate_by_operator": {
-            op: (stats.kill_by_operator[op] / max(stats.n_mutants_attempted, 1))
-            for op in kill_by_op
-        },
-        "kill_by_operator": kill_by_op,
-        "n_collect_git_failed": stats.n_collect_git_failed,
-        "n_collect_junit_failed": stats.n_collect_junit_failed,
-    }
+    report = stats_to_report(stats)
 
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        print(f"n_eligible_C={stats.n_eligible_C}")
         for key, val in report.items():
-            if key != "n_eligible_C":
-                print(f"{key}={val}")
+            print(f"{key}={val}")
 
     return 0
 

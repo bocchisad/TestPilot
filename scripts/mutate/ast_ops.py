@@ -260,8 +260,27 @@ def _add_site(sites: list[MutationSite], op_id: str, node: ast.AST) -> None:
     )
 
 
+def _node_in_function(node: ast.AST, functions: list[ast.AST]) -> bool:
+    """True if node lies fully within some function/method body (not module-level)."""
+    if not _has_location(node):
+        return False
+    n_start = node.lineno
+    n_end = node.end_lineno if node.end_lineno is not None else node.lineno
+    for fn in functions:
+        if not _has_location(fn):
+            continue
+        # Body starts after the def line; require node inside [body[0].lineno, fn.end]
+        if not fn.body:
+            continue
+        b0 = fn.body[0].lineno
+        f_end = fn.end_lineno if fn.end_lineno is not None else b0
+        if n_start >= b0 and n_end <= f_end:
+            return True
+    return False
+
+
 def find_sites(source: str, touched_lines: set[int]) -> list[MutationSite]:
-    """List mutation candidates on hunk-touched lines."""
+    """List mutation candidates on hunk-touched lines inside function/method bodies."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
@@ -271,9 +290,17 @@ def find_sites(source: str, touched_lines: set[int]) -> list[MutationSite]:
 
     sites: list[MutationSite] = []
     fn_by_stmt = _body_functions(tree)
+    functions = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
 
     for node in ast.walk(tree):
         if not _has_location(node) or not _node_touched(node, touched_lines):
+            continue
+        # Module-level mutations break imports / collection — skip (P1 review).
+        if not _node_in_function(node, functions):
             continue
 
         if isinstance(node, ast.Compare) and len(node.ops) == 1:
@@ -297,7 +324,9 @@ def find_sites(source: str, touched_lines: set[int]) -> list[MutationSite]:
             _add_site(sites, "return_none", node)
 
         if isinstance(node, (ast.If, ast.While, ast.Assert)):
-            if _node_touched(node.test, touched_lines):
+            if _node_touched(node.test, touched_lines) and _node_in_function(
+                node.test, functions
+            ):
                 _add_site(sites, "not_wrap", node.test)
 
         if isinstance(

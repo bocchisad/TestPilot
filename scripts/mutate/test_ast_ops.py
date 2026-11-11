@@ -28,8 +28,8 @@ def _one_site(source: str, touched: set[int], op_id: str) -> MutationSite:
 
 
 def test_cmp_flip():
-    source = "if x < 1:\n    pass\n"
-    site = _one_site(source, {1}, "cmp_flip")
+    source = "def f():\n    if x < 1:\n        pass\n"
+    site = _one_site(source, {2}, "cmp_flip")
     out = apply_mutation(source, site)
     assert out is not None
     assert "<=" in out
@@ -37,32 +37,32 @@ def test_cmp_flip():
 
 
 def test_eq_flip():
-    source = "if a == b:\n    pass\n"
-    site = _one_site(source, {1}, "eq_flip")
+    source = "def f():\n    if a == b:\n        pass\n"
+    site = _one_site(source, {2}, "eq_flip")
     out = apply_mutation(source, site)
     assert out is not None
     assert "!=" in out
 
 
 def test_arith_flip():
-    source = "y = a + b\n"
-    site = _one_site(source, {1}, "arith_flip")
+    source = "def f():\n    y = a + b\n"
+    site = _one_site(source, {2}, "arith_flip")
     out = apply_mutation(source, site)
     assert out is not None
     assert "a-b" in out.replace(" ", "")
 
 
 def test_bool_flip():
-    source = "if a and b:\n    pass\n"
-    site = _one_site(source, {1}, "bool_flip")
+    source = "def f():\n    if a and b:\n        pass\n"
+    site = _one_site(source, {2}, "bool_flip")
     out = apply_mutation(source, site)
     assert out is not None
     assert " or " in out
 
 
 def test_not_wrap_adds_not():
-    source = "if flag:\n    pass\n"
-    site = _one_site(source, {1}, "not_wrap")
+    source = "def f():\n    if flag:\n        pass\n"
+    site = _one_site(source, {2}, "not_wrap")
     out = apply_mutation(source, site)
     assert out is not None
     assert "not" in out and "flag" in out
@@ -70,8 +70,8 @@ def test_not_wrap_adds_not():
 
 
 def test_not_wrap_unwraps_existing_not():
-    source = "if not flag:\n    pass\n"
-    site = _one_site(source, {1}, "not_wrap")
+    source = "def f():\n    if not flag:\n        pass\n"
+    site = _one_site(source, {2}, "not_wrap")
     out = apply_mutation(source, site)
     assert out is not None
     assert "not not" not in out
@@ -79,8 +79,8 @@ def test_not_wrap_unwraps_existing_not():
 
 
 def test_const_pm1():
-    source = "n = 3\n"
-    site = _one_site(source, {1}, "const_pm1")
+    source = "def f():\n    n = 3\n"
+    site = _one_site(source, {2}, "const_pm1")
     out = apply_mutation(source, site)
     assert out is not None
     assert "4" in out
@@ -110,9 +110,9 @@ def test_compile_skip_drop_call_leaves_invalid_function():
 
 
 def test_byte_preserve_outside_mutation_span():
-    source = "a=1\n\n# keep   spaces\nif x < 1:\n    pass\n"
+    source = "def f():\n    a=1\n\n    # keep   spaces\n    if x < 1:\n        pass\n"
     orig = source.encode("utf-8")
-    site = _one_site(source, {4}, "cmp_flip")
+    site = _one_site(source, {5}, "cmp_flip")
     out = apply_mutation(source, site)
     assert out is not None
     out_b = out.encode("utf-8")
@@ -124,10 +124,16 @@ def test_byte_preserve_outside_mutation_span():
 
 
 def test_find_sites_respects_touched_lines():
-    source = "if a == 1:\n    pass\nif b == 2:\n    pass\n"
-    sites = find_sites(source, {1})
-    assert all(s.lineno == 1 or s.lineno in {1} for s in sites if s.op_id == "eq_flip")
-    assert not any(s.lineno == 3 for s in sites)
+    source = "def f():\n    if a == 1:\n        pass\n    if b == 2:\n        pass\n"
+    sites = find_sites(source, {2})
+    assert all(s.lineno == 2 for s in sites if s.op_id == "eq_flip")
+    assert not any(s.lineno == 4 for s in sites)
+
+
+def test_find_sites_skips_module_level():
+    source = "X = 1\nif a == 1:\n    pass\n\ndef f():\n    if b == 2:\n        pass\n"
+    sites = find_sites(source, {1, 2, 6})
+    assert all(s.lineno >= 6 for s in sites)
 
 
 def test_dedup_by_diff():

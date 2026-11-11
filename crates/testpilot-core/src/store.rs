@@ -772,12 +772,27 @@ mod tests {
             path: "x.py".into(),
             lines: vec![0x01],
         }];
-        let real_id = store.insert_run_atomic(&real, &results, &cov, false).unwrap().unwrap();
-        let syn_id = store.insert_run_atomic(&syn, &results, &cov, false).unwrap().unwrap();
+        let real_id = store
+            .insert_run_atomic(&real, &results, &cov, false)
+            .unwrap()
+            .unwrap();
+        let syn_id = store
+            .insert_run_atomic(&syn, &results, &cov, false)
+            .unwrap()
+            .unwrap();
         assert!(syn_id > real_id);
-        assert_eq!(store.last_clean_run_with_results("abc").unwrap(), Some(real_id));
-        assert_eq!(store.last_clean_run_with_coverage("abc").unwrap(), Some(real_id));
-        assert_eq!(store.last_synthetic_run_with_results("abc").unwrap(), Some(syn_id));
+        assert_eq!(
+            store.last_clean_run_with_results("abc").unwrap(),
+            Some(real_id)
+        );
+        assert_eq!(
+            store.last_clean_run_with_coverage("abc").unwrap(),
+            Some(real_id)
+        );
+        assert_eq!(
+            store.last_synthetic_run_with_results("abc").unwrap(),
+            Some(syn_id)
+        );
         assert!(store.other_clean_runs("abc", real_id).unwrap().is_empty());
     }
 

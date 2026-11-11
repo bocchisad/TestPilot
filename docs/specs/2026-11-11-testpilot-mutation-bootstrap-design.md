@@ -32,9 +32,15 @@ For a sample of clean commits `C` in the backfill window (C has a clean pytest/j
 refs/testpilot/mutants/<C_sha>/<i>
 ```
 
-**Timestamps (M1 — P0):** `author_date` / `committer_date` of `M` = **committer date of `C` + `i` seconds** (deterministic). Do **not** use fixed fixture epoch (`2020-01-01`) — that makes `M` years older than `C` and shifts `t_age_days` / history decay for every synthetic row.
+**Timestamps (M1 — P0):**  
+- `author_date(M) = author_date(C) + i` seconds  
+- `committer_date(M) = committer_date(C) + i` seconds  
 
-**Time-feature test (M1):** for mutant `M`, time-dependent features (`t_age_days`, etc.) match the corresponding rows of `C` for the same tests when the mutation does not affect those features.
+(Deterministic; identity `testpilot-mutate@localhost`.) Do **not** use fixed fixture epoch (`2020-01-01`) — that makes `M` years older than `C` and shifts `t_age_days` / history decay. Features use **author** time, so author must track `author(C)+i` (not committer).
+
+**Snapshot after C (locked):** Phase B loads the history snapshot **after** processing `C`. Therefore `t_obs(M) = t_obs(C)+1` for tests observed on C — C is in M’s past. That is correct; do not freeze at pre-C state.
+
+**Time-feature test (M1):** on a C with `author ≠ committer`, `t_age_days` for M matches a real child commit with the **same author time** as M (not merely “equal to C’s row”).
 
 **DB indexing (locked):** Mutants are **not** on `HEAD`’s first-parent walk, so plain `testpilot collect git` will not see them. After each successful commit of `M`, the mutate tool must **index that SHA explicitly** (extend CLI/`collect_git` with a single-SHA / ref-list path that reuses the same `file_changes` / parents insert as normal collect). Dump Phase B and junit collect both require `M` present in the store.
 
@@ -171,7 +177,7 @@ Append after `flaky` (order locked in `features_schema.json` + Rust `schema.rs`)
 - Mutant rows set **`commit_idx` = `commit_idx` of `C`** (from the real walk).
 - **Split:** partition **ordered unique `commit_idx` values** 70/15/15; every change with that idx is atomic → all mutants of `C` share C’s slice. Assert stays strict on unique idxs.
 - **Regression (M8 — P3):** on data **without** mutants (unique idx == one change per idx), unique-idx split **equals** the old change-count split. Unit test locks this.
-- `time` = mutant committer ts (`C_committer + i` sec); history ages from frozen C-state → ages align with C (M1).
+- `time` = mutant **author** ts (`author(C) + i` sec); history from post-C snapshot → `t_obs(M)=t_obs(C)+1`; ages match a real peer with the same author time (M1).
 
 ### 4.3 Train filters, clusters, gate
 
@@ -288,7 +294,7 @@ No click/jinja download in CI.
 |-------|--------|
 | Mutant storage | Real commits under `refs/testpilot/mutants/<C>/<i>` |
 | Parent | `C` (first-parent of M) |
-| Timestamps (M1) | `C_committer + i` seconds |
+| Timestamps (M1) | `author(C)+i` / `committer(C)+i`; snapshot after C |
 | DB index | Explicit single-SHA collect (not HEAD walk) |
 | Run flag (M2) | `test_runs.synthetic`; excluded from all real queries |
 | Coverage on M | None; features from ≤C non-synthetic |

@@ -4,7 +4,7 @@
 
 **Goal:** Bootstrap `new_fail` labels via AST mutants as real git commits, dump them as leaf rows without history leakage (`FEATURES_VERSION=2` + `test_runs.synthetic`), and train with a clustered synthetic useful-gate.
 
-**Architecture:** Mutate → commit under `refs/testpilot/mutants/<C>/<i>` with timestamps `C_committer+i` → junit-only pytest (`synthetic=1` run) → `features dump --include-mutants` emits rows from C’s snapshot without updating HistoryState/cochange → `testpilot-train` metrics/gate on `synthetic==1` with cluster bootstrap by `base_change`.
+**Architecture:** Mutate → commit under `refs/testpilot/mutants/<C>/<i>` with `author(C)+i` / `committer(C)+i` → junit-only pytest (`synthetic=1` run) → `features dump --include-mutants` emits rows from post-C snapshot without updating HistoryState/cochange → `testpilot-train` metrics/gate on `synthetic==1` with cluster bootstrap by `base_change`.
 
 **Tech Stack:** Python 3.10+ (stdlib `ast`), existing TestPilot CLI/DB, polars/LightGBM train package, pytest+junit.
 

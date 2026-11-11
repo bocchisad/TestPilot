@@ -157,7 +157,7 @@ def warn_always_failing(db: Path, threshold: float = 0.9) -> list[dict]:
         FROM test_results r
         JOIN tests t ON t.id = r.test_pk
         JOIN test_runs u ON u.id = r.run_id
-        WHERE u.source = 'pytest'
+        WHERE u.source = 'pytest' AND IFNULL(u.synthetic, 0) = 0
         GROUP BY t.test_id
         HAVING fail_rate >= ?
         ORDER BY fail_rate DESC, test_id

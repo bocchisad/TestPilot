@@ -390,19 +390,18 @@ fn append_mutant_leaf_rows(
             continue;
         };
 
-        let (history, cochange, cov_source_sha) =
-            match find_snapshot_on_lineage(store, &c_sha)? {
-                Some((snap_sha, h, c, cov)) if snap_sha == c_sha => (h, c, cov),
-                Some((snap_sha, mut h, mut c, mut cov)) => {
-                    catch_up_topo(repo, store, &snap_sha, &c_sha, &mut h, &mut c, &mut cov)?;
-                    (h, c, cov)
-                }
-                None => {
-                    return Err(Error::Other(format!(
-                        "no feature snapshot for mutant base {c_sha}; run `testpilot features dump` first"
-                    )));
-                }
-            };
+        let (history, cochange, cov_source_sha) = match find_snapshot_on_lineage(store, &c_sha)? {
+            Some((snap_sha, h, c, cov)) if snap_sha == c_sha => (h, c, cov),
+            Some((snap_sha, mut h, mut c, mut cov)) => {
+                catch_up_topo(repo, store, &snap_sha, &c_sha, &mut h, &mut c, &mut cov)?;
+                (h, c, cov)
+            }
+            None => {
+                return Err(Error::Other(format!(
+                    "no feature snapshot for mutant base {c_sha}; run `testpilot features dump` first"
+                )));
+            }
+        };
 
         let c = Sha::from_hex(&c_sha);
         let m = Sha::from_hex(&m_sha);
@@ -479,14 +478,7 @@ fn append_mutant_leaf_rows(
                 ch_nfunc,
                 changed_paths: &changed_paths,
             };
-            rows.push(emit_row(
-                &ctx,
-                &r.test_id,
-                &r.outcome,
-                r.flaky,
-                1,
-                &c_sha,
-            ));
+            rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky, 1, &c_sha));
         }
         // Intentionally no history / cochange / cov_tracker / snapshot updates.
     }

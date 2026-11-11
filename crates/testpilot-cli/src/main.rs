@@ -220,11 +220,7 @@ fn run() -> Result<()> {
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| ".".into());
-            let mutant = if include_mutants {
-                Some(&grepo)
-            } else {
-                None
-            };
+            let mutant = if include_mutants { Some(&grepo) } else { None };
             let n = features::dump_parquet_ex(&grepo, &store, &repo_name, &out, mutant)
                 .context("features dump")?;
             println!(
