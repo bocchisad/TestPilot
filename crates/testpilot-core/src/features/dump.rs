@@ -4,35 +4,20 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::error::{Error, Result};
-use crate::features::change::{change_size_stats, changed_functions, is_test_path, src_files};
-use crate::features::cochange::CoChangeState;
-use crate::features::coverage::{
-    CovFeatures, CovSnapshot, CovSrcPrep, CoverageTracker, decode_lines,
+use crate::features::change::{change_size_stats, src_files};
+use crate::features::change_rows::{
+    self, ChangeRowsOpts, all_changed_funcs, compute_change_rows, old_sources_for_hunks,
+    snapshot_missing_message, test_file_of,
 };
+use crate::features::cochange::CoChangeState;
+use crate::features::coverage::{CovSnapshot, CovSrcPrep, CoverageTracker, decode_lines};
 use crate::features::history::HistoryState;
-use crate::features::imports::{build_import_graph, build_import_graph_seeded};
-use crate::features::names::name_features;
+use crate::features::change_rows::last_clean_run_at_or_before;
+use crate::features::imports::build_import_graph;
 use crate::features::snapshot::{find_snapshot_on_lineage, save_snapshot, should_save_snapshot};
 use crate::features::writer::{self, FeatureRow};
 use crate::git::{DiffHunk, GitRepo, GixRepo, Sha, list_mutant_refs};
 use crate::store::Store;
-
-/// Infer test file path from a pytest-style node id (`path::…`).
-pub fn test_file_of(test_id: &str) -> String {
-    test_id
-        .split("::")
-        .next()
-        .unwrap_or(test_id)
-        .replace('\\', "/")
-}
-
-fn label_of(outcome: &str) -> i64 {
-    if matches!(outcome, "fail" | "error") {
-        1
-    } else {
-        0
-    }
-}
 
 fn load_cov_map(
     store: &Store,
@@ -52,124 +37,57 @@ fn load_cov_map(
     Ok(by_test)
 }
 
-fn old_sources_for_hunks<R: GitRepo>(
-    repo: &R,
-    parent: &Sha,
-    hunks: &[DiffHunk],
-) -> Result<HashMap<String, String>> {
-    let mut map = HashMap::new();
-    for h in hunks {
-        let old_path = h.old_path.as_deref().unwrap_or(&h.path);
-        if let Some(bytes) = repo.file_at_rev(parent, old_path)? {
-            map.insert(h.path.clone(), String::from_utf8_lossy(&bytes).into_owned());
-        }
-    }
-    Ok(map)
-}
-
-fn all_changed_funcs(hunks: &[DiffHunk], old_sources: &HashMap<String, String>) -> Vec<String> {
-    let mut funcs = Vec::new();
-    for h in hunks {
-        if !h.path.ends_with(".py") || is_test_path(&h.path) {
-            continue;
-        }
-        let src = old_sources.get(&h.path).map(|s| s.as_str());
-        funcs.extend(changed_functions(&h.path, src, &h.old_line_ranges));
-    }
-    funcs.sort();
-    funcs.dedup();
-    funcs
-}
-
-struct EmitCtx<'a> {
-    repo_name: &'a str,
-    change: &'a str,
-    parent: &'a str,
+fn emit_row_phase_a(
+    repo_name: &str,
+    change: &str,
+    parent: &str,
     commit_idx: i64,
     time: i64,
-    srcf: &'a [String],
-    funcs: &'a [String],
-    history: &'a HistoryState,
-    cochange: &'a CoChangeState,
-    imp_dist_for: &'a dyn Fn(&str) -> i64,
-    cov: &'a CovSnapshot,
-    cov_prep: &'a [CovSrcPrep],
+    srcf: &[String],
+    funcs: &[String],
+    history: &HistoryState,
+    cochange: &CoChangeState,
+    imp_dist_for: &dyn Fn(&str) -> i64,
+    cov: &CovSnapshot,
+    cov_prep: &[CovSrcPrep],
     ch_nfiles: i64,
     ch_nsrc: i64,
     ch_add: i64,
     ch_rm: i64,
     ch_nfunc: i64,
-    changed_paths: &'a HashSet<String>,
-}
-
-fn emit_row(
-    ctx: &EmitCtx<'_>,
+    changed_paths: &HashSet<String>,
     test_id: &str,
     outcome: &str,
     flaky: bool,
-    synthetic: i64,
-    base_change: &str,
 ) -> FeatureRow {
-    let tf = test_file_of(test_id);
-    let (cc_max, cc_sum) = ctx.cochange.score(ctx.srcf, &tf, ctx.time);
-    let imp_dist = (ctx.imp_dist_for)(&tf);
-    let imp_direct = if imp_dist == 1 { 1 } else { 0 };
-    let (name_file, name_jac, name_func) = name_features(ctx.srcf, ctx.funcs, test_id, &tf);
-    let CovFeatures {
-        cov_known,
-        cov_file,
-        cov_func,
-        cov_lines,
-        cov_breadth,
-        cov_mod,
-        cov_lag,
-    } = ctx.cov.features_for(test_id, ctx.cov_prep, imp_dist);
-
-    FeatureRow {
-        repo: ctx.repo_name.to_string(),
-        change: ctx.change.to_string(),
-        parent: ctx.parent.to_string(),
-        commit_idx: ctx.commit_idx,
-        time: ctx.time,
-        test: test_id.to_string(),
-        label: label_of(outcome),
-        flaky: if flaky { 1 } else { 0 },
-        synthetic,
-        base_change: base_change.to_string(),
-        cc_max,
-        cc_sum,
-        imp_dist,
-        imp_direct,
-        name_file,
-        name_jac,
-        name_func,
-        cov_known,
-        cov_file,
-        cov_func,
-        cov_lines,
-        cov_breadth,
-        cov_mod,
-        cov_lag,
-        t_fail_rate: ctx.history.t_fail_rate(test_id),
-        t_fail_cnt: ctx.history.t_fail_cnt(test_id),
-        t_obs: ctx.history.t_obs(test_id),
-        pf_max: ctx.history.pf_max(ctx.srcf, test_id),
-        pq_max: ctx.history.pq_max(ctx.funcs, test_id),
-        t_age_days: ctx.history.t_age_days(test_id, ctx.time),
-        dur: ctx.history.dur(test_id),
-        tfile_ntests: ctx.history.tfile_ntests(&tf),
-        t_changed: if ctx.changed_paths.contains(&tf) {
-            1
-        } else {
-            0
-        },
-        t_flaky_rate: ctx.history.t_flaky_rate(test_id),
-        ch_nfiles: ctx.ch_nfiles,
-        ch_nsrc: ctx.ch_nsrc,
-        ch_add: ctx.ch_add,
-        ch_rm: ctx.ch_rm,
-        ch_nfunc: ctx.ch_nfunc,
-    }
+    let opts = ChangeRowsOpts {
+        change: change.to_string(),
+        parent: parent.to_string(),
+        commit_idx,
+        synthetic: 0,
+        base_change: String::new(),
+        time,
+    };
+    change_rows::emit_change_row(
+        repo_name,
+        &opts,
+        srcf,
+        funcs,
+        history,
+        cochange,
+        imp_dist_for,
+        cov,
+        cov_prep,
+        ch_nfiles,
+        ch_nsrc,
+        ch_add,
+        ch_rm,
+        ch_nfunc,
+        changed_paths,
+        test_id,
+        outcome,
+        flaky,
+    )
 }
 
 /// Compute all feature rows for the reachable history (topo old→new).
@@ -265,27 +183,29 @@ pub fn compute_dump_rows<R: GitRepo>(
         let cov_prep = CovSnapshot::prepare_src(&srcf, &hunks, &old_sources);
 
         for r in &results {
-            let ctx = EmitCtx {
+            rows.push(emit_row_phase_a(
                 repo_name,
-                change: sha,
-                parent: &parent_s,
+                sha,
+                &parent_s,
                 commit_idx,
-                time: t0,
-                srcf: &srcf,
-                funcs: &funcs,
-                history: &history,
-                cochange: &cochange,
-                imp_dist_for: &imp_dist_for,
-                cov: &cov,
-                cov_prep: &cov_prep,
+                t0,
+                &srcf,
+                &funcs,
+                &history,
+                &cochange,
+                &imp_dist_for,
+                &cov,
+                &cov_prep,
                 ch_nfiles,
                 ch_nsrc,
                 ch_add,
                 ch_rm,
                 ch_nfunc,
-                changed_paths: &changed_paths,
-            };
-            rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky, 0, ""));
+                &changed_paths,
+                &r.test_id,
+                &r.outcome,
+                r.flaky,
+            ));
         }
 
         // --- post-emit updates ---
@@ -426,21 +346,13 @@ fn append_mutant_leaf_rows(
                 (h, c, cov)
             }
             None => {
-                return Err(Error::Other(format!(
-                    "no feature snapshot for mutant base {c_sha}; run `testpilot features dump` first"
-                )));
+                return Err(Error::Other(snapshot_missing_message(&c_sha)));
             }
         };
 
         let c = Sha::from_hex(&c_sha);
         let m = Sha::from_hex(&m_sha);
         let hunks = repo.diff_hunks(&c, &m)?;
-        let srcf = src_files(&hunks);
-        let old_sources = old_sources_for_hunks(repo, &c, &hunks)?;
-        let funcs = all_changed_funcs(&hunks, &old_sources);
-        let (ch_nfiles, ch_nsrc, ch_add, ch_rm, _) = change_size_stats(&hunks);
-        let ch_nfunc = funcs.len() as i64;
-        let changed_paths: HashSet<String> = hunks.iter().map(|h| h.path.clone()).collect();
 
         let mut chain = vec![c_sha.clone()];
         let mut cur = c_sha.clone();
@@ -491,58 +403,29 @@ fn append_mutant_leaf_rows(
             continue;
         }
 
-        // Import graph at M: seed changed sources + every test file (same as Phase A).
-        // Seeding only srcf leaves test→src paths unscanned → imp_dist stuck at 99.
-        let paths_m = repo.list_paths_at_rev(&m)?;
-        let py_paths_m: Vec<String> = paths_m.into_iter().filter(|p| p.ends_with(".py")).collect();
-        let mut seed_set: HashSet<String> = srcf.iter().cloned().collect();
-        for r in &results {
-            seed_set.insert(test_file_of(&r.test_id));
-        }
-        for h in &hunks {
-            if h.path.ends_with(".py") {
-                seed_set.insert(h.path.clone());
-            }
-        }
-        let seeds: Vec<String> = seed_set.into_iter().collect();
-        let graph = build_import_graph_seeded(repo, store, &m, &seeds, &py_paths_m)?;
-        let srcf_owned = srcf.clone();
-        let mut dist_cache: HashMap<String, i64> = HashMap::new();
-        for r in &results {
-            let tf = test_file_of(&r.test_id);
-            dist_cache
-                .entry(tf.clone())
-                .or_insert_with(|| graph.dist(&tf, &srcf_owned));
-        }
-        let imp_dist_for = move |tf: &str| dist_cache.get(tf).copied().unwrap_or(99);
-
         let meta = repo.commit_meta_for(&m)?;
-        let t0 = meta.author_ts;
-        let cov_prep = CovSnapshot::prepare_src(&srcf, &hunks, &old_sources);
-
-        for r in &results {
-            let ctx = EmitCtx {
-                repo_name,
-                change: &m_sha,
-                parent: &c_sha,
-                commit_idx,
-                time: t0,
-                srcf: &srcf,
-                funcs: &funcs,
-                history: &history,
-                cochange: &cochange,
-                imp_dist_for: &imp_dist_for,
-                cov: &cov,
-                cov_prep: &cov_prep,
-                ch_nfiles,
-                ch_nsrc,
-                ch_add,
-                ch_rm,
-                ch_nfunc,
-                changed_paths: &changed_paths,
-            };
-            rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky, 1, &c_sha));
-        }
+        let opts = ChangeRowsOpts {
+            change: m_sha.clone(),
+            parent: c_sha.clone(),
+            commit_idx,
+            synthetic: 1,
+            base_change: c_sha.clone(),
+            time: meta.author_ts,
+        };
+        let mut leaf = compute_change_rows(
+            repo,
+            store,
+            repo_name,
+            &c,
+            &m,
+            &hunks,
+            &history,
+            &cochange,
+            &cov,
+            &results,
+            &opts,
+        )?;
+        rows.append(&mut leaf);
         // Intentionally no history / cochange / cov_tracker / snapshot updates.
     }
 
@@ -585,9 +468,7 @@ pub fn compute_show_rows<R: GitRepo>(
             (h, c, cov)
         }
         None => {
-            return Err(Error::Other(format!(
-                "no feature snapshot for {base_s}; run `testpilot features dump` first"
-            )));
+            return Err(Error::Other(snapshot_missing_message(&base_s)));
         }
     };
     let ms_snap = mark(t);
@@ -601,129 +482,48 @@ pub fn compute_show_rows<R: GitRepo>(
     let ms_tests = mark(t);
 
     let t = std::time::Instant::now();
-    let srcf = src_files(hunks);
-    let old_sources = old_sources_for_hunks(repo, base, hunks)?;
-    let funcs = all_changed_funcs(hunks, &old_sources);
-    let (ch_nfiles, ch_nsrc, ch_add, ch_rm, _) = change_size_stats(hunks);
-    let ch_nfunc = funcs.len() as i64;
-    let changed_paths: HashSet<String> = hunks.iter().map(|h| h.path.clone()).collect();
-    let ms_diff = mark(t);
-
-    let t = std::time::Instant::now();
     let cov = resolve_cov_from_source(store, &base_s, cov_source_sha.as_deref())?;
-    let cov_prep = CovSnapshot::prepare_src(&srcf, hunks, &old_sources);
     let ms_cov = mark(t);
-
-    let t = std::time::Instant::now();
-    let all_paths = repo.list_paths_at_rev(base)?;
-    let py_index: Vec<String> = all_paths
-        .into_iter()
-        .filter(|p| p.ends_with(".py"))
-        .collect();
-    let mut seeds: HashSet<String> = srcf.iter().cloned().collect();
-    for r in &results {
-        seeds.insert(test_file_of(&r.test_id));
-    }
-    for h in hunks {
-        if h.path.ends_with(".py") {
-            seeds.insert(h.path.clone());
-        }
-    }
-    let seed_list: Vec<String> = seeds.into_iter().collect();
-    let graph = build_import_graph_seeded(repo, store, base, &seed_list, &py_index)?;
-    let mut dist_cache: HashMap<String, i64> = HashMap::new();
-    for r in &results {
-        let tf = test_file_of(&r.test_id);
-        dist_cache
-            .entry(tf.clone())
-            .or_insert_with(|| graph.dist(&tf, &srcf));
-    }
-    let imp_dist_for = |tf: &str| dist_cache.get(tf).copied().unwrap_or(99);
-    let ms_imports = mark(t);
 
     let t0 = store
         .commit_author_ts(head.as_str())?
         .or(store.commit_author_ts(base.as_str())?)
         .unwrap_or(0);
+    let opts = ChangeRowsOpts {
+        change: head.as_str().to_string(),
+        parent: base_s.clone(),
+        commit_idx: 0,
+        synthetic: 0,
+        base_change: String::new(),
+        time: t0,
+    };
 
     let t = std::time::Instant::now();
-    let mut rows = Vec::with_capacity(results.len());
-    for r in &results {
-        let ctx = EmitCtx {
-            repo_name,
-            change: head.as_str(),
-            parent: base.as_str(),
-            commit_idx: 0,
-            time: t0,
-            srcf: &srcf,
-            funcs: &funcs,
-            history: &history,
-            cochange: &cochange,
-            imp_dist_for: &imp_dist_for,
-            cov: &cov,
-            cov_prep: &cov_prep,
-            ch_nfiles,
-            ch_nsrc,
-            ch_add,
-            ch_rm,
-            ch_nfunc,
-            changed_paths: &changed_paths,
-        };
-        rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky, 0, ""));
-    }
-    writer::sort_rows(&mut rows);
+    let rows = compute_change_rows(
+        repo,
+        store,
+        repo_name,
+        base,
+        head,
+        hunks,
+        &history,
+        &cochange,
+        &cov,
+        &results,
+        &opts,
+    )?;
     let ms_emit = mark(t);
 
     if timed {
         eprintln!(
-            "show timings_ms: snapshot={ms_snap:.1} tests={ms_tests:.1} diff={ms_diff:.1} \
-             cov={ms_cov:.1} imports={ms_imports:.1} emit={ms_emit:.1} total={:.1} rows={}",
+            "show timings_ms: snapshot={ms_snap:.1} tests={ms_tests:.1} \
+             cov={ms_cov:.1} emit={ms_emit:.1} total={:.1} rows={}",
             mark(t_all),
             rows.len()
         );
     }
 
     Ok(rows)
-}
-
-/// Last clean run on `base` or an ancestor.
-///
-/// Fast path: exact sha, then first-parent chain. If still none, BFS over all parents
-/// (merge second-parent lineage) and pick the newest by author_ts.
-fn last_clean_run_at_or_before(store: &Store, base: &str) -> Result<Option<i64>> {
-    if let Some(run_id) = store.last_clean_run_with_results(base)? {
-        return Ok(Some(run_id));
-    }
-    let mut cur = base.to_string();
-    for _ in 0..100_000 {
-        let Some(p) = store.first_parent(&cur)? else {
-            break;
-        };
-        if let Some(run_id) = store.last_clean_run_with_results(&p)? {
-            return Ok(Some(run_id));
-        }
-        cur = p;
-    }
-
-    let mut best: Option<(i64, i64)> = None; // (author_ts, run_id)
-    let mut stack = vec![base.to_string()];
-    let mut seen = HashSet::new();
-    while let Some(sha) = stack.pop() {
-        if !seen.insert(sha.clone()) {
-            continue;
-        }
-        if let Some(run_id) = store.last_clean_run_with_results(&sha)? {
-            let ts = store.commit_author_ts(&sha)?.unwrap_or(0);
-            best = Some(match best {
-                Some((bts, brid)) if bts > ts || (bts == ts && brid > run_id) => (bts, brid),
-                _ => (ts, run_id),
-            });
-        }
-        for p in store.all_parents(&sha)? {
-            stack.push(p);
-        }
-    }
-    Ok(best.map(|(_, id)| id))
 }
 
 fn ancestor_set(store: &Store, tip: &str) -> Result<HashSet<String>> {

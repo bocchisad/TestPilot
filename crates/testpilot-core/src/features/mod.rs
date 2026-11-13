@@ -1,6 +1,7 @@
 //! Feature computation for (change, test) pairs.
 
 pub mod change;
+pub mod change_rows;
 pub mod cochange;
 pub mod coverage;
 pub mod dump;
@@ -14,6 +15,10 @@ pub mod schema;
 pub mod snapshot;
 pub mod writer;
 
+pub use change_rows::{
+    compute_change_rows, import_graph_seeds, snapshot_missing_message, test_file_of,
+    ChangeRowsOpts,
+};
 pub use dump::{compute_dump_rows, compute_show_rows, dump_parquet, dump_parquet_ex, show_format};
 pub use python_scan::{DefSpan, ImportEdge, ScanResult, scan_python};
 pub use schema::{FEATURE_COLUMNS, FEATURES_VERSION, FeatureColumn, schema_json};
