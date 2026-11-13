@@ -114,9 +114,70 @@ def _merge_junit_with_flaky(
 
 
 _COLLECTION_RE = re.compile(
-    r"(ERROR collecting|ImportError|ModuleNotFoundError|collected 0 items)",
+    r"(ERROR collecting|ImportError|ModuleNotFoundError|collected 0 items|"
+    r"collection failure)",
     re.I,
 )
+
+_COLLECTION_MSG_RE = re.compile(
+    r"(collection failure|ERROR collecting|failed to collect|ImportError while importing)",
+    re.I,
+)
+
+
+def junit_collection_error(path: Path) -> bool:
+    """True if junit encodes a pytest collection failure (pytest 8/9 on macOS/Linux)."""
+    if not path.is_file():
+        return False
+    root = ET.parse(path).getroot()
+    for case in root.iter("testcase"):
+        name = case.get("name") or ""
+        classname = case.get("classname") or ""
+        node = case.find("error")
+        if node is None:
+            node = case.find("failure")
+        if node is None:
+            continue
+        msg = f"{node.get('message') or ''}\n{node.text or ''}"
+        if _COLLECTION_MSG_RE.search(msg):
+            return True
+        # Module-level phantom case: empty name, or name == classname / module path.
+        if not name.strip():
+            return True
+        if classname and (name == classname or name == classname.rsplit(".", 1)[-1]):
+            # pytest often emits classname=tests.test_foo name=tests.test_foo
+            if "test_" not in name.split(".")[-1] or name == classname:
+                if "collection" in msg.lower() or name == classname:
+                    return True
+        # name is a dotted module (no function), classname empty or same module
+        if "." in name and "::" not in name and not name.startswith("test_"):
+            if classname == name or not classname:
+                return True
+    return False
+
+
+def run_test_count(db: Path, sha: str, *, synthetic: bool) -> int:
+    if not db.is_file():
+        return 0
+    syn = 1 if synthetic else 0
+    con = sqlite3.connect(str(db))
+    row = con.execute(
+        """
+        SELECT r.id FROM test_runs r
+        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=?
+          AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
+        ORDER BY r.id DESC LIMIT 1
+        """,
+        (sha, syn),
+    ).fetchone()
+    if not row:
+        con.close()
+        return 0
+    n = con.execute(
+        "SELECT COUNT(*) FROM test_results WHERE run_id=?", (row[0],)
+    ).fetchone()[0]
+    con.close()
+    return int(n)
 
 
 def _pytest_warn_args(python: Path) -> list[str]:
@@ -352,11 +413,18 @@ def run_mutant(
         collection_error = bool(_COLLECTION_RE.search(tail)) or (
             rc == 2 and not junit1.is_file()
         )
-        if junit1.is_file() and not _all_tests_from_junit(junit1):
-            collection_error = True
+        if junit1.is_file():
+            if not _all_tests_from_junit(junit1):
+                collection_error = True
+            if junit_collection_error(junit1):
+                collection_error = True
 
         failed = _failed_from_junit(junit1)
         all_tests = _all_tests_from_junit(junit1)
+        n_parent = run_test_count(db, parent_sha, synthetic=False)
+        if n_parent > 0 and len(all_tests) * 2 < n_parent:
+            collection_error = True
+
         n_flaky = 0
         flaky: set[str] = set()
         if failed and not collection_error:
@@ -411,11 +479,12 @@ def run_mutant(
             collect_ok, collect_msg = False, "no junit produced"
 
         # Kill = ≥1 new_fail vs C using DB IDs (same normalize path as Rust collect).
+        # Collection-error mutants are never kills (phantom module-level cases).
         fails_c = parent_fail_set(db, parent_sha)
         fails_m = (
             run_fail_set(db, mutant_sha, synthetic=True) if collect_ok else set()
         )
-        n_new_fail = new_fail_count(fails_m, fails_c)
+        n_new_fail = 0 if collection_error else new_fail_count(fails_m, fails_c)
 
         n_failed = len(failed)
         n_tests = len(all_tests)

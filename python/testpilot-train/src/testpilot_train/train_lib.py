@@ -193,20 +193,114 @@ def _run_loro(
     }
 
 
+def _high_fail_change_keys(frame: pl.DataFrame) -> set[tuple[str, str]]:
+    """Synthetic changes where >50% of tests fail/error (label=1)."""
+    if "synthetic" not in frame.columns or frame.height == 0:
+        return set()
+    syn = frame.filter(pl.col("synthetic") == 1)
+    if syn.height == 0:
+        return set()
+    rates = syn.group_by(["repo", "change"]).agg(
+        (pl.col("label") == 1).sum().alias("n_fail"),
+        pl.len().alias("n"),
+    )
+    out: set[tuple[str, str]] = set()
+    for row in rates.iter_rows(named=True):
+        if row["n"] > 0 and (row["n_fail"] / row["n"]) > 0.5:
+            out.add((str(row["repo"]), str(row["change"])))
+    return out
+
+
+def _exclude_changes(frame: pl.DataFrame, keys: set[tuple[str, str]]) -> pl.DataFrame:
+    if not keys or frame.height == 0:
+        return frame
+    mask = [
+        (r, c) not in keys
+        for r, c in zip(frame["repo"].to_list(), frame["change"].to_list(), strict=True)
+    ]
+    return frame.filter(pl.Series(mask))
+
+
+def _feature_uniqueness_report(
+    frame: pl.DataFrame, feature_names: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    """Per-feature unique share + sentinel share (synthetic slice)."""
+    sentinels = {"imp_dist": 99, "pf_max": -1.0, "pq_max": -1.0, "dur": -1}
+    if frame.height == 0:
+        return []
+    out: list[dict[str, Any]] = []
+    n = frame.height
+    for name in feature_names:
+        s = frame[name]
+        nuniq = int(s.n_unique())
+        sent = sentinels.get(name)
+        if sent is None:
+            sent_share = 0.0
+        else:
+            sent_share = float((s == sent).sum()) / n
+        out.append(
+            {
+                "name": name,
+                "n_unique": nuniq,
+                "unique_share": nuniq / n,
+                "sentinel": sent,
+                "sentinel_share": sent_share,
+            }
+        )
+    out.sort(key=lambda r: (r["unique_share"], -r["sentinel_share"]))
+    return out
+
+
+def _baseline_recall_table(
+    frame: pl.DataFrame, seed: int
+) -> dict[str, dict[str, Any]]:
+    """recall@10% per baseline for a slice (empty if no new_fail changes)."""
+    table: dict[str, dict[str, Any]] = {}
+    for name in BASELINE_NAMES:
+        keyed: dict[tuple[str, str], dict[str, float]] = {}
+        for keys, grp in frame.group_by(["repo", "change"], maintain_order=True):
+            repo, change = keys  # type: ignore[misc]
+            g = grp.filter(~pl.col("parent_missing"))
+            y = g["new_fail"].to_numpy()
+            if int(y.sum()) == 0:
+                continue
+            keyed[(str(repo), str(change))] = change_metrics(y, baseline_scores(g, name))
+        if not keyed:
+            table[name] = {"recall@10%": None, "n": 0}
+            continue
+        vals = [keyed[k] for k in sorted(keyed)]
+        pt = bootstrap_ci(vals, "recall@10%", seed=seed)
+        table[name] = {
+            "recall@10%": {"mean": pt.mean, "ci95": [pt.ci_low, pt.ci_high]},
+            "n": pt.n_changes,
+        }
+    return table
+
+
 def train(
     data_paths: list[Path],
     out_dir: Path,
     features_schema: Path,
     seed: int = 42,
+    *,
+    exclude_high_fail_rate: bool = True,
 ) -> dict[str, Any]:
     schema = load_features_schema(features_schema)
     loaded = load_parquets(data_paths, schema)
     frame = loaded.frame
     diag = diagnostics(frame)
-    plan = chrono_split(frame)
-    train_df = filter_slice(frame, plan, "train")
-    val_df = filter_slice(frame, plan, "val")
-    test_df = filter_slice(frame, plan, "test")
+    high_fail_keys = _high_fail_change_keys(frame)
+    frame_gate = (
+        _exclude_changes(frame, high_fail_keys) if exclude_high_fail_rate else frame
+    )
+    plan = chrono_split(frame_gate)
+    train_df = filter_slice(frame_gate, plan, "train")
+    val_df = filter_slice(frame_gate, plan, "val")
+    test_df = filter_slice(frame_gate, plan, "test")
+    # Full slices (incl. high-fail) for dual metrics reporting.
+    plan_all = chrono_split(frame)
+    val_df_all = filter_slice(frame, plan_all, "val")
+    test_df_all = filter_slice(frame, plan_all, "test")
 
     fit, candidates = select_objective(train_df, val_df, schema, seed)
 
@@ -289,9 +383,23 @@ def train(
     else:
         status = "ok" if n_test_new >= 20 else "data_insufficient"
 
-    # Real useful-gate (vs best val heuristic) — always reported.
-    useful_on_val = useful_by_paired(delta_val)
     useful_on_val_label = "useful_on_real_val" if has_synthetic else "useful_on_val"
+    # Real useful-gate: null when there are no real new_fail changes on val.
+    val_real_for_gate = (
+        val_df.filter(pl.col("synthetic") == 0)
+        if has_synthetic and "synthetic" in val_df.columns
+        else val_df
+    )
+    n_real_val_new = int(
+        val_real_for_gate.group_by(["repo", "change"])
+        .agg(pl.col("new_fail").sum().alias("n"))
+        .filter(pl.col("n") > 0)
+        .height
+    )
+    if has_synthetic and n_real_val_new == 0:
+        useful_on_val = None
+    else:
+        useful_on_val = useful_by_paired(delta_val)
 
     # Synthetic useful-gate vs cov_lines — always when synthetic rows exist (P2).
     val_syn_df = (
@@ -299,7 +407,7 @@ def train(
         if "synthetic" in val_df.columns
         else val_df.clear()
     )
-    useful_on_synthetic_val = False
+    useful_on_synthetic_val: bool | None = False
     delta_synthetic_val_cov: MetricPoint | None = None
     if val_syn_df.height > 0:
         syn_scores = predict_raw(fit.booster, val_syn_df, schema)
@@ -316,6 +424,8 @@ def train(
                 cluster_ids=_cluster_ids_for_keys(val_syn_df, syn_keys),
             )
             useful_on_synthetic_val = useful_by_paired(delta_synthetic_val_cov)
+        else:
+            useful_on_synthetic_val = None
 
     gain = fit.booster.feature_importance(importance_type="gain")
     names = list(schema.feature_names)
@@ -381,6 +491,9 @@ def train(
             "n_rows_parent_missing": loaded.n_rows_parent_missing,
             "n_persistent": loaded.n_persistent,
             "n_flaky": loaded.n_flaky,
+            "n_orphan_vs_parent": loaded.n_orphan_vs_parent,
+            "n_high_fail_rate_changes": len(high_fail_keys),
+            "exclude_high_fail_rate": exclude_high_fail_rate,
         },
         "metrics_val_new_fail": _metric_block(val_per, seed, val_clusters),
         "metrics_test_new_fail": _metric_block(test_per, seed + 2, test_clusters),
@@ -392,6 +505,22 @@ def train(
         ),
         "best_baseline_val": best_name,
         "foil_baseline_mutation_bootstrap": "cov_lines",
+        "baselines": {
+            "val": _baseline_recall_table(val_df, seed + 20),
+            "test": _baseline_recall_table(test_df, seed + 21),
+            "val_synthetic": _baseline_recall_table(val_syn_df, seed + 22)
+            if val_syn_df.height
+            else {},
+            "test_synthetic": _baseline_recall_table(
+                test_df.filter(pl.col("synthetic") == 1)
+                if has_synthetic and "synthetic" in test_df.columns
+                else test_df.clear(),
+                seed + 23,
+            )
+            if has_synthetic
+            else {},
+            "best_for_paired_gate": best_name,
+        },
         "paired_delta_ci_val": {
             "mean": delta_val.mean,
             "ci95": [delta_val.ci_low, delta_val.ci_high],
@@ -413,6 +542,12 @@ def train(
         "useful_on_synthetic_val_label": "useful_on_synthetic_val",
         "status": status,
         "feature_gain": feature_gain,
+        "feature_value_stats_synthetic": _feature_uniqueness_report(
+            frame.filter(pl.col("synthetic") == 1)
+            if has_synthetic and "synthetic" in frame.columns
+            else frame.clear(),
+            schema.feature_names,
+        ),
         "sentinel_notes": {"pf_max": -1, "pq_max": -1, "dur": -1, "imp_dist": 99},
         "constraints": {
             "categorical": False,
@@ -422,6 +557,20 @@ def train(
             "zero_as_missing": False,
         },
     }
+    # Dual metrics: with high-fail included (all) vs excluded (primary gate slices).
+    if high_fail_keys:
+        val_all_scores = predict_raw(fit.booster, val_df_all, schema)
+        test_all_scores = predict_raw(fit.booster, test_df_all, schema)
+        payload["metrics_val_new_fail_including_high_fail"] = _slice_metric_payload(
+            val_df_all, val_all_scores, seed + 30
+        )
+        payload["metrics_test_new_fail_including_high_fail"] = _slice_metric_payload(
+            test_df_all, test_all_scores, seed + 31
+        )
+        payload["metrics_val_new_fail_excluding_high_fail"] = payload["metrics_val_new_fail"]
+        payload["metrics_test_new_fail_excluding_high_fail"] = payload[
+            "metrics_test_new_fail"
+        ]
     if "synthetic" in frame.columns:
         val_real_df = val_df.filter(pl.col("synthetic") == 0)
         val_syn_only = val_df.filter(pl.col("synthetic") == 1)
@@ -449,6 +598,11 @@ def train(
             "ci95": [delta_synthetic_val_cov.ci_low, delta_synthetic_val_cov.ci_high],
             "n": delta_synthetic_val_cov.n_changes,
         }
+    if useful_on_val is None and has_synthetic:
+        payload["note_real_gate"] = (
+            "useful_on_real_val=null: no real new_fail changes on val "
+            "(data_insufficient for the real gate)"
+        )
     if status == "data_insufficient":
         if has_synthetic:
             payload["note"] = (

@@ -43,9 +43,10 @@ def test_new_fail_and_persistent(features_schema: FeaturesSchema, tmp_path):
         rows.append(row(c1, c0, 1, t, lab))
 
     frame = pl.DataFrame(rows)
-    enriched, n_missing, n_persistent, n_flaky = add_new_fail(frame)
+    enriched, n_missing, n_persistent, n_flaky, n_orphan = add_new_fail(frame)
     assert n_flaky == 0
     assert n_missing == 2  # both root rows
+    assert n_orphan == 0
     child = enriched.filter(pl.col("change") == c1)
     ta = child.filter(pl.col("test") == "ta").row(0, named=True)
     tb = child.filter(pl.col("test") == "tb").row(0, named=True)
@@ -55,12 +56,53 @@ def test_new_fail_and_persistent(features_schema: FeaturesSchema, tmp_path):
     assert tb["new_fail"] == 1
     assert n_persistent == 1
 
+
+def test_orphan_test_not_new_fail(features_schema: FeaturesSchema):
+    """Phantom collection test_id on M absent from C → new_fail=0, counted as orphan."""
+    feat = {n: 0 for n in features_schema.feature_names}
+    feat["imp_dist"] = 99
+    feat["pf_max"] = -1.0
+    feat["pq_max"] = -1.0
+    feat["dur"] = -1
+    c0, c1 = "0" * 40, "1" * 40
+
+    def row(change, parent, idx, test, label, synthetic=0):
+        return {
+            "repo": "r",
+            "change": change,
+            "parent": parent,
+            "commit_idx": idx,
+            "time": 1000 + idx,
+            "test": test,
+            "label": label,
+            "flaky": 0,
+            "synthetic": synthetic,
+            "base_change": c0 if synthetic else "",
+            **feat,
+        }
+
+    rows = [
+        row(c0, "f" * 40, 0, "tests/t.py::test_ok", 0),
+        row(c1, c0, 1, "tests/t.py::test_ok", 0, synthetic=1),
+        row(c1, c0, 1, "tests.test_basic", 1, synthetic=1),  # orphan phantom
+    ]
+    frame = pl.DataFrame(rows)
+    enriched, _, _, _, n_orphan = add_new_fail(frame)
+    assert n_orphan == 1
+    ph = enriched.filter(pl.col("test") == "tests.test_basic").row(0, named=True)
+    assert bool(ph["orphan_vs_parent"]) is True
+    assert ph["new_fail"] == 0
+    ok = enriched.filter(pl.col("test") == "tests/t.py::test_ok").filter(
+        pl.col("change") == c1
+    ).row(0, named=True)
+    assert bool(ok["orphan_vs_parent"]) is False
+    assert ok["new_fail"] == 0
+
     mask = training_mask(enriched)
     train_rows = enriched.filter(pl.Series(mask))
-    assert train_rows.filter((pl.col("change") == c1) & (pl.col("test") == "ta")).height == 0
-    assert train_rows.filter((pl.col("change") == c1) & (pl.col("test") == "tb")).height == 1
     # root rows excluded via parent_missing
     assert train_rows.filter(pl.col("change") == c0).height == 0
+    assert train_rows.filter(pl.col("change") == c1).height == 2
 
 
 def test_feature_matrix_rejects_service_columns(features_schema: FeaturesSchema, tmp_path):
