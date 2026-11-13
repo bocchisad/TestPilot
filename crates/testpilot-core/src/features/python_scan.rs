@@ -66,6 +66,14 @@ impl<'a> Scanner<'a> {
         while i < chars.len() {
             let c = chars[i];
             if in_string == StringKind::None {
+                // Comments: ignore quotes until end of physical line (e.g. Parameter's).
+                if c == '#' {
+                    while i < chars.len() && chars[i] != '\n' {
+                        buf.push(chars[i]);
+                        i += 1;
+                    }
+                    continue;
+                }
                 // Triple quotes
                 if i + 2 < chars.len()
                     && ((c == '"' && chars[i + 1] == '"' && chars[i + 2] == '"')
@@ -202,9 +210,11 @@ impl<'a> Scanner<'a> {
                 continue;
             }
 
-            // Close finished blocks by indentation
+            // Close finished blocks by indentation. Decorators at indent I belong to a
+            // new def/class at I, so they must close siblings/nested frames first
+            // (including nested `@click.command()` defs inside a prior test).
             while let Some((ind, _, _, _, _)) = stack.last() {
-                if indent <= *ind && !trimmed.starts_with('@') {
+                if indent <= *ind {
                     let (ind0, kind, name, start, dec_start) = stack.pop().unwrap();
                     let end = line_no;
                     let qual = stack
@@ -326,11 +336,35 @@ fn paren_delta(s: &str) -> i32 {
     while i < chars.len() {
         let c = chars[i];
         if in_s == StringKind::None {
+            // Comments must not contribute parens or open strings (Parameter's, &#34;).
+            if c == '#' {
+                break;
+            }
             if c == '(' {
                 d += 1;
-            } else if c == ')' {
+                i += 1;
+                continue;
+            }
+            if c == ')' {
                 d -= 1;
-            } else if c == '"' || c == '\'' {
+                i += 1;
+                continue;
+            }
+            // Triple quotes before single — otherwise """ is empty Double + new Double
+            // and an embedded '"' (jinja `"""{{ '<">&'|escape }}"""`) desyncs depth.
+            if i + 2 < chars.len()
+                && ((c == '"' && chars[i + 1] == '"' && chars[i + 2] == '"')
+                    || (c == '\'' && chars[i + 1] == '\'' && chars[i + 2] == '\''))
+            {
+                in_s = if c == '"' {
+                    StringKind::TripleDouble
+                } else {
+                    StringKind::TripleSingle
+                };
+                i += 3;
+                continue;
+            }
+            if c == '"' || c == '\'' {
                 in_s = if c == '"' {
                     StringKind::Double
                 } else {
@@ -345,13 +379,39 @@ fn paren_delta(s: &str) -> i32 {
             i += 1;
             continue;
         }
-        if c == '\\' {
+        if c == '\\' && matches!(in_s, StringKind::Single | StringKind::Double) {
             esc = true;
             i += 1;
             continue;
         }
-        if (in_s == StringKind::Double && c == '"') || (in_s == StringKind::Single && c == '\'') {
-            in_s = StringKind::None;
+        match in_s {
+            StringKind::TripleDouble
+                if c == '"'
+                    && i + 2 < chars.len()
+                    && chars[i + 1] == '"'
+                    && chars[i + 2] == '"' =>
+            {
+                in_s = StringKind::None;
+                i += 3;
+                continue;
+            }
+            StringKind::TripleSingle
+                if c == '\''
+                    && i + 2 < chars.len()
+                    && chars[i + 1] == '\''
+                    && chars[i + 2] == '\'' =>
+            {
+                in_s = StringKind::None;
+                i += 3;
+                continue;
+            }
+            StringKind::Double if c == '"' => {
+                in_s = StringKind::None;
+            }
+            StringKind::Single if c == '\'' => {
+                in_s = StringKind::None;
+            }
+            _ => {}
         }
         i += 1;
     }
@@ -522,5 +582,176 @@ except ImportError:\n\
         assert_eq!(r.imports.len(), 2);
         assert!(r.imports[0].relative && r.imports[0].level == 1);
         assert!(r.imports[1].relative && r.imports[1].level == 2);
+    }
+
+    #[test]
+    fn nested_click_command_does_not_swallow_following_tests() {
+        // Regression: click tests/test_basic.py shape — nested @click.command inside a
+        // test, apostrophe in a `#` comment, then later top-level tests.
+        let src = "\
+def test_boolean_conversion():\n\
+    @click.command()\n\
+    @click.option(\"--foo\", is_flag=True)\n\
+    def cli(foo):\n\
+        click.echo(str(foo))\n\
+    result = runner.invoke(cli)\n\
+    assert result.exit_code == 0\n\
+\n\
+# Non-string defaults are process as strings by the default Parameter's type.\n\
+@pytest.mark.parametrize(\n\
+    (\"default\", \"args\"),\n\
+    (\n\
+        (True, [\"--upper\"]),\n\
+    ),\n\
+)\n\
+def test_flag_value_dual_options():\n\
+    @click.command()\n\
+    def cli():\n\
+        pass\n\
+    assert True\n\
+\n\
+def test_choice_argument():\n\
+    assert True\n\
+\n\
+@pytest.mark.parametrize(\"x\", [1, 2])\n\
+def test_after_param():\n\
+    assert x\n\
+";
+        let r = scan_python(src);
+        let names: Vec<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        assert!(
+            names.contains(&"test_boolean_conversion"),
+            "missing outer test: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.ends_with("cli")),
+            "missing nested cli: {names:?}"
+        );
+        assert!(
+            names.contains(&"test_flag_value_dual_options"),
+            "comment apostrophe swallowed following def: {names:?}"
+        );
+        assert!(
+            names.contains(&"test_choice_argument"),
+            "swallowed following test: {names:?}"
+        );
+        assert!(
+            names.contains(&"test_after_param"),
+            "swallowed parametrized test after nested decorators: {names:?}"
+        );
+    }
+
+    #[test]
+    fn triple_quote_with_embedded_quote_does_not_swallow_following_defs() {
+        // Regression: paren_delta treated """ as empty Double + Double, then an
+        // embedded '"' (jinja test_escape shape) left depth>0 and collect_paren_stmt
+        // swallowed every later def in the class.
+        let src = "\
+class TestFilter:\n\
+    def test_escape(self, env):\n\
+        tmpl = env.from_string(\"\"\"{{ '<\">&'|escape }}\"\"\")\n\
+        out = tmpl.render()\n\
+        assert out == \"&lt;&#34;&gt;&amp;\"\n\
+\n\
+    @pytest.mark.parametrize(\"chars\", [None, \".\"])\n\
+    def test_trim(self, env, chars):\n\
+        assert True\n\
+\n\
+    def test_striptags(self, env):\n\
+        foo = '  <a href=\"#\">'\n\
+        assert foo\n\
+";
+        let r = scan_python(src);
+        let names: Vec<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.ends_with("test_escape")),
+            "missing escape: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.ends_with("test_trim")),
+            "swallowed after triple-quote: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.ends_with("test_striptags")),
+            "swallowed after &#34; / href: {names:?}"
+        );
+        assert_eq!(
+            names.len(),
+            3,
+            "extra/missing defs (paren swallow?): {names:?}"
+        );
+    }
+
+    #[test]
+    fn jinja_test_filters_finds_all_testfilter_methods() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.cache/repos/jinja/tests/test_filters.py"
+        );
+        let Ok(src) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let r = scan_python(&src);
+        let methods: Vec<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.qualname.starts_with("TestFilter.") && d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        assert!(
+            methods.len() >= 90,
+            "only {} TestFilter methods (expected ~99)",
+            methods.len()
+        );
+        assert!(methods.contains(&"TestFilter.test_escape"));
+        assert!(methods.contains(&"TestFilter.test_trim"));
+        assert!(methods.contains(&"TestFilter.test_striptags"));
+    }
+
+    #[test]
+    fn click_test_basic_finds_choice_argument() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.cache/repos/click/tests/test_basic.py"
+        );
+        let Ok(src) = std::fs::read_to_string(path) else {
+            // Optional local fixture; skip when cache is absent.
+            return;
+        };
+        let r = scan_python(&src);
+        let names: std::collections::HashSet<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        let top: Vec<_> = names
+            .iter()
+            .filter(|n| !n.contains('.') && n.starts_with("test_"))
+            .collect();
+        assert!(
+            names.contains("test_boolean_conversion"),
+            "missing test_boolean_conversion"
+        );
+        assert!(
+            names.contains("test_choice_argument"),
+            "missing test_choice_argument; top={top:?}"
+        );
+        assert!(names.contains("test_flag_value_dual_options"));
+        assert!(
+            top.len() >= 40,
+            "only {} top-level tests: {top:?}",
+            top.len()
+        );
     }
 }

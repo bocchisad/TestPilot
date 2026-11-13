@@ -134,6 +134,39 @@ impl FeatureColumn {
     }
 }
 
+/// The 29 model feature names in training/select order (no service columns).
+pub const MODEL_FEATURE_NAMES: &[&str] = &[
+    "cc_max",
+    "cc_sum",
+    "imp_dist",
+    "imp_direct",
+    "name_file",
+    "name_jac",
+    "name_func",
+    "cov_known",
+    "cov_file",
+    "cov_func",
+    "cov_lines",
+    "cov_breadth",
+    "cov_mod",
+    "cov_lag",
+    "t_fail_rate",
+    "t_fail_cnt",
+    "t_obs",
+    "pf_max",
+    "pq_max",
+    "t_age_days",
+    "dur",
+    "tfile_ntests",
+    "t_changed",
+    "t_flaky_rate",
+    "ch_nfiles",
+    "ch_nsrc",
+    "ch_add",
+    "ch_rm",
+    "ch_nfunc",
+];
+
 pub const FEATURE_COLUMNS: &[FeatureColumn] = &[
     FeatureColumn::Repo,
     FeatureColumn::Change,

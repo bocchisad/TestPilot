@@ -212,14 +212,15 @@ fn show_uses_snapshot_not_full_walk_and_ignores_post_base_runs() {
          (W2-9: a post-base run exists — removing snapshot path would fail here)",
         f.diff_hunks_new
     );
+    let head_s = sha_n(HEAD);
     assert!(
-        f.file_at_rev.is_empty(),
-        "file_at_rev must not touch commits after base; got {:?}",
+        f.file_at_rev.iter().all(|x| *x == head_s),
+        "file_at_rev after base must be only head (import graph); got {:?}",
         f.file_at_rev
     );
     assert!(
-        f.list_paths.is_empty(),
-        "list_paths_at_rev must not touch commits after base; got {:?}",
+        f.list_paths.iter().all(|x| *x == head_s),
+        "list_paths_at_rev after base must be only head; got {:?}",
         f.list_paths
     );
 }
@@ -311,8 +312,10 @@ fn show_without_snapshots_errors_clearly() {
     let err = compute_show_rows(&repo, &store, "fixture", &base, &head, &hunks).unwrap_err();
     let msg = err.to_string();
     assert!(
-        msg.contains("no feature snapshot") && msg.contains("features dump"),
-        "expected clear dump hint, got: {msg}"
+        msg.contains("no feature snapshot")
+            && msg.contains("collect git")
+            && msg.contains("features dump"),
+        "expected A9 snapshot hint, got: {msg}"
     );
 }
 

@@ -7,6 +7,8 @@ use testpilot_core::codec;
 use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
 use testpilot_core::features::{self, FEATURES_VERSION};
 use testpilot_core::git::{GitRepo, GixRepo, collect_git, collect_git_shas};
+use testpilot_core::lgbm::load_model_dir;
+use testpilot_core::select::{self, Budget, format_lines, format_table};
 use testpilot_core::stats;
 use testpilot_core::store::Store;
 
@@ -41,6 +43,28 @@ enum Commands {
     Stats {
         #[arg(long)]
         json: bool,
+    },
+    /// Rank and budget tests for a change using a trained model
+    Select {
+        #[arg(long)]
+        base: String,
+        #[arg(long, conflicts_with = "worktree")]
+        head: Option<String>,
+        /// Diff base against the worktree (dirty)
+        #[arg(long)]
+        worktree: bool,
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long, default_value = "lines")]
+        format: String,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long, group = "budget")]
+        budget_frac: Option<f64>,
+        #[arg(long = "max-tests", group = "budget")]
+        max_tests: Option<u32>,
+        #[arg(long, group = "budget")]
+        time_budget: Option<f64>,
     },
     #[command(subcommand)]
     Debug(DebugCmd),
@@ -296,6 +320,67 @@ fn run() -> Result<()> {
                 print!("{}", stats::format_human(&s));
             }
         }
+        Commands::Select {
+            base,
+            head,
+            worktree,
+            model,
+            format,
+            repo,
+            budget_frac,
+            max_tests,
+            time_budget,
+        } => {
+            let budget = parse_select_budget(budget_frac, max_tests, time_budget)?;
+            let repo_path = resolve_repo_path(repo.as_deref())?;
+            let db = resolve_db_path_for(cli.db.as_deref(), &repo_path)?;
+            let store = Store::open(&db).context("open db")?;
+            let grepo = GixRepo::open(&repo_path).context("open git repo")?;
+            let base_sha = grepo.rev_parse(&base).context("resolve --base")?;
+            let worktree_mode = worktree || head.as_deref() == Some("WORKTREE");
+            let (head_sha, head_label, hunks) = if worktree_mode {
+                let head_sha = grepo.rev_parse("HEAD").context("resolve HEAD")?;
+                let hunks = grepo.diff_worktree(&base_sha).context("worktree diff")?;
+                (head_sha, "WORKTREE".to_string(), hunks)
+            } else {
+                let head_rev = head.context("provide --head <rev> or --worktree")?;
+                let head_sha = grepo.rev_parse(&head_rev).context("resolve --head")?;
+                let hunks = grepo
+                    .diff_hunks(&base_sha, &head_sha)
+                    .context("diff hunks")?;
+                let label = head_sha.as_str().to_string();
+                (head_sha, label, hunks)
+            };
+            let repo_name = repo_path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| ".".into());
+            let booster = load_model_dir(&model).context("load model")?;
+            let out = select::run_select(
+                &grepo,
+                Some(&grepo),
+                &store,
+                &repo_name,
+                &booster,
+                &base_sha,
+                &head_sha,
+                &head_label,
+                &hunks,
+                worktree_mode,
+                &budget,
+            )
+            .context("select")?;
+            for w in &out.stderr_warnings {
+                eprintln!("{w}");
+            }
+            let text = match format.as_str() {
+                "json" => serde_json::to_string_pretty(&out.payload)?,
+                "table" => format_table(&out.payload.tests),
+                "lines" => format_lines(&out.payload.tests),
+                other => bail!("unknown --format {other:?}; use json|table|lines"),
+            };
+            println!("{text}");
+        }
         Commands::Debug(DebugCmd::Coverage {
             run_id,
             sha,
@@ -323,6 +408,39 @@ fn run() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn parse_select_budget(
+    frac: Option<f64>,
+    max_tests: Option<u32>,
+    time_budget: Option<f64>,
+) -> Result<Budget> {
+    let n = [frac.is_some(), max_tests.is_some(), time_budget.is_some()]
+        .into_iter()
+        .filter(|x| *x)
+        .count();
+    if n != 1 {
+        bail!("exactly one of --budget-frac, --max-tests, or --time-budget is required");
+    }
+    if let Some(f) = frac {
+        if !(f > 0.0 && f <= 1.0) {
+            bail!("--budget-frac must be in (0, 1], got {f}");
+        }
+        return Ok(Budget::Frac(f));
+    }
+    if let Some(n) = max_tests {
+        if n == 0 {
+            bail!("--max-tests must be ≥ 1");
+        }
+        return Ok(Budget::Count(n));
+    }
+    if let Some(s) = time_budget {
+        if s <= 0.0 {
+            bail!("--time-budget must be > 0");
+        }
+        return Ok(Budget::Time(s));
+    }
+    unreachable!()
 }
 
 fn resolve_db_path(explicit: Option<&Path>) -> Result<PathBuf> {
