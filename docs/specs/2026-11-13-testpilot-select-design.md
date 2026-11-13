@@ -181,29 +181,32 @@ JSON: `head: "WORKTREE"` in worktree mode. Ranking does not use service fields. 
 
 ### 3.5 Candidate tests
 
-**Base set:** test_ids from the last **clean, non-synthetic** results run at `base` or earlier (same ancestor walk as show/dump). Record that run’s commit SHA as `base_run_sha` (A8). If the first-parent distance from `base_run_sha` to `base` is **> 20** commits, print one stderr warning (still succeed).
+Candidates are **pytest nodeids** — the same strings as in dump/train/DB (`path::name`, `path::Class::method`, optional `[param]` suffix). Select does not invent a parallel id scheme.
 
-**Present on head (A2):** drop any base-set test that no longer exists on head/worktree:
+**Base set:** test_ids from the last **clean, non-synthetic** results run at `base` or earlier (same ancestor walk as show/dump). Record that run’s commit SHA as `base_run_sha` (A8). If the first-parent distance from `base_run_sha` to `base` is **> 20** commits, print one stderr warning (still succeed). Parametrized children from that run are kept as full nodeids (`…::test_foo[0]`).
 
-- If the test’s file path is **deleted** in the diff → drop all tests from that file.
-- Else scan the file at head/worktree with `scan_python`; keep the test only if its def still exists (match nodeid ↔ def).  
-  Test: delete one test in a commit → it must not appear in select output.
+**Present on head (A2):** drop a base-set test only when absence is **confident**:
+
+- Test file path **deleted** in the diff → drop all tests from that file.
+- Else: strip the pytest param suffix `[…]` from the nodeid; map `Class::method` ↔ scan qualname `Class.method`; if `scan_python` finds the def on head → keep.
+- If the file **exists** but the scan does not find the def → **keep** (scanner gaps must not drop live tests), **unless** the file is touched in hunks **and** the same stripped qualname is present on the **base** scan and absent on head → then drop (def removed in the change).
+- `scan_python` must close blocks on `@` by indentation and must ignore quotes inside `#` comments (apostrophes must not swallow the rest of the file).
 
 **Diff-discovered set (new tests):**
 
 1. For each hunk path with `is_test_path` + `.py` that exists on head:
-2. `scan_python` → defs with leaf name `test_*`; map to pytest-style nodeids (match plugin / DB strings).
-3. Any such id **not** in the (filtered) base set is a **new** candidate.
-4. No parametrize expansion in week 4.
+2. `scan_python` → defs with leaf name `test_*`; emit **bare** pytest-style nodeids (`path::test_foo`, `path::Class::method`). **No** parametrize expansion in week 4.
+3. An id is **new** only if the base run has **neither** that bare id **nor** any `[…]` child with the same stripped family key. Bare names of already-parametrized defs are **not** new/forced.
+4. A truly new parametrized def still appears as a **bare** id. Budget counts that one row; the number of pytest parameters `N` is unknown without collection — documented limitation (collect-only may expand one bare line into many nodeids).
 
-**Union** = (base set minus deleted) ∪ new defs. Dedup by `test_id`.
+**Union** = (base set minus confidently deleted) ∪ new bare defs. Dedup by `test_id`.
 
 ### 3.5.1 Force-include (A1) — **not** whole-file
 
 A candidate is force-included (`reason = "new_or_changed"`) iff **either**:
 
-1. **New:** `test_id` absent from the base run set, **or**
-2. **Touched def:** the def’s line span on **head** intersects at least one changed line from the hunks for that file (new-side and/or old-side mapping as in dump’s changed-func logic).
+1. **New:** family key absent from the base run (no bare id and no `[…]` children), **or**
+2. **Touched def:** after stripping `[…]` / normalizing `::`→`.`, the def’s line span on **head** intersects at least one changed line from the hunks for that file (new-side and/or old-side mapping as in dump’s changed-func logic).
 
 **Not** force-included merely because the test file path appears in hunks.  
 **Test:** edit one function in a file with 100 tests → `n_forced == 1`.

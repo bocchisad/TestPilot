@@ -79,7 +79,7 @@ testpilot select \
 
 Exactly one budget: `--budget-frac F` (0&lt;F≤1), `--max-tests N` (N≥1), or `--time-budget SECONDS`. Formats: `lines` (default), `table`, `json`. Use `--worktree` or `--head WORKTREE` for dirty trees (time features use **HEAD** author time, not wall clock).
 
-**Limitations:** models trained on mutation bootstrap may have near-constant history features (`t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag`); if `useful_on_val` is null the CLI warns that the model was validated on synthetic data only. New tests are discovered via AST `test_*` defs (no parametrize expansion). Design: [`docs/specs/2026-11-13-testpilot-select-design.md`](docs/specs/2026-11-13-testpilot-select-design.md). Latency: `scripts/bench_select.py`.
+**Limitations:** models trained on mutation bootstrap may have near-constant history features (`t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag`); if `useful_on_val` is null the CLI warns that the model was validated on synthetic data only. Candidates are pytest nodeids (as in dump/train); parametrized ids from the base run are kept, but newly discovered defs are emitted bare (no param expansion — one bare id may expand to N collected nodeids). Design: [`docs/specs/2026-11-13-testpilot-select-design.md`](docs/specs/2026-11-13-testpilot-select-design.md). Latency: `scripts/bench_select.py`.
 
 ## Database schema
 

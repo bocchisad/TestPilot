@@ -187,7 +187,8 @@ pub fn run_select<R: GitRepo>(
         .transpose()?
         .unwrap_or_default();
 
-    base_results = filter_present_on_head(repo, gix, head, worktree, hunks, base_results)?;
+    base_results =
+        filter_present_on_head(repo, gix, base, head, worktree, hunks, base_results)?;
 
     let deleted_files: HashSet<String> = hunks
         .iter()
@@ -336,9 +337,42 @@ fn read_source<R: GitRepo>(
     Ok(bytes.map(|b| String::from_utf8_lossy(&b).into_owned()))
 }
 
+/// Strip a trailing pytest parametrization suffix `[…]` from a nodeid.
+/// Only the last `[` after the final `::` segment is considered.
+pub fn strip_pytest_params(test_id: &str) -> &str {
+    let after_sep = test_id.rfind("::").map(|i| i + 2).unwrap_or(0);
+    if let Some(rel) = test_id[after_sep..].find('[') {
+        let i = after_sep + rel;
+        if test_id[i..].contains(']') {
+            return &test_id[..i];
+        }
+    }
+    test_id
+}
+
+/// Family key for matching bare defs to parametrized children: strip `[…]`.
+fn family_key(test_id: &str) -> &str {
+    strip_pytest_params(test_id)
+}
+
+/// True if `base_ids` already covers this id (exact or any `[…]` sibling / bare parent).
+fn base_covers_family(base_ids: &HashSet<String>, tid: &str) -> bool {
+    let key = family_key(tid);
+    base_ids
+        .iter()
+        .any(|b| family_key(b) == key)
+}
+
+fn file_touched_in_hunks(hunks: &[DiffHunk], path: &str) -> bool {
+    hunks
+        .iter()
+        .any(|h| h.path == path && h.change_type != 'A')
+}
+
 fn filter_present_on_head<R: GitRepo>(
     repo: &R,
     gix: Option<&GixRepo>,
+    base: &Sha,
     head: &Sha,
     worktree: bool,
     hunks: &[DiffHunk],
@@ -349,22 +383,47 @@ fn filter_present_on_head<R: GitRepo>(
         .filter(|h| h.change_type == 'D')
         .map(|h| h.path.clone())
         .collect();
-    let mut cache: HashMap<String, Option<ScanResult>> = HashMap::new();
+    let mut head_cache: HashMap<String, Option<ScanResult>> = HashMap::new();
+    let mut base_cache: HashMap<String, Option<ScanResult>> = HashMap::new();
     results.retain(|r| {
         let tf = test_file_of(&r.test_id);
         if deleted.contains(&tf) {
             return false;
         }
-        let scan = cache.entry(tf.clone()).or_insert_with(|| {
+        let head_scan = head_cache.entry(tf.clone()).or_insert_with(|| {
             read_source(repo, gix, head, worktree, &tf)
                 .ok()
                 .flatten()
                 .map(|s| scan_python(&s))
         });
-        let Some(scan) = scan else {
+        // File gone on head (not listed as 'D' but missing) → drop.
+        let Some(head_scan) = head_scan.as_ref() else {
             return false;
         };
-        qualname_exists(&r.test_id, &scan.defs)
+        if qualname_exists(&r.test_id, &head_scan.defs) {
+            return true;
+        }
+        // Scan miss while the file exists: keep unless we can prove the def was
+        // removed (present on base scan, absent on head, file touched in hunks).
+        if !file_touched_in_hunks(hunks, &tf) {
+            return true;
+        }
+        let base_scan = base_cache.entry(tf.clone()).or_insert_with(|| {
+            // Base is always a commit rev (never worktree overlay).
+            read_source(repo, gix, base, false, &tf)
+                .ok()
+                .flatten()
+                .map(|s| scan_python(&s))
+        });
+        let Some(base_scan) = base_scan.as_ref() else {
+            return true;
+        };
+        if qualname_exists(&r.test_id, &base_scan.defs) {
+            // Was on base, gone on head, file changed → confident removal.
+            return false;
+        }
+        // Neither side sees the def (scanner gap / exotic nodeid) → keep.
+        true
     });
     Ok(results)
 }
@@ -390,7 +449,8 @@ fn discover_new_tests<R: GitRepo>(
             continue;
         };
         for tid in test_ids_from_source(&h.path, &src) {
-            if !base_ids.contains(&tid) {
+            // Bare id from scan; not "new" if base already has this def or any `[…]` child.
+            if !base_covers_family(base_ids, &tid) {
                 out.push(tid);
             }
         }
@@ -411,14 +471,17 @@ fn test_ids_from_source(path: &str, src: &str) -> Vec<String> {
         if !leaf.starts_with("test_") {
             continue;
         }
+        // Emit bare pytest-style nodeid (Class.method → Class::method). No param expansion.
         let suffix = d.qualname.replace('.', "::");
         out.push(format!("{path}::{suffix}"));
     }
     out
 }
 
+/// Map a pytest nodeid to `(path, scan qualname)`. Strips `[…]`; `Class::meth` ↔ `Class.meth`.
 fn qualname_from_test_id(test_id: &str) -> Option<(String, String)> {
-    let (path, rest) = test_id.split_once("::")?;
+    let stripped = strip_pytest_params(test_id);
+    let (path, rest) = stripped.split_once("::")?;
     let qualname = rest.replace("::", ".");
     Some((path.to_string(), qualname))
 }
@@ -464,7 +527,7 @@ fn force_flags<R: GitRepo>(
         if deleted_files.contains(&tf) {
             continue;
         }
-        if !base_ids.contains(tid) {
+        if !base_covers_family(base_ids, tid) {
             out.insert(tid.clone(), true);
             continue;
         }
@@ -480,7 +543,8 @@ fn force_flags<R: GitRepo>(
         let Some((_p, qual)) = qualname_from_test_id(tid) else {
             continue;
         };
-        let Some(def) = scan.defs.iter().find(|d| d.qualname == qual) else {
+        let Some(def) = scan.defs.iter().find(|d| d.kind != "class" && d.qualname == qual)
+        else {
             continue;
         };
         let changed = changed_lines_for_path(hunks, &tf);
@@ -636,5 +700,30 @@ mod tests {
         let ids = test_ids_from_source("tests/t.py", src);
         assert!(ids.contains(&"tests/t.py::TestFoo::test_bar".to_string()));
         assert!(ids.contains(&"tests/t.py::test_top".to_string()));
+    }
+
+    #[test]
+    fn strip_pytest_params_and_class_qual() {
+        assert_eq!(
+            strip_pytest_params("tests/t.py::test_foo[a-b]"),
+            "tests/t.py::test_foo"
+        );
+        assert_eq!(
+            strip_pytest_params("tests/t.py::TestCls::test_m[1]"),
+            "tests/t.py::TestCls::test_m"
+        );
+        assert_eq!(
+            strip_pytest_params("tests/t.py::test_plain"),
+            "tests/t.py::test_plain"
+        );
+        let (path, qual) = qualname_from_test_id("tests/t.py::TestCls::test_m[x]").unwrap();
+        assert_eq!(path, "tests/t.py");
+        assert_eq!(qual, "TestCls.test_m");
+        let mut base = HashSet::new();
+        base.insert("tests/t.py::test_foo[1]".into());
+        base.insert("tests/t.py::test_foo[2]".into());
+        assert!(base_covers_family(&base, "tests/t.py::test_foo"));
+        assert!(base_covers_family(&base, "tests/t.py::test_foo[9]"));
+        assert!(!base_covers_family(&base, "tests/t.py::test_other"));
     }
 }

@@ -10,5 +10,7 @@ pub mod stats;
 pub mod store;
 
 pub use error::{Error, Result};
-pub use select::{Budget, SelectJson, SelectOutput, format_lines, format_table, run_select};
+pub use select::{
+    Budget, SelectJson, SelectOutput, format_lines, format_table, run_select, strip_pytest_params,
+};
 pub use store::Store;

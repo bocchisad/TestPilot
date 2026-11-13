@@ -315,6 +315,225 @@ fn deleted_test_not_in_candidates() {
 }
 
 #[test]
+fn parametrized_nodeids_stay_in_candidates() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (mut repo, mut store) = seed_snapshot_repo(120);
+    let param_src = "\
+import pytest\n\
+@pytest.mark.parametrize(\"x\", [1, 2, 3])\n\
+def test_p(x):\n\
+    assert x\n\
+\ndef test_plain():\n\
+    assert True\n\
+";
+    repo.insert_file("0099", "tests/test_param.py", param_src);
+    repo.insert_file("0100", "tests/test_param.py", param_src);
+    repo.insert_file("0100", "tests/test_many.py", &many_tests_source(100));
+    let run = TestRunRow {
+        sha: "0050".into(),
+        source: "pytest".into(),
+        started_at: 1,
+        finished_at: Some(2),
+        dirty: false,
+        diff_hash: None,
+        input_hash: None,
+        meta: None,
+        synthetic: false,
+    };
+    // Overwrite isn't easy; insert a newer clean run at 0051 with parametrized ids.
+    store
+        .insert_commit(&testpilot_core::store::CommitRow {
+            sha: "0051".into(),
+            author_ts: 51,
+            message: "c51".into(),
+            oversized: false,
+            parents: vec!["0050".into()],
+        })
+        .unwrap();
+    let ids = vec![
+        TestResultRow {
+            test_id: "tests/test_param.py::test_p[1]".into(),
+            outcome: "pass".into(),
+            duration_ms: 10,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        },
+        TestResultRow {
+            test_id: "tests/test_param.py::test_p[2]".into(),
+            outcome: "pass".into(),
+            duration_ms: 10,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        },
+        TestResultRow {
+            test_id: "tests/test_param.py::test_p[3]".into(),
+            outcome: "pass".into(),
+            duration_ms: 10,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        },
+        TestResultRow {
+            test_id: "tests/test_param.py::test_plain".into(),
+            outcome: "pass".into(),
+            duration_ms: 10,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        },
+    ];
+    let mut run51 = run;
+    run51.sha = "0051".into();
+    store.insert_run_atomic(&run51, &ids, &[], false).unwrap();
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let hunks = vec![DiffHunk {
+        path: "pkg/a.py".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        is_binary: false,
+    }];
+    let out = run_select(
+        &repo,
+        None,
+        &store,
+        "fixture",
+        &booster,
+        &base,
+        &head,
+        "0100",
+        &hunks,
+        false,
+        &Budget::Frac(1.0),
+    )
+    .unwrap();
+    let selected: Vec<_> = out
+        .payload
+        .tests
+        .iter()
+        .map(|t| t.test_id.as_str())
+        .collect();
+    // Full frac → all candidates selected; parametrized ids must remain.
+    assert!(
+        selected.iter().any(|t| *t == "tests/test_param.py::test_p[1]"),
+        "missing parametrized child: {selected:?}"
+    );
+    assert!(
+        selected.iter().any(|t| *t == "tests/test_param.py::test_p[2]"),
+        "{selected:?}"
+    );
+    assert!(
+        selected.iter().any(|t| *t == "tests/test_param.py::test_p[3]"),
+        "{selected:?}"
+    );
+    // Bare name must not be forced as "new" when `[…]` children exist in base.
+    assert_eq!(out.payload.n_forced, 0);
+    assert!(!selected.iter().any(|t| *t == "tests/test_param.py::test_p"));
+}
+
+#[test]
+fn deleted_one_def_not_whole_file() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (mut repo, store) = seed_snapshot_repo(120);
+    let full = many_tests_source(100);
+    let mut without_5 = String::new();
+    for i in 0..100 {
+        if i == 5 {
+            continue;
+        }
+        without_5.push_str(&format!("def test_{i}():\n    assert {i} == {i}\n\n"));
+    }
+    without_5.push_str("def test_touched():\n    x = 1\n    return x\n");
+    repo.insert_file("0099", "tests/test_many.py", &full);
+    repo.insert_file("0100", "tests/test_many.py", &without_5);
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    // Body of test_5 was around lines 16–18 in the full file (3 lines per test).
+    let hunks = vec![DiffHunk {
+        path: "tests/test_many.py".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 16, end: 18 }],
+        new_line_ranges: vec![],
+        is_binary: false,
+    }];
+    let out = run_select(
+        &repo,
+        None,
+        &store,
+        "fixture",
+        &booster,
+        &base,
+        &head,
+        "0100",
+        &hunks,
+        false,
+        &Budget::Frac(1.0),
+    )
+    .unwrap();
+    let ids: Vec<_> = out
+        .payload
+        .tests
+        .iter()
+        .map(|t| t.test_id.as_str())
+        .collect();
+    assert!(
+        !ids.iter().any(|t| *t == "tests/test_many.py::test_5"),
+        "deleted def still present: {ids:?}"
+    );
+    assert!(
+        ids.iter().any(|t| *t == "tests/test_many.py::test_0"),
+        "sibling should remain: {ids:?}"
+    );
+    assert_eq!(out.payload.n_candidates, 100); // 101 base − test_5
+}
+
+#[test]
+fn lines_subset_of_candidate_nodeids() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, store) = seed_snapshot_repo(120);
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let hunks = vec![DiffHunk {
+        path: "pkg/a.py".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        is_binary: false,
+    }];
+    let out = run_select(
+        &repo,
+        None,
+        &store,
+        "fixture",
+        &booster,
+        &base,
+        &head,
+        "0100",
+        &hunks,
+        false,
+        &Budget::Frac(0.2),
+    )
+    .unwrap();
+    let known: std::collections::HashSet<String> = (0..100)
+        .map(|i| format!("tests/test_many.py::test_{i}"))
+        .chain(std::iter::once("tests/test_many.py::test_touched".into()))
+        .collect();
+    let lines = format_lines(&out.payload.tests);
+    for line in lines.lines() {
+        assert!(
+            known.contains(line),
+            "lines output not a pytest nodeid from fixture: {line}"
+        );
+    }
+}
+
+#[test]
 fn json_and_lines_deterministic() {
     let booster = load_model_dir(&fixture_model()).unwrap();
     let (repo, store) = seed_snapshot_repo(120);

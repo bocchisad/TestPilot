@@ -66,6 +66,14 @@ impl<'a> Scanner<'a> {
         while i < chars.len() {
             let c = chars[i];
             if in_string == StringKind::None {
+                // Comments: ignore quotes until end of physical line (e.g. Parameter's).
+                if c == '#' {
+                    while i < chars.len() && chars[i] != '\n' {
+                        buf.push(chars[i]);
+                        i += 1;
+                    }
+                    continue;
+                }
                 // Triple quotes
                 if i + 2 < chars.len()
                     && ((c == '"' && chars[i + 1] == '"' && chars[i + 2] == '"')
@@ -202,9 +210,11 @@ impl<'a> Scanner<'a> {
                 continue;
             }
 
-            // Close finished blocks by indentation
+            // Close finished blocks by indentation. Decorators at indent I belong to a
+            // new def/class at I, so they must close siblings/nested frames first
+            // (including nested `@click.command()` defs inside a prior test).
             while let Some((ind, _, _, _, _)) = stack.last() {
-                if indent <= *ind && !trimmed.starts_with('@') {
+                if indent <= *ind {
                     let (ind0, kind, name, start, dec_start) = stack.pop().unwrap();
                     let end = line_no;
                     let qual = stack
@@ -522,5 +532,104 @@ except ImportError:\n\
         assert_eq!(r.imports.len(), 2);
         assert!(r.imports[0].relative && r.imports[0].level == 1);
         assert!(r.imports[1].relative && r.imports[1].level == 2);
+    }
+
+    #[test]
+    fn nested_click_command_does_not_swallow_following_tests() {
+        // Regression: click tests/test_basic.py shape — nested @click.command inside a
+        // test, apostrophe in a `#` comment, then later top-level tests.
+        let src = "\
+def test_boolean_conversion():\n\
+    @click.command()\n\
+    @click.option(\"--foo\", is_flag=True)\n\
+    def cli(foo):\n\
+        click.echo(str(foo))\n\
+    result = runner.invoke(cli)\n\
+    assert result.exit_code == 0\n\
+\n\
+# Non-string defaults are process as strings by the default Parameter's type.\n\
+@pytest.mark.parametrize(\n\
+    (\"default\", \"args\"),\n\
+    (\n\
+        (True, [\"--upper\"]),\n\
+    ),\n\
+)\n\
+def test_flag_value_dual_options():\n\
+    @click.command()\n\
+    def cli():\n\
+        pass\n\
+    assert True\n\
+\n\
+def test_choice_argument():\n\
+    assert True\n\
+\n\
+@pytest.mark.parametrize(\"x\", [1, 2])\n\
+def test_after_param():\n\
+    assert x\n\
+";
+        let r = scan_python(src);
+        let names: Vec<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        assert!(
+            names.contains(&"test_boolean_conversion"),
+            "missing outer test: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.ends_with("cli")),
+            "missing nested cli: {names:?}"
+        );
+        assert!(
+            names.contains(&"test_flag_value_dual_options"),
+            "comment apostrophe swallowed following def: {names:?}"
+        );
+        assert!(
+            names.contains(&"test_choice_argument"),
+            "swallowed following test: {names:?}"
+        );
+        assert!(
+            names.contains(&"test_after_param"),
+            "swallowed parametrized test after nested decorators: {names:?}"
+        );
+    }
+
+    #[test]
+    fn click_test_basic_finds_choice_argument() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.cache/repos/click/tests/test_basic.py"
+        );
+        let Ok(src) = std::fs::read_to_string(path) else {
+            // Optional local fixture; skip when cache is absent.
+            return;
+        };
+        let r = scan_python(&src);
+        let names: std::collections::HashSet<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        let top: Vec<_> = names
+            .iter()
+            .filter(|n| !n.contains('.') && n.starts_with("test_"))
+            .collect();
+        assert!(
+            names.contains("test_boolean_conversion"),
+            "missing test_boolean_conversion"
+        );
+        assert!(
+            names.contains("test_choice_argument"),
+            "missing test_choice_argument; top={top:?}"
+        );
+        assert!(names.contains("test_flag_value_dual_options"));
+        assert!(
+            top.len() >= 40,
+            "only {} top-level tests: {top:?}",
+            top.len()
+        );
     }
 }
