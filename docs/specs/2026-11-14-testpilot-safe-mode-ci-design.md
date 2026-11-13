@@ -113,7 +113,7 @@ Only when select can score normally. Each reason string stable for tests/summary
 
 | Reason id | Condition |
 |-----------|-----------|
-| `config_surface` | Diff touches any of: `conftest.py`, `pytest.ini`, `pyproject.toml` (any change — treat as pytest-related; optionally require `[tool.pytest]` hunk if cheap), `setup.cfg`, `requirements*.txt` / `*.in`, lockfiles (`poetry.lock`, `uv.lock`, `Pipfile.lock`, `Cargo.lock` if present as project lock for Python env — document exact glob list in impl), `.github/workflows/**` |
+| `config_surface` | Diff touches any path matching: `**/conftest.py`, `pytest.ini`, `pyproject.toml` (any hunk — whole file, not only `[tool.pytest]`), `setup.cfg`, `requirements*.txt`, `requirements*.in`, `poetry.lock`, `uv.lock`, `Pipfile.lock`, `pdm.lock`, or `.github/workflows/**`. (`Cargo.lock` is **not** included — Rust lockfile churn must not force full Python suite.) |
 | `src_frac` | Changed non-test `.py` paths / all non-test `.py` paths at head > **X** (`--safe-src-frac-threshold`, default 0.30) |
 | `few_candidates` | `n_candidates < M` (`--safe-min-candidates`, default 50) |
 
