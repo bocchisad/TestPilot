@@ -337,9 +337,19 @@ fn read_source<R: GitRepo>(
 }
 
 /// Strip a trailing pytest parametrization suffix `[…]` from a nodeid.
-/// Only the last `[` after the final `::` segment is considered.
+///
+/// Find the first `[` in the string, then take the last `::` in the prefix
+/// *before* that bracket (so `[::]` inside params cannot move the split point).
+/// Strip at the first `[` after that `::`.
 pub fn strip_pytest_params(test_id: &str) -> &str {
-    let after_sep = test_id.rfind("::").map(|i| i + 2).unwrap_or(0);
+    let Some(first_bracket) = test_id.find('[') else {
+        return test_id;
+    };
+    if !test_id[first_bracket..].contains(']') {
+        return test_id;
+    }
+    let before = &test_id[..first_bracket];
+    let after_sep = before.rfind("::").map(|i| i + 2).unwrap_or(0);
     if let Some(rel) = test_id[after_sep..].find('[') {
         let i = after_sep + rel;
         if test_id[i..].contains(']') {
@@ -488,16 +498,27 @@ fn qualname_exists(test_id: &str, defs: &[DefSpan]) -> bool {
     defs.iter().any(|d| d.kind != "class" && d.qualname == qual)
 }
 
-fn changed_lines_for_path(hunks: &[DiffHunk], path: &str) -> HashSet<u32> {
+/// Head/new-side changed lines for `path` (added or modified on head).
+fn new_changed_lines_for_path(hunks: &[DiffHunk], path: &str) -> HashSet<u32> {
     let mut lines = HashSet::new();
     for h in hunks.iter().filter(|h| h.path == path) {
         lines.extend(line_set(&h.new_line_ranges));
+    }
+    lines
+}
+
+/// Base/old-side deleted or modified lines for `path`.
+/// Used when attributing removals to base defs (not for forcing head neighbors).
+#[allow(dead_code)] // exercised in unit tests; keep as the old-side counterpart of `new_*`
+fn old_changed_lines_for_path(hunks: &[DiffHunk], path: &str) -> HashSet<u32> {
+    let mut lines = HashSet::new();
+    for h in hunks.iter().filter(|h| h.path == path) {
         lines.extend(line_set(&h.old_line_ranges));
     }
     lines
 }
 
-fn def_touches_hunk(def: &DefSpan, changed: &HashSet<u32>) -> bool {
+fn def_touches_lines(def: &DefSpan, changed: &HashSet<u32>) -> bool {
     if def.kind == "class" {
         return false;
     }
@@ -515,7 +536,7 @@ fn force_flags<R: GitRepo>(
     candidates: &HashSet<String>,
     deleted_files: &HashSet<String>,
 ) -> Result<HashMap<String, bool>> {
-    let mut scan_cache: HashMap<String, Option<ScanResult>> = HashMap::new();
+    let mut head_cache: HashMap<String, Option<ScanResult>> = HashMap::new();
     let mut out = HashMap::new();
     for tid in candidates {
         let tf = test_file_of(tid);
@@ -526,16 +547,17 @@ fn force_flags<R: GitRepo>(
             out.insert(tid.clone(), true);
             continue;
         }
-        let scan = scan_cache.entry(tf.clone()).or_insert_with(|| {
+        let Some((_p, qual)) = qualname_from_test_id(tid) else {
+            continue;
+        };
+
+        let head_scan = head_cache.entry(tf.clone()).or_insert_with(|| {
             read_source(repo, gix, head, worktree, &tf)
                 .ok()
                 .flatten()
                 .map(|s| scan_python(&s))
         });
-        let Some(scan) = scan else {
-            continue;
-        };
-        let Some((_p, qual)) = qualname_from_test_id(tid) else {
+        let Some(scan) = head_scan.as_ref() else {
             continue;
         };
         let Some(def) = scan
@@ -543,10 +565,14 @@ fn force_flags<R: GitRepo>(
             .iter()
             .find(|d| d.kind != "class" && d.qualname == qual)
         else {
+            // Absent on head: not force-included. Removals are attributed via
+            // old-side lines in filter_present / tests — never mix old-side
+            // line numbers into a neighboring head def's span.
             continue;
         };
-        let changed = changed_lines_for_path(hunks, &tf);
-        if def_touches_hunk(def, &changed) {
+        // Existing def: intersect with head/new-side lines only.
+        let changed = new_changed_lines_for_path(hunks, &tf);
+        if def_touches_lines(def, &changed) {
             out.insert(tid.clone(), true);
         }
     }
@@ -714,6 +740,12 @@ mod tests {
             strip_pytest_params("tests/t.py::test_plain"),
             "tests/t.py::test_plain"
         );
+        // `[::]` inside params must not move the `::` split point.
+        assert_eq!(strip_pytest_params("t.py::test_x[a::b]"), "t.py::test_x");
+        assert_eq!(
+            strip_pytest_params("tests/t.py::TestCls::test_m[x::y]"),
+            "tests/t.py::TestCls::test_m"
+        );
         let (path, qual) = qualname_from_test_id("tests/t.py::TestCls::test_m[x]").unwrap();
         assert_eq!(path, "tests/t.py");
         assert_eq!(qual, "TestCls.test_m");
@@ -723,5 +755,40 @@ mod tests {
         assert!(base_covers_family(&base, "tests/t.py::test_foo"));
         assert!(base_covers_family(&base, "tests/t.py::test_foo[9]"));
         assert!(!base_covers_family(&base, "tests/t.py::test_other"));
+    }
+
+    #[test]
+    fn hunk_sides_old_lines_do_not_touch_head_neighbor() {
+        // Pure deletion: old lines 10–20, no new lines. Head neighbor spans 10–15
+        // after the shift — must not count as touched (new-side empty).
+        let hunks = vec![DiffHunk {
+            path: "tests/t.py".into(),
+            old_path: None,
+            change_type: 'M',
+            old_line_ranges: vec![crate::git::LineRange { start: 10, end: 20 }],
+            new_line_ranges: vec![],
+            is_binary: false,
+        }];
+        assert!(new_changed_lines_for_path(&hunks, "tests/t.py").is_empty());
+        let old = old_changed_lines_for_path(&hunks, "tests/t.py");
+        assert!(old.contains(&10) && old.contains(&20));
+        let neighbor = DefSpan {
+            qualname: "test_neighbor".into(),
+            kind: "def".into(),
+            start_line: 10,
+            end_line: 16,
+        };
+        assert!(!def_touches_lines(
+            &neighbor,
+            &new_changed_lines_for_path(&hunks, "tests/t.py")
+        ));
+        // Old-side attribution is for the deleted def only:
+        let deleted = DefSpan {
+            qualname: "test_deleted".into(),
+            kind: "def".into(),
+            start_line: 10,
+            end_line: 21,
+        };
+        assert!(def_touches_lines(&deleted, &old));
     }
 }

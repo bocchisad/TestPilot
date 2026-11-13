@@ -336,11 +336,35 @@ fn paren_delta(s: &str) -> i32 {
     while i < chars.len() {
         let c = chars[i];
         if in_s == StringKind::None {
+            // Comments must not contribute parens or open strings (Parameter's, &#34;).
+            if c == '#' {
+                break;
+            }
             if c == '(' {
                 d += 1;
-            } else if c == ')' {
+                i += 1;
+                continue;
+            }
+            if c == ')' {
                 d -= 1;
-            } else if c == '"' || c == '\'' {
+                i += 1;
+                continue;
+            }
+            // Triple quotes before single — otherwise """ is empty Double + new Double
+            // and an embedded '"' (jinja `"""{{ '<">&'|escape }}"""`) desyncs depth.
+            if i + 2 < chars.len()
+                && ((c == '"' && chars[i + 1] == '"' && chars[i + 2] == '"')
+                    || (c == '\'' && chars[i + 1] == '\'' && chars[i + 2] == '\''))
+            {
+                in_s = if c == '"' {
+                    StringKind::TripleDouble
+                } else {
+                    StringKind::TripleSingle
+                };
+                i += 3;
+                continue;
+            }
+            if c == '"' || c == '\'' {
                 in_s = if c == '"' {
                     StringKind::Double
                 } else {
@@ -355,13 +379,39 @@ fn paren_delta(s: &str) -> i32 {
             i += 1;
             continue;
         }
-        if c == '\\' {
+        if c == '\\' && matches!(in_s, StringKind::Single | StringKind::Double) {
             esc = true;
             i += 1;
             continue;
         }
-        if (in_s == StringKind::Double && c == '"') || (in_s == StringKind::Single && c == '\'') {
-            in_s = StringKind::None;
+        match in_s {
+            StringKind::TripleDouble
+                if c == '"'
+                    && i + 2 < chars.len()
+                    && chars[i + 1] == '"'
+                    && chars[i + 2] == '"' =>
+            {
+                in_s = StringKind::None;
+                i += 3;
+                continue;
+            }
+            StringKind::TripleSingle
+                if c == '\''
+                    && i + 2 < chars.len()
+                    && chars[i + 1] == '\''
+                    && chars[i + 2] == '\'' =>
+            {
+                in_s = StringKind::None;
+                i += 3;
+                continue;
+            }
+            StringKind::Double if c == '"' => {
+                in_s = StringKind::None;
+            }
+            StringKind::Single if c == '\'' => {
+                in_s = StringKind::None;
+            }
+            _ => {}
         }
         i += 1;
     }
@@ -594,6 +644,78 @@ def test_after_param():\n\
             names.contains(&"test_after_param"),
             "swallowed parametrized test after nested decorators: {names:?}"
         );
+    }
+
+    #[test]
+    fn triple_quote_with_embedded_quote_does_not_swallow_following_defs() {
+        // Regression: paren_delta treated """ as empty Double + Double, then an
+        // embedded '"' (jinja test_escape shape) left depth>0 and collect_paren_stmt
+        // swallowed every later def in the class.
+        let src = "\
+class TestFilter:\n\
+    def test_escape(self, env):\n\
+        tmpl = env.from_string(\"\"\"{{ '<\">&'|escape }}\"\"\")\n\
+        out = tmpl.render()\n\
+        assert out == \"&lt;&#34;&gt;&amp;\"\n\
+\n\
+    @pytest.mark.parametrize(\"chars\", [None, \".\"])\n\
+    def test_trim(self, env, chars):\n\
+        assert True\n\
+\n\
+    def test_striptags(self, env):\n\
+        foo = '  <a href=\"#\">'\n\
+        assert foo\n\
+";
+        let r = scan_python(src);
+        let names: Vec<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.ends_with("test_escape")),
+            "missing escape: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.ends_with("test_trim")),
+            "swallowed after triple-quote: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.ends_with("test_striptags")),
+            "swallowed after &#34; / href: {names:?}"
+        );
+        assert_eq!(
+            names.len(),
+            3,
+            "extra/missing defs (paren swallow?): {names:?}"
+        );
+    }
+
+    #[test]
+    fn jinja_test_filters_finds_all_testfilter_methods() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../.cache/repos/jinja/tests/test_filters.py"
+        );
+        let Ok(src) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let r = scan_python(&src);
+        let methods: Vec<_> = r
+            .defs
+            .iter()
+            .filter(|d| d.qualname.starts_with("TestFilter.") && d.kind != "class")
+            .map(|d| d.qualname.as_str())
+            .collect();
+        assert!(
+            methods.len() >= 90,
+            "only {} TestFilter methods (expected ~99)",
+            methods.len()
+        );
+        assert!(methods.contains(&"TestFilter.test_escape"));
+        assert!(methods.contains(&"TestFilter.test_trim"));
+        assert!(methods.contains(&"TestFilter.test_striptags"));
     }
 
     #[test]

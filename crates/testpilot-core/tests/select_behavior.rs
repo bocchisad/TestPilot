@@ -442,6 +442,117 @@ def test_p(x):\n\
 }
 
 #[test]
+fn deleting_one_def_does_not_force_neighbor() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (mut repo, store) = seed_snapshot_repo(120);
+    let base_src = "\
+def test_choice_argument():\n\
+    assert True\n\
+\ndef test_choice_argument_enum():\n\
+    assert True\n\
+";
+    let head_src = "\
+def test_choice_argument_enum():\n\
+    assert True\n\
+";
+    repo.insert_file("0099", "tests/test_choice.py", base_src);
+    repo.insert_file("0100", "tests/test_choice.py", head_src);
+    // Also keep many_tests so last clean run still resolves; inject choice ids via
+    // extending the 0050 run is hard — seed a dedicated run at 0052.
+    let mut store = store;
+    store
+        .insert_commit(&testpilot_core::store::CommitRow {
+            sha: "0052".into(),
+            author_ts: 52,
+            message: "c52".into(),
+            oversized: false,
+            parents: vec!["0051".into()],
+        })
+        .unwrap();
+    let ids = vec![
+        TestResultRow {
+            test_id: "tests/test_choice.py::test_choice_argument".into(),
+            outcome: "pass".into(),
+            duration_ms: 10,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        },
+        TestResultRow {
+            test_id: "tests/test_choice.py::test_choice_argument_enum".into(),
+            outcome: "pass".into(),
+            duration_ms: 10,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        },
+    ];
+    store
+        .insert_run_atomic(
+            &TestRunRow {
+                sha: "0052".into(),
+                source: "pytest".into(),
+                started_at: 1,
+                finished_at: Some(2),
+                dirty: false,
+                diff_hash: None,
+                input_hash: None,
+                meta: None,
+                synthetic: false,
+            },
+            &ids,
+            &[],
+            false,
+        )
+        .unwrap();
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let hunks = vec![DiffHunk {
+        path: "tests/test_choice.py".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 3 }],
+        new_line_ranges: vec![],
+        is_binary: false,
+    }];
+    let out = run_select(
+        &repo,
+        None,
+        &store,
+        "fixture",
+        &booster,
+        &base,
+        &head,
+        "0100",
+        &hunks,
+        false,
+        &Budget::Frac(1.0),
+    )
+    .unwrap();
+    let ids: Vec<_> = out
+        .payload
+        .tests
+        .iter()
+        .map(|t| t.test_id.as_str())
+        .collect();
+    assert!(
+        !ids.iter()
+            .any(|t| *t == "tests/test_choice.py::test_choice_argument"),
+        "deleted def still selected: {ids:?}"
+    );
+    assert!(
+        ids.iter()
+            .any(|t| *t == "tests/test_choice.py::test_choice_argument_enum"),
+        "neighbor missing: {ids:?}"
+    );
+    assert_eq!(
+        out.payload.n_forced, 0,
+        "deleting a def must not force the next def (was n_forced={})",
+        out.payload.n_forced
+    );
+}
+
+#[test]
 fn deleted_one_def_not_whole_file() {
     let booster = load_model_dir(&fixture_model()).unwrap();
     let (mut repo, store) = seed_snapshot_repo(120);

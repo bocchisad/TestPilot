@@ -206,10 +206,10 @@ Candidates are **pytest nodeids** — the same strings as in dump/train/DB (`pat
 A candidate is force-included (`reason = "new_or_changed"`) iff **either**:
 
 1. **New:** family key absent from the base run (no bare id and no `[…]` children), **or**
-2. **Touched def:** after stripping `[…]` / normalizing `::`→`.`, the def’s line span on **head** intersects at least one changed line from the hunks for that file (new-side and/or old-side mapping as in dump’s changed-func logic).
+2. **Touched def:** after stripping `[…]` / normalizing `::`→`.`, the def’s line span on **head** intersects at least one **new-side** changed line from the hunks for that file. Deleted/old-side lines attribute removals only (filter_present / base scan); they must **not** be applied to a neighboring head def (deleting `test_foo` must not force `test_foo_enum` after the line shift).
 
 **Not** force-included merely because the test file path appears in hunks.  
-**Test:** edit one function in a file with 100 tests → `n_forced == 1`.
+**Test:** edit one function in a file with 100 tests → `n_forced == 1`. Deleting one def → neighbor `n_forced` unchanged.
 
 Force-include is always present in the selected output even if over budget. Remaining slots filled with `reason = "ranked"`. JSON includes **`n_forced`** (A1).
 
