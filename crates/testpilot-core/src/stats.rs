@@ -100,6 +100,34 @@ pub fn compute(store: &Store) -> Result<Stats> {
     })
 }
 
+pub fn format_human(stats: &Stats) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("commits:         {}\n", stats.commits));
+    out.push_str(&format!("test runs:       {}\n", stats.runs));
+    out.push_str(&format!("distinct tests:  {}\n", stats.distinct_tests));
+    out.push_str(&format!("failures/errors: {}\n", stats.failures));
+    out.push_str("\nTop 10 slowest tests (avg duration_ms):\n");
+    for (i, t) in stats.top_slowest.iter().enumerate() {
+        out.push_str(&format!(
+            "  {:2}. {:>10.1}  {}\n",
+            i + 1,
+            t.avg_duration_ms,
+            t.test_id
+        ));
+    }
+    out.push_str("\nTop 10 most failing tests:\n");
+    for (i, t) in stats.top_flaky_failing.iter().enumerate() {
+        out.push_str(&format!(
+            "  {:2}. {:>4}/{:<4}  {}\n",
+            i + 1,
+            t.fail_count,
+            t.total,
+            t.test_id
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,32 +196,4 @@ mod tests {
             after.top_flaky_failing.len()
         );
     }
-}
-
-pub fn format_human(stats: &Stats) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("commits:         {}\n", stats.commits));
-    out.push_str(&format!("test runs:       {}\n", stats.runs));
-    out.push_str(&format!("distinct tests:  {}\n", stats.distinct_tests));
-    out.push_str(&format!("failures/errors: {}\n", stats.failures));
-    out.push_str("\nTop 10 slowest tests (avg duration_ms):\n");
-    for (i, t) in stats.top_slowest.iter().enumerate() {
-        out.push_str(&format!(
-            "  {:2}. {:>10.1}  {}\n",
-            i + 1,
-            t.avg_duration_ms,
-            t.test_id
-        ));
-    }
-    out.push_str("\nTop 10 most failing tests:\n");
-    for (i, t) in stats.top_flaky_failing.iter().enumerate() {
-        out.push_str(&format!(
-            "  {:2}. {:>4}/{:<4}  {}\n",
-            i + 1,
-            t.fail_count,
-            t.total,
-            t.test_id
-        ));
-    }
-    out
 }

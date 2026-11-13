@@ -165,6 +165,27 @@ def test_deterministic_sample_sites():
     )
 
 
+def test_stratified_sample_picks_distinct_operators():
+    """K=3 on a fixture with ≥3 operators → three different op_ids."""
+    source = "\n".join(
+        [
+            "def f(x, y, flag):",
+            "    if x == 1 and y < 2:",
+            "        return x + y",
+            "    if flag:",
+            "        return None",
+            "    return 3",
+        ]
+    )
+    # Touch lines that host eq/cmp/bool/arith/return/not sites.
+    sites = find_sites(source, {2, 3, 4, 6})
+    ops_available = {s.op_id for s in sites}
+    assert len(ops_available) >= 3, ops_available
+    picked = sample_sites(sites, 3, seed=7)
+    assert len(picked) == 3
+    assert len({s.op_id for s in picked}) == 3
+
+
 def test_apply_returns_none_on_bad_syntax_input():
     site = MutationSite("eq_flip", 1, 0, 1, 1, "nope")
     assert apply_mutation("def (:)\n", site) is None

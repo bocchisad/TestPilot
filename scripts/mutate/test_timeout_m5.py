@@ -1,4 +1,4 @@
-"""M5: infinite-loop mutant times out; ref deleted; no orphan pg; no results retained."""
+"""M5: infinite-loop mutant times out; runner drops ref; no orphan pg; no results."""
 
 from __future__ import annotations
 
@@ -14,11 +14,7 @@ _SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from mutate.git_mutant import (  # noqa: E402
-    create_mutant_commit,
-    delete_mutant_ref,
-    mutant_ref,
-)
+from mutate.git_mutant import create_mutant_commit, mutant_ref  # noqa: E402
 from mutate.run_mutant import run_mutant  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,9 +51,9 @@ def test_infinite_loop_timeout_cleans_up(tmp_path: Path) -> None:
     subprocess.check_call(["git", "commit", "-m", "c"], cwd=repo)
     c_sha = _git(repo, "rev-parse", "HEAD")
 
-    # Mutant: infinite loop in function body.
     loop_src = "def loop():\n    while True:\n        pass\n    return 0\n"
     m_sha = create_mutant_commit(repo, c_sha, 0, {"pkg/m.py": loop_src})
+    assert _git(repo, "rev-parse", mutant_ref(c_sha, 0)) == m_sha
 
     subprocess.check_call([bin_, "init"], cwd=repo)
     db = repo / ".testpilot" / "db.sqlite"
@@ -68,16 +64,12 @@ def test_infinite_loop_timeout_cleans_up(tmp_path: Path) -> None:
         [bin_, "--db", str(db), "collect", "git", "--sha", m_sha], cwd=repo
     )
 
-    # Minimal venv with pytest
     venv = tmp_path / "venv"
     subprocess.check_call([sys.executable, "-m", "venv", str(venv)])
     pip = venv / "bin" / "pip"
     subprocess.check_call([str(pip), "install", "-q", "pytest"])
     pytest_bin = venv / "bin" / "pytest"
     py = venv / "bin" / "python"
-
-    env = {**os.environ, "TESTPILOT_BIN": bin_}
-    # Patch PATH for collect inside run_mutant
     os.environ["TESTPILOT_BIN"] = bin_
 
     result = run_mutant(
@@ -90,13 +82,13 @@ def test_infinite_loop_timeout_cleans_up(tmp_path: Path) -> None:
         work_dir=tmp_path / "runs",
         timeout_override=3,
         pytest_extra_args=["-q", "test_m.py"],
+        mutant_index=0,
     )
     assert result.timed_out
     assert result.orphan_check_ok
-    delete_mutant_ref(repo, c_sha, 0)
+    # Runner (not the test) must have deleted the mutant ref.
     with pytest.raises(subprocess.CalledProcessError):
         _git(repo, "rev-parse", mutant_ref(c_sha, 0))
-    # No synthetic results for timed-out mutant
     n = sqlite3.connect(db).execute(
         "SELECT COUNT(*) FROM test_runs WHERE sha=? AND IFNULL(synthetic,0)=1",
         (m_sha,),

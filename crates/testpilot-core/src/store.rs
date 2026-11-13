@@ -448,17 +448,6 @@ impl Store {
             .map_err(Into::into)
     }
 
-    pub fn latest_run_id_for_sha(&self, sha: &str) -> Result<Option<i64>> {
-        self.conn
-            .query_row(
-                "SELECT id FROM test_runs WHERE sha = ?1 ORDER BY id DESC LIMIT 1",
-                params![sha],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(Into::into)
-    }
-
     /// Newest pytest run for `sha` that has at least one coverage row (N5).
     /// Excludes synthetic (mutant) runs.
     pub fn latest_pytest_run_with_coverage_for_sha(&self, sha: &str) -> Result<Option<i64>> {

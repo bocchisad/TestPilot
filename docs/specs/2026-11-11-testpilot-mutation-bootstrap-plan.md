@@ -66,7 +66,7 @@
 
 **Files:** `scripts/mutate/git_mutant.py`, collect single-SHA path, tests.
 
-- [ ] Commit `M` parent=`C`; dates = `C_committer + i` seconds; ref `refs/testpilot/mutants/<C>/<i>`.
+- [ ] Commit `M` parent=`C`; `author(C)+i` / `committer(C)+i`; ref `refs/testpilot/mutants/<C>/<i>`.
 - [ ] Explicit single-SHA collect into DB.
 - [ ] Determinism: same seed → same M SHAs twice.
 - [ ] Commit: `Commit mutants with C+i timestamps and single-SHA collect.`

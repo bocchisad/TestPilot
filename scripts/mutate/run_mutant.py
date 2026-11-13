@@ -189,19 +189,25 @@ def _pgid_alive(pgid: int | None) -> bool:
         return False
 
 
-def parent_fail_set(db: Path, parent_sha: str) -> set[str]:
-    """Non-synthetic clean run failures on C (for new_fail)."""
+def run_fail_set(
+    db: Path,
+    sha: str,
+    *,
+    synthetic: bool,
+) -> set[str]:
+    """Hard fails from latest clean run for sha (plugin/junit IDs via DB)."""
     if not db.is_file():
         return set()
+    syn = 1 if synthetic else 0
     con = sqlite3.connect(str(db))
     row = con.execute(
         """
         SELECT r.id FROM test_runs r
-        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=0
+        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=?
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
         ORDER BY r.id DESC LIMIT 1
         """,
-        (parent_sha,),
+        (sha, syn),
     ).fetchone()
     if not row:
         con.close()
@@ -219,6 +225,16 @@ def parent_fail_set(db: Path, parent_sha: str) -> set[str]:
     }
     con.close()
     return fails
+
+
+def parent_fail_set(db: Path, parent_sha: str) -> set[str]:
+    """Non-synthetic clean run failures on C (for new_fail)."""
+    return run_fail_set(db, parent_sha, synthetic=False)
+
+
+def new_fail_count(fails_m: set[str], fails_c: set[str]) -> int:
+    """Kill signal: number of hard fails on M that were not hard fails on C."""
+    return len(fails_m - fails_c)
 
 
 def collect_junit_synthetic(
@@ -264,14 +280,21 @@ def run_mutant(
     pytest_extra_args: list[str] | None = None,
     pip_bin: Path | None = None,
     install_project_cb: object | None = None,
+    mutant_index: int | None = None,
 ) -> MutantRunResult:
     """Checkout M in a worktree, pytest+junit (no coverage), optional flaky rerun."""
+    from mutate.git_mutant import delete_mutant_ref
+
     timeout_sec = default_timeout_sec(duration_sec, timeout_override)
     work_dir.mkdir(parents=True, exist_ok=True)
     wt = work_dir / f"wt-{mutant_sha[:12]}"
     junit1 = work_dir / f"junit-{mutant_sha[:12]}-1.xml"
     junit2 = work_dir / f"junit-{mutant_sha[:12]}-2.xml"
     junit_merged = work_dir / f"junit-{mutant_sha[:12]}-merged.xml"
+
+    def _drop_ref_on_timeout() -> None:
+        if mutant_index is not None:
+            delete_mutant_ref(repo, parent_sha, mutant_index)
 
     for p in (wt, junit1, junit2, junit_merged):
         if p.exists() and p.is_dir():
@@ -315,9 +338,9 @@ def run_mutant(
         rc, timed_out, tail, pgid = _run_pytest_group(cmd, wt, env, timeout_sec)
         orphan_ok = not _pgid_alive(pgid)
         if timed_out:
-            # Ensure no junit retained for timed-out mutants.
             for p in (junit1, junit2, junit_merged):
                 p.unlink(missing_ok=True)
+            _drop_ref_on_timeout()
             return MutantRunResult(
                 ok=False,
                 timed_out=True,
@@ -351,6 +374,7 @@ def run_mutant(
             if timed_out2:
                 for p in (junit1, junit2, junit_merged):
                     p.unlink(missing_ok=True)
+                _drop_ref_on_timeout()
                 return MutantRunResult(
                     ok=False,
                     timed_out=True,
@@ -372,7 +396,9 @@ def run_mutant(
 
         # Merge so collapse_reruns sees fail+pass → flaky=1 in DB.
         if junit1.is_file():
-            _merge_junit_with_flaky(junit1, junit2 if junit2.is_file() else None, flaky, junit_merged)
+            _merge_junit_with_flaky(
+                junit1, junit2 if junit2.is_file() else None, flaky, junit_merged
+            )
             collect_ok, collect_msg = collect_junit_synthetic(
                 repo,
                 db,
@@ -384,16 +410,12 @@ def run_mutant(
         else:
             collect_ok, collect_msg = False, "no junit produced"
 
-        parent_fails = parent_fail_set(db, parent_sha)
-        # Normalize ids loosely: strip module path variants
-        hard_fails = [t for t in failed if t not in flaky]
-        n_new_fail = sum(1 for t in hard_fails if t not in parent_fails)
-        # Also try matching by suffix after last '/'
-        if n_new_fail == 0 and hard_fails and parent_fails:
-            pf_suffix = {p.split("::")[-1] for p in parent_fails}
-            n_new_fail = sum(
-                1 for t in hard_fails if t.split("::")[-1] not in pf_suffix and t not in parent_fails
-            )
+        # Kill = ≥1 new_fail vs C using DB IDs (same normalize path as Rust collect).
+        fails_c = parent_fail_set(db, parent_sha)
+        fails_m = (
+            run_fail_set(db, mutant_sha, synthetic=True) if collect_ok else set()
+        )
+        n_new_fail = new_fail_count(fails_m, fails_c)
 
         n_failed = len(failed)
         n_tests = len(all_tests)

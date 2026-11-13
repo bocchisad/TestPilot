@@ -421,14 +421,36 @@ def order_sites(sites: list[MutationSite], seed: int) -> list[MutationSite]:
 
 
 def sample_sites(sites: list[MutationSite], k: int, seed: int) -> list[MutationSite]:
-    """Sort sites, then take k via deterministic rng.sample."""
+    """Stratified sample: one site per operator (seed order), then fill to k."""
     ordered = order_sites(sites, seed)
     if k <= 0:
         return []
     if k >= len(ordered):
         return ordered
+
+    by_op: dict[str, list[MutationSite]] = {}
+    for site in ordered:
+        by_op.setdefault(site.op_id, []).append(site)
+
     rng = random.Random(seed)
-    return rng.sample(ordered, k)
+    ops = sorted(by_op.keys())
+    rng.shuffle(ops)
+
+    picked: list[MutationSite] = []
+    used: set[tuple[str, str]] = set()
+    for op in ops:
+        if len(picked) >= k:
+            break
+        # First site within op is already deterministically ordered.
+        site = by_op[op][0]
+        picked.append(site)
+        used.add((site.op_id, site.node_key))
+
+    remaining = [s for s in ordered if (s.op_id, s.node_key) not in used]
+    need = k - len(picked)
+    if need > 0 and remaining:
+        picked.extend(rng.sample(remaining, min(need, len(remaining))))
+    return picked
 
 
 def apply_all_valid(source: str, sites: list[MutationSite]) -> list[tuple[MutationSite, str]]:

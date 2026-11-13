@@ -29,7 +29,6 @@ from mutate.ast_ops import (  # noqa: E402
 from mutate.git_mutant import (  # noqa: E402
     collect_git_sha,
     create_mutant_commit,
-    delete_mutant_ref,
     first_parent,
 )
 from mutate.hunks import is_source_py, parse_hunks, show_blob  # noqa: E402
@@ -199,11 +198,11 @@ def run_bootstrap(
                     pytest_extra_args=extra,
                     pip_bin=pip,
                     install_project_cb=install_project,
+                    mutant_index=i,
                 )
 
                 if result.timed_out:
                     stats.n_timeout += 1
-                    delete_mutant_ref(repo, c_sha, i)
                     continue
 
                 stats.n_flaky_rerun += result.n_flaky_rerun
