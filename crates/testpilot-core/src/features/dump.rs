@@ -494,10 +494,7 @@ fn append_mutant_leaf_rows(
         // Import graph at M: seed changed sources + every test file (same as Phase A).
         // Seeding only srcf leaves test→src paths unscanned → imp_dist stuck at 99.
         let paths_m = repo.list_paths_at_rev(&m)?;
-        let py_paths_m: Vec<String> = paths_m
-            .into_iter()
-            .filter(|p| p.ends_with(".py"))
-            .collect();
+        let py_paths_m: Vec<String> = paths_m.into_iter().filter(|p| p.ends_with(".py")).collect();
         let mut seed_set: HashSet<String> = srcf.iter().cloned().collect();
         for r in &results {
             seed_set.insert(test_file_of(&r.test_id));
@@ -917,7 +914,11 @@ mod collection_error_tests {
 
     #[test]
     fn normal_test_failure_not_collection() {
-        let r = row("tests/test_basic.py::test_ok", "fail", Some("assert 1 == 2"));
+        let r = row(
+            "tests/test_basic.py::test_ok",
+            "fail",
+            Some("assert 1 == 2"),
+        );
         assert!(!is_collection_failure_result(&r));
     }
 

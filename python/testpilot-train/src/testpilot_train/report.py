@@ -84,13 +84,29 @@ def write_report(out_dir: Path, payload: dict[str, Any]) -> None:
         if k in (
             "fail_per_change",
             "new_fail_per_change",
+            "fail_per_change_including_high_fail",
+            "new_fail_per_change_including_high_fail",
             "always_broken_tests",
         ):
             continue
         lines.append(f"- {k}: {v}")
     lines.append("")
-    lines += _hist_lines("Failures per change (`label=1`, flaky=0)", diag.get("fail_per_change"))
-    lines += _hist_lines("new_fail per change", diag.get("new_fail_per_change"))
+    lines += _hist_lines(
+        "Failures per change after HF filter (`label=1`, flaky=0)",
+        diag.get("fail_per_change"),
+    )
+    lines += _hist_lines(
+        "new_fail per change after HF filter",
+        diag.get("new_fail_per_change"),
+    )
+    lines += _hist_lines(
+        "Failures per change including high-fail-rate mutants",
+        diag.get("fail_per_change_including_high_fail"),
+    )
+    lines += _hist_lines(
+        "new_fail per change including high-fail-rate mutants",
+        diag.get("new_fail_per_change_including_high_fail"),
+    )
     always = diag.get("always_broken_tests") or []
     lines += [
         f"### Always-broken tests (≥90% fails, n={len(always)})",
@@ -161,12 +177,12 @@ def write_report(out_dir: Path, payload: dict[str, Any]) -> None:
     feat_stats = payload.get("feature_value_stats_synthetic") or []
     if feat_stats:
         lines += ["", "## Feature value stats (synthetic)", ""]
-        lines.append("| feature | n_unique | unique_share | sentinel | sentinel_share |")
+        lines.append("| feature | n_unique | n_rows | sentinel | sentinel_share |")
         lines.append("|---|---:|---:|---:|---:|")
         for row in feat_stats:
             lines.append(
                 f"| `{row['name']}` | {row['n_unique']} | "
-                f"{row['unique_share']:.4f} | {row.get('sentinel')} | "
+                f"{row['n_rows']} | {row.get('sentinel')} | "
                 f"{row['sentinel_share']:.4f} |"
             )
         lines.append("")

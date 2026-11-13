@@ -224,7 +224,7 @@ def _exclude_changes(frame: pl.DataFrame, keys: set[tuple[str, str]]) -> pl.Data
 def _feature_uniqueness_report(
     frame: pl.DataFrame, feature_names: tuple[str, ...]
 ) -> list[dict[str, Any]]:
-    """Per-feature unique share + sentinel share (synthetic slice)."""
+    """Per-feature n_unique + sentinel share (synthetic slice)."""
     sentinels = {"imp_dist": 99, "pf_max": -1.0, "pq_max": -1.0, "dur": -1}
     if frame.height == 0:
         return []
@@ -242,12 +242,12 @@ def _feature_uniqueness_report(
             {
                 "name": name,
                 "n_unique": nuniq,
-                "unique_share": nuniq / n,
+                "n_rows": n,
                 "sentinel": sent,
                 "sentinel_share": sent_share,
             }
         )
-    out.sort(key=lambda r: (r["unique_share"], -r["sentinel_share"]))
+    out.sort(key=lambda r: (r["n_unique"], -r["sentinel_share"]))
     return out
 
 
@@ -288,11 +288,13 @@ def train(
     schema = load_features_schema(features_schema)
     loaded = load_parquets(data_paths, schema)
     frame = loaded.frame
-    diag = diagnostics(frame)
     high_fail_keys = _high_fail_change_keys(frame)
     frame_gate = (
         _exclude_changes(frame, high_fail_keys) if exclude_high_fail_rate else frame
     )
+    # Primary diagnostics / histograms after HF filter (gate slice).
+    diag = diagnostics(frame_gate)
+    diag_incl_hf = diagnostics(frame) if high_fail_keys else None
     plan = chrono_split(frame_gate)
     train_df = filter_slice(frame_gate, plan, "train")
     val_df = filter_slice(frame_gate, plan, "val")
@@ -494,6 +496,24 @@ def train(
             "n_orphan_vs_parent": loaded.n_orphan_vs_parent,
             "n_high_fail_rate_changes": len(high_fail_keys),
             "exclude_high_fail_rate": exclude_high_fail_rate,
+            **(
+                {
+                    "fail_per_change_including_high_fail": diag_incl_hf[
+                        "fail_per_change"
+                    ],
+                    "new_fail_per_change_including_high_fail": diag_incl_hf[
+                        "new_fail_per_change"
+                    ],
+                    "fail_per_change_mean_including_high_fail": diag_incl_hf[
+                        "fail_per_change_mean"
+                    ],
+                    "new_fail_per_change_mean_including_high_fail": diag_incl_hf[
+                        "new_fail_per_change_mean"
+                    ],
+                }
+                if diag_incl_hf is not None
+                else {}
+            ),
         },
         "metrics_val_new_fail": _metric_block(val_per, seed, val_clusters),
         "metrics_test_new_fail": _metric_block(test_per, seed + 2, test_clusters),

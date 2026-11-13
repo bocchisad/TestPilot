@@ -321,7 +321,10 @@ def collect_junit_synthetic(
     ]
     if force:
         cmd.append("--force")
-    r = _run(cmd, cwd=cwd or repo)
+    try:
+        r = _run(cmd, cwd=cwd or repo)
+    except FileNotFoundError as e:
+        return False, f"testpilot binary not found ({testpilot}): {e}"
     if r.returncode == 0:
         return True, (r.stdout or "").strip()
     return False, ((r.stderr or r.stdout or "")[-2000:])

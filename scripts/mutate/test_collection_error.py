@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import textwrap
@@ -18,6 +17,16 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from mutate.run_mutant import junit_collection_error, run_mutant  # noqa: E402
+
+
+def _testpilot() -> str:
+    for cand in (
+        _ROOT / "target" / "debug" / "testpilot",
+        _ROOT / "target" / "release" / "testpilot",
+    ):
+        if cand.is_file():
+            return str(cand)
+    pytest.skip("testpilot binary not built")
 
 
 def _write_junit(path: Path, cases: list[dict]) -> None:
@@ -143,6 +152,9 @@ def _init_tiny_repo(root: Path) -> tuple[Path, str]:
 )
 def test_import_break_mutant_is_collection_error(tmp_path: Path) -> None:
     """Mutant that breaks module import → collection_error=1, kill=0."""
+    bin_ = _testpilot()
+    os.environ["TESTPILOT_BIN"] = bin_
+
     repo, parent = _init_tiny_repo(tmp_path)
     db = tmp_path / "tp.sqlite"
     (repo / "pkg" / "__init__.py").write_text(
@@ -155,20 +167,11 @@ def test_import_break_mutant_is_collection_error(tmp_path: Path) -> None:
     ).strip()
     _git(repo, "reset", "--hard", parent)
 
-    pytest_bin = Path(shutil.which("pytest") or sys.executable)
-    # Prefer `python -m pytest` via sys.executable wrapper if needed
-    if pytest_bin.name != "pytest" and "pytest" not in pytest_bin.name:
-        # Fall back: use python -m pytest by pointing pytest_bin at a shim... 
-        # run_mutant expects a pytest executable; use `python -m pytest` via env.
-        pass
-    python_bin = Path(sys.executable)
-    # Ensure pytest module is available
     try:
         import pytest as _pytest  # noqa: F401
     except ImportError:
         pytest.skip("pytest not installed")
 
-    # Create a small wrapper script that invokes python -m pytest
     wrapper = tmp_path / "pytest_wrap"
     wrapper.write_text(
         f"#!/bin/sh\nexec {sys.executable} -m pytest \"$@\"\n",
@@ -182,7 +185,7 @@ def test_import_break_mutant_is_collection_error(tmp_path: Path) -> None:
         mutant_sha,
         parent_sha=parent,
         pytest_bin=wrapper,
-        python_bin=python_bin,
+        python_bin=Path(sys.executable),
         work_dir=tmp_path / "work",
         timeout_override=60,
     )
