@@ -8,7 +8,7 @@ use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha
 use testpilot_core::features::{self, FEATURES_VERSION};
 use testpilot_core::git::{GitRepo, GixRepo, collect_git, collect_git_shas};
 use testpilot_core::lgbm::load_model_dir;
-use testpilot_core::select::{self, Budget, format_lines, format_table};
+use testpilot_core::select::{self, Budget, SafeOpts, format_lines, format_table};
 use testpilot_core::stats;
 use testpilot_core::store::Store;
 
@@ -63,8 +63,32 @@ enum Commands {
         budget_frac: Option<f64>,
         #[arg(long = "max-tests", group = "budget")]
         max_tests: Option<u32>,
-        #[arg(long, group = "budget")]
+        #[arg(
+            long,
+            group = "budget",
+            help = "Seconds of estimated test duration for ranked picks only (force + safe-added are not charged)"
+        )]
         time_budget: Option<f64>,
+        #[arg(long = "no-safe", default_value_t = false, action = clap::ArgAction::SetTrue)]
+        no_safe: bool,
+        #[arg(long = "safe-recent-k", default_value_t = 5)]
+        safe_recent_k: usize,
+        #[arg(long = "safe-include-covered", default_value_t = false)]
+        safe_include_covered: bool,
+        #[arg(long = "safe-src-frac-threshold", default_value_t = 0.30)]
+        safe_src_frac_threshold: f64,
+        #[arg(long = "safe-min-candidates", default_value_t = 50)]
+        safe_min_candidates: usize,
+        #[arg(long = "safe-non-py-source", default_value_t = true)]
+        safe_non_py_source: bool,
+        #[arg(
+            long = "no-safe-non-py-source",
+            default_value_t = false,
+            action = clap::ArgAction::SetTrue
+        )]
+        no_safe_non_py_source: bool,
+        #[arg(long = "safe-non-py-allowlist", value_delimiter = ',')]
+        safe_non_py_allowlist: Vec<String>,
     },
     #[command(subcommand)]
     Debug(DebugCmd),
@@ -330,8 +354,25 @@ fn run() -> Result<()> {
             budget_frac,
             max_tests,
             time_budget,
+            no_safe,
+            safe_recent_k,
+            safe_include_covered,
+            safe_src_frac_threshold,
+            safe_min_candidates,
+            safe_non_py_source,
+            no_safe_non_py_source,
+            safe_non_py_allowlist,
         } => {
             let budget = parse_select_budget(budget_frac, max_tests, time_budget)?;
+            let safe_opts = SafeOpts {
+                enabled: !no_safe,
+                recent_k: safe_recent_k,
+                include_covered: safe_include_covered,
+                src_frac_threshold: safe_src_frac_threshold,
+                min_candidates: safe_min_candidates,
+                non_py_source: safe_non_py_source && !no_safe_non_py_source,
+                non_py_allowlist: safe_non_py_allowlist,
+            };
             let repo_path = resolve_repo_path(repo.as_deref())?;
             let db = resolve_db_path_for(cli.db.as_deref(), &repo_path)?;
             let store = Store::open(&db).context("open db")?;
@@ -368,6 +409,7 @@ fn run() -> Result<()> {
                 &hunks,
                 worktree_mode,
                 &budget,
+                &safe_opts,
             )
             .context("select")?;
             for w in &out.stderr_warnings {

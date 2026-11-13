@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 
 use crate::error::{Error, Result};
-use crate::features::change::{is_test_path, line_set};
+use crate::features::change::{is_test_path, line_set, src_files};
 use crate::features::change_rows::{last_clean_run_ref_at_or_before, test_file_of};
 use crate::features::dump::feature_rows_for_change;
 use crate::features::model_vec::model_feature_vector;
@@ -17,6 +17,32 @@ use crate::store::{Store, TestResultRow};
 
 const BASE_RUN_LAG_WARN: i64 = 20;
 
+/// Per-test reason precedence: fallback_all > new_or_changed > recent_fail > flaky > covered > ranked.
+#[derive(Debug, Clone)]
+pub struct SafeOpts {
+    pub enabled: bool,
+    pub recent_k: usize,
+    pub include_covered: bool,
+    pub src_frac_threshold: f64,
+    pub min_candidates: usize,
+    pub non_py_source: bool,
+    pub non_py_allowlist: Vec<String>,
+}
+
+impl Default for SafeOpts {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            recent_k: 5,
+            include_covered: false,
+            src_frac_threshold: 0.30,
+            min_candidates: 50,
+            non_py_source: true,
+            non_py_allowlist: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Budget {
     Frac(f64),
@@ -26,17 +52,42 @@ pub enum Budget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectReason {
+    FallbackAll,
     NewOrChanged,
+    RecentFail,
+    Flaky,
+    Covered,
     Ranked,
 }
 
 impl SelectReason {
     fn as_str(&self) -> &'static str {
         match self {
+            Self::FallbackAll => "fallback_all",
             Self::NewOrChanged => "new_or_changed",
+            Self::RecentFail => "recent_fail",
+            Self::Flaky => "flaky",
+            Self::Covered => "covered",
             Self::Ranked => "ranked",
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SafeThresholdsJson {
+    pub recent_k: usize,
+    pub src_frac: f64,
+    pub min_candidates: usize,
+    pub include_covered: bool,
+    pub non_py_source: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SafeJson {
+    pub enabled: bool,
+    pub fallback_all: bool,
+    pub reasons: Vec<String>,
+    pub thresholds: SafeThresholdsJson,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,8 +115,30 @@ pub struct SelectJson {
     pub n_candidates: usize,
     pub n_selected: usize,
     pub n_forced: usize,
+    pub n_safe_added: usize,
+    pub n_ranked: usize,
     pub budget: BudgetJson,
+    pub safe: SafeJson,
     pub tests: Vec<SelectedTestJson>,
+}
+
+fn safe_thresholds_json(opts: &SafeOpts) -> SafeThresholdsJson {
+    SafeThresholdsJson {
+        recent_k: opts.recent_k,
+        src_frac: opts.src_frac_threshold,
+        min_candidates: opts.min_candidates,
+        include_covered: opts.include_covered,
+        non_py_source: opts.non_py_source,
+    }
+}
+
+fn safe_json_disabled(opts: &SafeOpts) -> SafeJson {
+    SafeJson {
+        enabled: false,
+        fallback_all: false,
+        reasons: vec![],
+        thresholds: safe_thresholds_json(opts),
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +196,7 @@ pub fn run_select<R: GitRepo>(
     hunks: &[DiffHunk],
     worktree: bool,
     budget: &Budget,
+    safe: &SafeOpts,
 ) -> Result<SelectOutput> {
     let mut stderr_warnings = Vec::new();
     if booster.meta.synthetic_only_warning {
@@ -140,7 +214,19 @@ pub fn run_select<R: GitRepo>(
             n_candidates: 0,
             n_selected: 0,
             n_forced: 0,
+            n_safe_added: 0,
+            n_ranked: 0,
             budget: budget_json(budget),
+            safe: if safe.enabled {
+                SafeJson {
+                    enabled: true,
+                    fallback_all: false,
+                    reasons: vec![],
+                    thresholds: safe_thresholds_json(safe),
+                }
+            } else {
+                safe_json_disabled(safe)
+            },
             tests: vec![],
         };
         return Ok(SelectOutput {
@@ -226,6 +312,12 @@ pub fn run_select<R: GitRepo>(
         head_time,
     )?;
 
+    let covered_from_rows: HashSet<String> = rows
+        .iter()
+        .filter(|r| r.cov_lines > 0 || r.cov_func > 0)
+        .map(|r| r.test.clone())
+        .collect();
+
     let mut scored: Vec<ScoredCandidate> = Vec::with_capacity(rows.len());
     for row in rows {
         let feats = model_feature_vector(&row);
@@ -245,24 +337,123 @@ pub fn run_select<R: GitRepo>(
             .then_with(|| a.test_id.cmp(&b.test_id))
     });
 
-    let selected = apply_budget(&scored, budget);
-    let n_forced = selected.iter().filter(|t| t.forced).count();
+    let n_candidates = scored.len();
+    let forced_ids: HashSet<String> = scored
+        .iter()
+        .filter(|s| s.forced)
+        .map(|s| s.test_id.clone())
+        .collect();
+    let n_forced = forced_ids.len();
+
+    let fallback_reasons = if safe.enabled {
+        fallback_all_reasons(repo, head, hunks, n_candidates, safe)?
+    } else {
+        vec![]
+    };
+    let fallback_all = !fallback_reasons.is_empty();
+
+    let safe_json = if safe.enabled {
+        SafeJson {
+            enabled: true,
+            fallback_all,
+            reasons: fallback_reasons.clone(),
+            thresholds: safe_thresholds_json(safe),
+        }
+    } else {
+        safe_json_disabled(safe)
+    };
+
+    let covered_ids: HashSet<String> = if safe.enabled && safe.include_covered && !fallback_all {
+        covered_from_rows
+    } else {
+        HashSet::new()
+    };
+
+    let (recent_fail_ids, flaky_ids) = if safe.enabled && !fallback_all {
+        recent_fail_and_flaky(store, base.as_str(), safe.recent_k)?
+    } else {
+        (HashSet::new(), HashSet::new())
+    };
+
+    let candidate_ids: HashSet<String> = scored.iter().map(|s| s.test_id.clone()).collect();
+    let recent_fail_ids: HashSet<String> = recent_fail_ids
+        .into_iter()
+        .filter(|id| candidate_ids.contains(id))
+        .collect();
+    let flaky_ids: HashSet<String> = flaky_ids
+        .into_iter()
+        .filter(|id| candidate_ids.contains(id))
+        .collect();
+
+    let mut safe_reasons: HashMap<String, SelectReason> = HashMap::new();
+    if !fallback_all && safe.enabled {
+        for id in &recent_fail_ids {
+            if !forced_ids.contains(id) {
+                safe_reasons.insert(id.clone(), SelectReason::RecentFail);
+            }
+        }
+        for id in &flaky_ids {
+            if !forced_ids.contains(id) {
+                safe_reasons
+                    .entry(id.clone())
+                    .or_insert(SelectReason::Flaky);
+            }
+        }
+        for id in &covered_ids {
+            if !forced_ids.contains(id) && !safe_reasons.contains_key(id) {
+                safe_reasons.insert(id.clone(), SelectReason::Covered);
+            }
+        }
+    }
+
+    let n_safe_added = if fallback_all || !safe.enabled {
+        0
+    } else {
+        safe_reasons.len()
+    };
+
+    let selected = if fallback_all {
+        scored.clone()
+    } else {
+        apply_budget(
+            &scored,
+            budget,
+            &forced_ids,
+            &safe_reasons.keys().cloned().collect::<HashSet<_>>(),
+        )
+    };
+
     let tests_json: Vec<SelectedTestJson> = selected
         .iter()
         .enumerate()
-        .map(|(i, t)| SelectedTestJson {
-            test_id: t.test_id.clone(),
-            score: t.score,
-            rank: (i + 1) as u32,
-            dur: t.dur,
-            reason: if t.forced {
-                SelectReason::NewOrChanged.as_str()
+        .map(|(i, t)| {
+            let reason = if fallback_all {
+                SelectReason::FallbackAll
+            } else if forced_ids.contains(&t.test_id) {
+                SelectReason::NewOrChanged
+            } else if let Some(r) = safe_reasons.get(&t.test_id) {
+                r.clone()
             } else {
-                SelectReason::Ranked.as_str()
+                SelectReason::Ranked
+            };
+            SelectedTestJson {
+                test_id: t.test_id.clone(),
+                score: t.score,
+                rank: (i + 1) as u32,
+                dur: t.dur,
+                reason: reason.as_str().to_string(),
             }
-            .to_string(),
         })
         .collect();
+
+    let n_ranked = if fallback_all {
+        0
+    } else {
+        tests_json
+            .iter()
+            .filter(|t| t.reason == SelectReason::Ranked.as_str())
+            .count()
+    };
 
     let payload = SelectJson {
         model_sha256: booster.meta.model_sha256.clone(),
@@ -270,10 +461,13 @@ pub fn run_select<R: GitRepo>(
         base: base.as_str().to_string(),
         head: head_label.to_string(),
         base_run_sha,
-        n_candidates: scored.len(),
+        n_candidates,
         n_selected: tests_json.len(),
         n_forced,
+        n_safe_added,
+        n_ranked,
         budget: budget_json(budget),
+        safe: safe_json,
         tests: tests_json,
     };
 
@@ -615,27 +809,158 @@ fn target_count(n_candidates: usize, budget: &Budget) -> Option<usize> {
     }
 }
 
-fn apply_budget(scored: &[ScoredCandidate], budget: &Budget) -> Vec<ScoredCandidate> {
+fn ancestry_shas_at_or_before(store: &Store, base: &str) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut cur = base.to_string();
+    loop {
+        out.push(cur.clone());
+        cur = match store.first_parent(&cur)? {
+            Some(p) => p,
+            None => break,
+        };
+    }
+    Ok(out)
+}
+
+fn recent_fail_and_flaky(
+    store: &Store,
+    base: &str,
+    k: usize,
+) -> Result<(HashSet<String>, HashSet<String>)> {
+    let ancestry = ancestry_shas_at_or_before(store, base)?;
+    let run_ids = store.recent_finished_runs_on_shas(&ancestry, k)?;
+    let mut recent_fail = HashSet::new();
+    let mut flaky = HashSet::new();
+    for run_id in run_ids {
+        let results = store.results_for_run(run_id)?;
+        for r in results {
+            if matches!(r.outcome.as_str(), "fail" | "error") {
+                recent_fail.insert(r.test_id.clone());
+            }
+            if r.flaky {
+                flaky.insert(r.test_id);
+            }
+        }
+    }
+    Ok((recent_fail, flaky))
+}
+
+fn normalize_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+fn glob_matches(path: &str, pattern: &str) -> bool {
+    glob::Pattern::new(pattern)
+        .ok()
+        .is_some_and(|p| p.matches(path))
+}
+
+fn path_on_docs_allowlist(path: &str, extra: &[String]) -> bool {
+    let p = normalize_path(path);
+    const DEFAULTS: &[&str] = &["*.md", "*.rst", "docs/**", "CHANGES*", "LICENSE*"];
+    if DEFAULTS.iter().any(|pat| glob_matches(&p, pat)) {
+        return true;
+    }
+    extra.iter().any(|pat| glob_matches(&p, pat))
+}
+
+fn path_matches_config_surface(path: &str) -> bool {
+    let p = normalize_path(path);
+    const PATTERNS: &[&str] = &[
+        "**/conftest.py",
+        "pytest.ini",
+        "pyproject.toml",
+        "setup.cfg",
+        "requirements*.txt",
+        "requirements*.in",
+        "poetry.lock",
+        "uv.lock",
+        "Pipfile.lock",
+        "pdm.lock",
+        ".github/workflows/**",
+    ];
+    PATTERNS.iter().any(|pat| glob_matches(&p, pat))
+}
+
+fn fallback_all_reasons<R: GitRepo>(
+    repo: &R,
+    head: &Sha,
+    hunks: &[DiffHunk],
+    n_candidates: usize,
+    safe: &SafeOpts,
+) -> Result<Vec<String>> {
+    let mut reasons = Vec::new();
+    if hunks
+        .iter()
+        .any(|h| h.change_type != 'D' && path_matches_config_surface(&h.path))
+    {
+        reasons.push("config_surface".into());
+    }
+    if n_candidates < safe.min_candidates {
+        reasons.push("few_candidates".into());
+    }
+    let changed_src = src_files(hunks);
+    let all_paths = repo.list_paths_at_rev(head)?;
+    let n_all_src_py = all_paths
+        .iter()
+        .filter(|p| p.ends_with(".py") && !is_test_path(p))
+        .count();
+    if n_all_src_py > 0 {
+        let frac = changed_src.len() as f64 / n_all_src_py as f64;
+        if frac > safe.src_frac_threshold {
+            reasons.push("src_frac".into());
+        }
+    }
+    if safe.non_py_source {
+        let non_py_hit = hunks.iter().any(|h| {
+            if h.change_type == 'D' {
+                return false;
+            }
+            let p = normalize_path(&h.path);
+            !is_test_path(&p)
+                && !p.ends_with(".py")
+                && !path_on_docs_allowlist(&p, &safe.non_py_allowlist)
+        });
+        if non_py_hit {
+            reasons.push("non_py_source".into());
+        }
+    }
+    Ok(reasons)
+}
+
+fn apply_budget(
+    scored: &[ScoredCandidate],
+    budget: &Budget,
+    forced_set: &HashSet<String>,
+    safe_set: &HashSet<String>,
+) -> Vec<ScoredCandidate> {
     if scored.is_empty() {
         return vec![];
     }
     let median = median_known_dur_ms(scored);
-    let mut forced: Vec<ScoredCandidate> = scored.iter().filter(|s| s.forced).cloned().collect();
-    forced.sort_by(|a, b| {
+    let priority: HashSet<String> = forced_set
+        .iter()
+        .chain(safe_set.iter())
+        .cloned()
+        .collect();
+
+    let mut selected: Vec<ScoredCandidate> = scored
+        .iter()
+        .filter(|s| priority.contains(&s.test_id))
+        .cloned()
+        .collect();
+    selected.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.test_id.cmp(&b.test_id))
     });
-    let forced_set: HashSet<String> = forced.iter().map(|s| s.test_id.clone()).collect();
-
-    let mut selected = forced.clone();
 
     match budget {
         Budget::Time(seconds) => {
-            let mut used: f64 = forced.iter().map(|s| dur_seconds(s.dur, median)).sum();
+            let mut used: f64 = 0.0;
             for cand in scored {
-                if forced_set.contains(&cand.test_id) {
+                if priority.contains(&cand.test_id) {
                     continue;
                 }
                 let d = dur_seconds(cand.dur, median);
@@ -648,7 +973,7 @@ fn apply_budget(scored: &[ScoredCandidate], budget: &Budget) -> Vec<ScoredCandid
         Budget::Frac(_) | Budget::Count(_) => {
             let cap = target_count(scored.len(), budget).unwrap_or(scored.len());
             for cand in scored {
-                if forced_set.contains(&cand.test_id) {
+                if priority.contains(&cand.test_id) {
                     continue;
                 }
                 if selected.len() >= cap {
@@ -684,14 +1009,14 @@ mod tests {
     #[test]
     fn budget_frac_one_selects_all() {
         let scored = vec![cand("a", 1.0, 10, false), cand("b", 0.5, 10, false)];
-        let sel = apply_budget(&scored, &Budget::Frac(1.0));
+        let sel = apply_budget(&scored, &Budget::Frac(1.0), &HashSet::new(), &HashSet::new());
         assert_eq!(sel.len(), 2);
     }
 
     #[test]
     fn time_budget_always_picks_at_least_one() {
         let scored = vec![cand("a", 1.0, 5000, false)];
-        let sel = apply_budget(&scored, &Budget::Time(0.001));
+        let sel = apply_budget(&scored, &Budget::Time(0.001), &HashSet::new(), &HashSet::new());
         assert_eq!(sel.len(), 1);
     }
 
@@ -702,9 +1027,35 @@ mod tests {
             cand("f2", 1.5, 1, true),
             cand("r1", 1.0, 1, false),
         ];
-        let sel = apply_budget(&scored, &Budget::Count(1));
+        let forced: HashSet<String> = ["f1", "f2"].into_iter().map(String::from).collect();
+        let sel = apply_budget(&scored, &Budget::Count(1), &forced, &HashSet::new());
         assert_eq!(sel.len(), 2);
         assert!(sel.iter().all(|s| s.test_id.starts_with('f')));
+    }
+
+    #[test]
+    fn time_budget_does_not_charge_forced_or_safe() {
+        let scored = vec![
+            cand("f1", 2.0, 5000, true),
+            cand("s1", 1.5, 5000, false),
+            cand("r1", 1.0, 5000, false),
+        ];
+        let forced: HashSet<String> = ["f1"].into_iter().map(String::from).collect();
+        let safe: HashSet<String> = ["s1"].into_iter().map(String::from).collect();
+        let sel = apply_budget(&scored, &Budget::Time(0.001), &forced, &safe);
+        assert!(sel.iter().any(|s| s.test_id == "f1"));
+        assert!(sel.iter().any(|s| s.test_id == "s1"));
+        assert_eq!(sel.len(), 2);
+    }
+
+    #[test]
+    fn config_surface_and_docs_allowlist_globs() {
+        assert!(path_matches_config_surface("pyproject.toml"));
+        assert!(path_matches_config_surface(".github/workflows/ci.yml"));
+        assert!(!path_matches_config_surface("Cargo.lock"));
+        assert!(path_on_docs_allowlist("docs/guide.md", &[]));
+        assert!(path_on_docs_allowlist("LICENSE", &[]));
+        assert!(!path_on_docs_allowlist("src/pkg/templates/x.html", &[]));
     }
 
     #[test]

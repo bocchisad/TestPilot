@@ -9,7 +9,7 @@ use bytes::Bytes;
 use testpilot_core::features::{compute_dump_rows, snapshot_missing_message};
 use testpilot_core::git::{CommitMeta, DiffHunk, FileChange, GitRepo, LineRange, Sha};
 use testpilot_core::lgbm::load_model_dir;
-use testpilot_core::select::{Budget, format_lines, run_select};
+use testpilot_core::select::{Budget, SafeOpts, format_lines, run_select};
 use testpilot_core::store::{Store, TestResultRow, TestRunRow};
 
 fn fixture_model() -> PathBuf {
@@ -73,8 +73,27 @@ impl GitRepo for SelectFixtureRepo {
         }])
     }
 
-    fn list_paths_at_rev(&self, _: &Sha) -> testpilot_core::error::Result<Vec<String>> {
-        Ok(vec!["pkg/a.py".into(), "tests/test_many.py".into()])
+    fn list_paths_at_rev(&self, sha: &Sha) -> testpilot_core::error::Result<Vec<String>> {
+        let rev = sha.as_str();
+        let mut paths: Vec<String> = self
+            .files
+            .keys()
+            .filter(|(r, _)| r == rev)
+            .map(|(_, p)| p.clone())
+            .collect();
+        if paths.is_empty() {
+            paths = vec!["pkg/a.py".into(), "tests/test_many.py".into()];
+        }
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+}
+
+fn week4_safe() -> SafeOpts {
+    SafeOpts {
+        enabled: false,
+        ..SafeOpts::default()
     }
 }
 
@@ -108,6 +127,7 @@ fn seed_snapshot_repo(n_commits: usize) -> (SelectFixtureRepo, Store) {
         walk_calls: walk_calls.clone(),
     };
     repo.insert_file("0099", "pkg/a.py", "def f():\n    return 1\n");
+    repo.insert_file("0100", "pkg/a.py", "def f():\n    return 2\n");
     repo.insert_file("0100", "tests/test_many.py", &many_tests_source(100));
     let mut store = Store::open_in_memory().unwrap();
     for i in 0..n_commits {
@@ -136,6 +156,7 @@ fn seed_snapshot_repo(n_commits: usize) -> (SelectFixtureRepo, Store) {
         input_hash: None,
         meta: None,
         synthetic: false,
+        partial: false,
     };
     let mut ids = Vec::new();
     for i in 0..100 {
@@ -187,6 +208,7 @@ fn empty_diff_selects_zero_with_warning() {
         &[],
         false,
         &Budget::Frac(0.5),
+        &week4_safe(),
     )
     .unwrap();
     assert_eq!(out.payload.n_selected, 0);
@@ -239,6 +261,7 @@ fn missing_snapshot_errors_with_collect_hint() {
         &hunks,
         false,
         &Budget::Count(5),
+        &week4_safe(),
     )
     .unwrap_err();
     let msg = format!("{err}");
@@ -278,6 +301,7 @@ fn one_def_touch_sets_n_forced_one() {
         &hunks,
         false,
         &Budget::Count(5),
+        &week4_safe(),
     )
     .unwrap();
     assert_eq!(out.payload.n_forced, 1);
@@ -309,6 +333,7 @@ fn deleted_test_not_in_candidates() {
         &hunks,
         false,
         &Budget::Frac(1.0),
+        &week4_safe(),
     )
     .unwrap();
     assert_eq!(out.payload.n_candidates, 0);
@@ -339,6 +364,7 @@ def test_p(x):\n\
         input_hash: None,
         meta: None,
         synthetic: false,
+        partial: false,
     };
     // Overwrite isn't easy; insert a newer clean run at 0051 with parametrized ids.
     store
@@ -409,6 +435,7 @@ def test_p(x):\n\
         &hunks,
         false,
         &Budget::Frac(1.0),
+        &week4_safe(),
     )
     .unwrap();
     let selected: Vec<_> = out
@@ -499,6 +526,7 @@ def test_choice_argument_enum():\n\
                 input_hash: None,
                 meta: None,
                 synthetic: false,
+                partial: false,
             },
             &ids,
             &[],
@@ -527,6 +555,7 @@ def test_choice_argument_enum():\n\
         &hunks,
         false,
         &Budget::Frac(1.0),
+        &week4_safe(),
     )
     .unwrap();
     let ids: Vec<_> = out
@@ -590,6 +619,7 @@ fn deleted_one_def_not_whole_file() {
         &hunks,
         false,
         &Budget::Frac(1.0),
+        &week4_safe(),
     )
     .unwrap();
     let ids: Vec<_> = out
@@ -635,6 +665,7 @@ fn lines_subset_of_candidate_nodeids() {
         &hunks,
         false,
         &Budget::Frac(0.2),
+        &week4_safe(),
     )
     .unwrap();
     let known: std::collections::HashSet<String> = (0..100)
@@ -676,6 +707,7 @@ fn json_and_lines_deterministic() {
         &hunks,
         false,
         &Budget::Frac(0.2),
+        &week4_safe(),
     )
     .unwrap();
     let b = run_select(
@@ -690,6 +722,7 @@ fn json_and_lines_deterministic() {
         &hunks,
         false,
         &Budget::Frac(0.2),
+        &week4_safe(),
     )
     .unwrap();
     let ja = serde_json::to_string(&a.payload).unwrap();
@@ -698,4 +731,356 @@ fn json_and_lines_deterministic() {
     let la = format_lines(&a.payload.tests);
     let lb = format_lines(&b.payload.tests);
     assert_eq!(la, lb);
+}
+
+fn pkg_a_hunk() -> DiffHunk {
+    DiffHunk {
+        path: "pkg/a.py".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        is_binary: false,
+    }
+}
+
+fn run_fixture_select(
+    repo: &SelectFixtureRepo,
+    store: &Store,
+    booster: &testpilot_core::lgbm::Booster,
+    base: &Sha,
+    head: &Sha,
+    hunks: &[DiffHunk],
+    budget: &Budget,
+    safe: &SafeOpts,
+) -> testpilot_core::select::SelectOutput {
+    run_select(
+        repo,
+        None,
+        store,
+        "fixture",
+        booster,
+        base,
+        head,
+        head.as_str(),
+        hunks,
+        false,
+        budget,
+        safe,
+    )
+    .unwrap()
+}
+
+#[test]
+fn no_safe_json_week4_keys_plus_safe_block_only() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, store) = seed_snapshot_repo(120);
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &base,
+        &head,
+        &[pkg_a_hunk()],
+        &Budget::Frac(0.2),
+        &week4_safe(),
+    );
+    assert!(!out.payload.safe.enabled);
+    assert!(!out.payload.safe.fallback_all);
+    assert!(out.payload.safe.reasons.is_empty());
+    assert_eq!(out.payload.n_safe_added, 0);
+    let v: serde_json::Value = serde_json::to_value(&out.payload).unwrap();
+    let obj = v.as_object().unwrap();
+    let week4_keys = [
+        "model_sha256",
+        "features_version",
+        "base",
+        "head",
+        "base_run_sha",
+        "n_candidates",
+        "n_selected",
+        "n_forced",
+        "budget",
+        "tests",
+    ];
+    for k in week4_keys {
+        assert!(obj.contains_key(k), "missing week-4 key {k}");
+    }
+    let allowed_extra = ["safe", "n_safe_added", "n_ranked"];
+    for k in obj.keys() {
+        let ok = week4_keys.contains(&k.as_str()) || allowed_extra.contains(&k.as_str());
+        assert!(ok, "unexpected JSON key {k}");
+    }
+}
+
+#[test]
+fn fallback_all_config_surface() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, store) = seed_snapshot_repo(120);
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let hunks = vec![DiffHunk {
+        path: "pyproject.toml".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        is_binary: false,
+    }];
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &base,
+        &head,
+        &hunks,
+        &Budget::Count(3),
+        &SafeOpts::default(),
+    );
+    assert!(out.payload.safe.fallback_all);
+    assert!(out
+        .payload
+        .safe
+        .reasons
+        .contains(&"config_surface".to_string()));
+    assert_eq!(out.payload.n_selected, out.payload.n_candidates);
+    assert!(
+        out.payload
+            .tests
+            .iter()
+            .all(|t| t.reason == "fallback_all")
+    );
+}
+
+#[test]
+fn fallback_all_few_candidates() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, store) = seed_snapshot_repo(120);
+    let safe = SafeOpts {
+        min_candidates: 200,
+        ..SafeOpts::default()
+    };
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &Sha::from_hex("0099"),
+        &Sha::from_hex("0100"),
+        &[pkg_a_hunk()],
+        &Budget::Count(5),
+        &safe,
+    );
+    assert!(
+        out.payload
+            .safe
+            .reasons
+            .contains(&"few_candidates".to_string())
+    );
+}
+
+#[test]
+fn fallback_all_src_frac() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, store) = seed_snapshot_repo(120);
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &Sha::from_hex("0099"),
+        &Sha::from_hex("0100"),
+        &[pkg_a_hunk()],
+        &Budget::Count(5),
+        &SafeOpts::default(),
+    );
+    assert!(
+        out.payload
+            .safe
+            .reasons
+            .contains(&"src_frac".to_string())
+    );
+}
+
+#[test]
+fn fallback_all_non_py_source() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (mut repo, store) = seed_snapshot_repo(120);
+    repo.insert_file("0100", "src/pkg/templates/x.html", "<html/>\n");
+    let hunks = vec![DiffHunk {
+        path: "src/pkg/templates/x.html".into(),
+        old_path: None,
+        change_type: 'M',
+        old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+        is_binary: false,
+    }];
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &Sha::from_hex("0099"),
+        &Sha::from_hex("0100"),
+        &hunks,
+        &Budget::Count(5),
+        &SafeOpts::default(),
+    );
+    assert!(
+        out.payload
+            .safe
+            .reasons
+            .contains(&"non_py_source".to_string())
+    );
+}
+
+fn full_many_run_results(fail_test: Option<&str>, outcome: &str) -> Vec<TestResultRow> {
+    let mut ids = Vec::new();
+    for i in 0..100 {
+        let tid = format!("tests/test_many.py::test_{i}");
+        let oc = if fail_test == Some(tid.as_str()) {
+            outcome
+        } else {
+            "pass"
+        };
+        ids.push(TestResultRow {
+            test_id: tid,
+            outcome: oc.into(),
+            duration_ms: 10,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        });
+    }
+    ids.push(TestResultRow {
+        test_id: "tests/test_many.py::test_touched".into(),
+        outcome: "pass".into(),
+        duration_ms: 10,
+        message: None,
+        flaky: false,
+        attempts: 1,
+    });
+    ids
+}
+
+fn insert_full_run(store: &mut Store, sha: &str, results: &[TestResultRow]) {
+    store
+        .insert_run_atomic(
+            &TestRunRow {
+                sha: sha.into(),
+                source: "pytest".into(),
+                started_at: 1,
+                finished_at: Some(2),
+                dirty: false,
+                diff_hash: None,
+                input_hash: None,
+                meta: None,
+                synthetic: false,
+                partial: false,
+            },
+            results,
+            &[],
+            false,
+        )
+        .unwrap();
+}
+
+#[test]
+fn recent_fail_uses_base_ancestor_not_head() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, mut store) = seed_snapshot_repo(120);
+    insert_full_run(
+        &mut store,
+        "0098",
+        &full_many_run_results(Some("tests/test_many.py::test_1"), "fail"),
+    );
+    insert_full_run(
+        &mut store,
+        "0100",
+        &full_many_run_results(Some("tests/test_many.py::test_0"), "fail"),
+    );
+    let safe = SafeOpts {
+        src_frac_threshold: 2.0,
+        ..SafeOpts::default()
+    };
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &Sha::from_hex("0099"),
+        &Sha::from_hex("0100"),
+        &[pkg_a_hunk()],
+        &Budget::Frac(1.0),
+        &safe,
+    );
+    let reason = |id: &str| {
+        out.payload
+            .tests
+            .iter()
+            .find(|t| t.test_id == id)
+            .map(|t| t.reason.as_str())
+    };
+    assert_eq!(
+        reason("tests/test_many.py::test_1"),
+        Some("recent_fail"),
+        "base~1 failure must be recent_fail"
+    );
+    assert_ne!(
+        reason("tests/test_many.py::test_0"),
+        Some("recent_fail"),
+        "head-only failure must not be recent_fail"
+    );
+}
+
+#[test]
+fn partial_select_run_does_not_change_no_safe_json() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, mut store) = seed_snapshot_repo(120);
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let before = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &base,
+        &head,
+        &[pkg_a_hunk()],
+        &Budget::Frac(0.2),
+        &week4_safe(),
+    );
+    let before_json = serde_json::to_string(&before.payload).unwrap();
+    // Simulate a successful select subset recorded on the same base history.
+    store
+        .insert_run_atomic(
+            &TestRunRow {
+                sha: "0050".into(),
+                source: "pytest".into(),
+                started_at: 10,
+                finished_at: Some(11),
+                dirty: false,
+                diff_hash: None,
+                input_hash: Some("partial-select".into()),
+                meta: None,
+                synthetic: false,
+                partial: true,
+            },
+            &full_many_run_results(None, "pass")[..3],
+            &[],
+            false,
+        )
+        .unwrap();
+    let after = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &base,
+        &head,
+        &[pkg_a_hunk()],
+        &Budget::Frac(0.2),
+        &week4_safe(),
+    );
+    let after_json = serde_json::to_string(&after.payload).unwrap();
+    assert_eq!(
+        before_json, after_json,
+        "partial=1 select run must not change subsequent --no-safe select JSON"
+    );
 }
