@@ -138,6 +138,7 @@ def test_select_happy_deselects(select_repo: Path) -> None:
 
 
 def test_fail_open_no_bin(select_repo: Path) -> None:
+    # Isolate PATH so a real `testpilot` on PATH cannot mask an explicit miss.
     proc = _run_pytest(
         select_repo,
         "--testpilot",
@@ -145,7 +146,10 @@ def test_fail_open_no_bin(select_repo: Path) -> None:
         "--testpilot-budget-frac=0.5",
         "--testpilot-model",
         str(select_repo / "model"),
-        extra_env={"TESTPILOT_BIN": "/nonexistent/testpilot"},
+        extra_env={
+            "TESTPILOT_BIN": "/nonexistent/testpilot",
+            "PATH": "/usr/bin:/bin",
+        },
     )
     assert proc.returncode == 0
     assert "plugin_error(no_bin)" in proc.stdout + proc.stderr

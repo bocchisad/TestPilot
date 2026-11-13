@@ -85,16 +85,31 @@ PY
 git add src/calc.py tests/test_regression.py
 git commit -m "regression"
 
+# Extra src modules keep src_frac below default 0.30; min_candidates lowered for mini fixture.
 SEL="$("$BIN" select --base "$BASE_SHA" --head HEAD --model "$MODEL" \
   --budget-frac 0.2 --format json --safe-min-candidates 3)"
 "$PYTHON" - <<'PY' "$SEL"
 import json, sys
 data = json.loads(sys.argv[1])
 ids = {t["test_id"] for t in data["tests"]}
-assert any("test_regression" in i for i in ids), ids
 safe = data.get("safe") or {}
 assert safe.get("enabled") is True, data
-print("case1 ok", {"n_selected": len(ids), "safe": safe.get("enabled")})
+assert safe.get("fallback_all") is False, (
+    f"expected no fallback_all, got reasons={safe.get('reasons')}: {data}"
+)
+assert data["n_selected"] < data["n_candidates"], (
+    f"expected subset select: n_selected={data['n_selected']} "
+    f"n_candidates={data['n_candidates']}"
+)
+assert any("test_regression" in i for i in ids), ids
+print(
+    "case1 ok",
+    {
+        "n_selected": data["n_selected"],
+        "n_candidates": data["n_candidates"],
+        "fallback_all": False,
+    },
+)
 PY
 
 echo "=== case 2: shadow caught_fail == 1.0 ==="
@@ -124,11 +139,16 @@ git init -b main >/dev/null
 git config user.email "cold@example.com"
 git config user.name "Cold"
 git add .
-git commit -q -m "only"
+git commit -q -m "c1"
+# Second commit so HEAD~1 resolves; DB has no feature snapshot → select snapshot error.
+echo "# touch" >> src/calc.py
+git add src/calc.py
+git commit -q -m "c2"
+"$BIN" init >/dev/null
 COLD_OUT="$("$PYTHON" -m pytest --rootdir=. --testpilot --testpilot-select \
   --testpilot-model="$MODEL" --testpilot-budget-frac=0.5 -q 2>&1)" || true
 echo "$COLD_OUT" | tail -15
-echo "$COLD_OUT" | grep -qiE 'plugin_error|fail-open|feature snapshot|fallback=plugin_error'
+echo "$COLD_OUT" | grep -q 'fallback=plugin_error(snapshot)'
 # Session stays green when fail-open (pytest exits 0 unless tests fail).
 RC=0
 "$PYTHON" -m pytest --rootdir=. --testpilot --testpilot-select \

@@ -45,11 +45,15 @@ class SelectPlan:
 
 
 def resolve_testpilot_bin() -> Path | None:
-    env = os.environ.get("TESTPILOT_BIN")
-    if env:
+    # Explicit TESTPILOT_BIN (even if missing) must not fall back to PATH/which.
+    if "TESTPILOT_BIN" in os.environ:
+        env = os.environ.get("TESTPILOT_BIN") or ""
+        if not env:
+            return None
         p = Path(env)
         if p.is_file() and os.access(p, os.X_OK):
             return p
+        return None
     found = shutil.which("testpilot")
     if found:
         return Path(found)

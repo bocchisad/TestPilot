@@ -744,6 +744,7 @@ fn pkg_a_hunk() -> DiffHunk {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // test helper mirrors run_select call site
 fn run_fixture_select(
     repo: &SelectFixtureRepo,
     store: &Store,
@@ -840,18 +841,14 @@ fn fallback_all_config_surface() {
         &SafeOpts::default(),
     );
     assert!(out.payload.safe.fallback_all);
-    assert!(out
-        .payload
-        .safe
-        .reasons
-        .contains(&"config_surface".to_string()));
-    assert_eq!(out.payload.n_selected, out.payload.n_candidates);
     assert!(
         out.payload
-            .tests
-            .iter()
-            .all(|t| t.reason == "fallback_all")
+            .safe
+            .reasons
+            .contains(&"config_surface".to_string())
     );
+    assert_eq!(out.payload.n_selected, out.payload.n_candidates);
+    assert!(out.payload.tests.iter().all(|t| t.reason == "fallback_all"));
 }
 
 #[test]
@@ -894,12 +891,7 @@ fn fallback_all_src_frac() {
         &Budget::Count(5),
         &SafeOpts::default(),
     );
-    assert!(
-        out.payload
-            .safe
-            .reasons
-            .contains(&"src_frac".to_string())
-    );
+    assert!(out.payload.safe.reasons.contains(&"src_frac".to_string()));
 }
 
 #[test]
@@ -907,6 +899,7 @@ fn fallback_all_non_py_source() {
     let booster = load_model_dir(&fixture_model()).unwrap();
     let (mut repo, store) = seed_snapshot_repo(120);
     repo.insert_file("0100", "src/pkg/templates/x.html", "<html/>\n");
+    repo.insert_file("0100", "src/pkg/__init__.py", "");
     let hunks = vec![DiffHunk {
         path: "src/pkg/templates/x.html".into(),
         old_path: None,
@@ -923,10 +916,67 @@ fn fallback_all_non_py_source() {
         &Sha::from_hex("0100"),
         &hunks,
         &Budget::Count(5),
-        &SafeOpts::default(),
+        &SafeOpts {
+            // Avoid few_candidates / src_frac noise for this path-only gate.
+            min_candidates: 1,
+            src_frac_threshold: 1.0,
+            ..SafeOpts::default()
+        },
     );
     assert!(
         out.payload
+            .safe
+            .reasons
+            .contains(&"non_py_source".to_string()),
+        "{:?}",
+        out.payload.safe.reasons
+    );
+    assert!(
+        !out.payload
+            .safe
+            .reasons
+            .contains(&"config_surface".to_string())
+    );
+}
+
+#[test]
+fn root_pre_commit_yaml_not_non_py_source() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (mut repo, store) = seed_snapshot_repo(120);
+    repo.insert_file("0100", ".pre-commit-config.yaml", "repos: []\n");
+    // Keep a normal src change so select has candidates without config_surface.
+    let hunks = vec![
+        DiffHunk {
+            path: ".pre-commit-config.yaml".into(),
+            old_path: None,
+            change_type: 'M',
+            old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            is_binary: false,
+        },
+        pkg_a_hunk(),
+    ];
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &Sha::from_hex("0099"),
+        &Sha::from_hex("0100"),
+        &hunks,
+        &Budget::Count(5),
+        &SafeOpts {
+            min_candidates: 1,
+            src_frac_threshold: 1.0,
+            ..SafeOpts::default()
+        },
+    );
+    assert!(
+        !out.payload.safe.fallback_all,
+        "root .pre-commit-config.yaml must not trigger fallback_all: {:?}",
+        out.payload.safe.reasons
+    );
+    assert!(
+        !out.payload
             .safe
             .reasons
             .contains(&"non_py_source".to_string())

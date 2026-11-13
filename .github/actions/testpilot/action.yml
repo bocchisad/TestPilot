@@ -106,11 +106,11 @@ runs:
         {
           echo "### TestPilot binary"
           echo "- **path:** \`$BIN\`"
-          echo "- **version:**"
+          echo "- **version** (includes embedded git SHA from build.rs):"
           echo '```'
           "$BIN" --version || true
           echo '```'
-          echo "- **build tree commit:** \`${{ github.sha }}\`"
+          echo "- **workflow commit:** \`${{ github.sha }}\`"
         } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Install pytest-testpilot

@@ -882,6 +882,31 @@ fn path_matches_config_surface(path: &str) -> bool {
     PATTERNS.iter().any(|pat| glob_matches(&p, pat))
 }
 
+/// True if `path` sits inside a Python source package tree at `head`.
+///
+/// Root-level files (`.pre-commit-config.yaml`, lockfiles, …) are not packages.
+/// Paths under `src/` or under a top-level dir that contains non-test `.py` files
+/// (e.g. `pkg/templates/x.html` next to `pkg/a.py`) count.
+fn is_inside_source_package(path: &str, all_paths: &[String]) -> bool {
+    let p = normalize_path(path);
+    if !p.contains('/') {
+        return false;
+    }
+    if p.starts_with("src/") {
+        return true;
+    }
+    let top = p.split('/').next().unwrap_or("");
+    if top.is_empty() || top == "docs" || top == "tests" || top == ".github" || top.starts_with('.')
+    {
+        return false;
+    }
+    let prefix = format!("{top}/");
+    all_paths.iter().any(|ap| {
+        let a = normalize_path(ap);
+        a.starts_with(&prefix) && a.ends_with(".py") && !is_test_path(&a)
+    })
+}
+
 fn fallback_all_reasons<R: GitRepo>(
     repo: &R,
     head: &Sha,
@@ -917,9 +942,14 @@ fn fallback_all_reasons<R: GitRepo>(
                 return false;
             }
             let p = normalize_path(&h.path);
+            // Do not double-count config_surface paths as non_py_source.
+            if path_matches_config_surface(&p) {
+                return false;
+            }
             !is_test_path(&p)
                 && !p.ends_with(".py")
                 && !path_on_docs_allowlist(&p, &safe.non_py_allowlist)
+                && is_inside_source_package(&p, &all_paths)
         });
         if non_py_hit {
             reasons.push("non_py_source".into());
@@ -938,11 +968,7 @@ fn apply_budget(
         return vec![];
     }
     let median = median_known_dur_ms(scored);
-    let priority: HashSet<String> = forced_set
-        .iter()
-        .chain(safe_set.iter())
-        .cloned()
-        .collect();
+    let priority: HashSet<String> = forced_set.iter().chain(safe_set.iter()).cloned().collect();
 
     let mut selected: Vec<ScoredCandidate> = scored
         .iter()
@@ -1009,14 +1035,24 @@ mod tests {
     #[test]
     fn budget_frac_one_selects_all() {
         let scored = vec![cand("a", 1.0, 10, false), cand("b", 0.5, 10, false)];
-        let sel = apply_budget(&scored, &Budget::Frac(1.0), &HashSet::new(), &HashSet::new());
+        let sel = apply_budget(
+            &scored,
+            &Budget::Frac(1.0),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
         assert_eq!(sel.len(), 2);
     }
 
     #[test]
     fn time_budget_always_picks_at_least_one() {
         let scored = vec![cand("a", 1.0, 5000, false)];
-        let sel = apply_budget(&scored, &Budget::Time(0.001), &HashSet::new(), &HashSet::new());
+        let sel = apply_budget(
+            &scored,
+            &Budget::Time(0.001),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
         assert_eq!(sel.len(), 1);
     }
 

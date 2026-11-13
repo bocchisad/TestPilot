@@ -12,10 +12,17 @@ use testpilot_core::select::{self, Budget, SafeOpts, format_lines, format_table}
 use testpilot_core::stats;
 use testpilot_core::store::Store;
 
+const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (",
+    env!("TESTPILOT_GIT_SHA"),
+    ")"
+);
+
 #[derive(Parser, Debug)]
 #[command(
     name = "testpilot",
-    version,
+    version = VERSION,
     about = "Offline predictive test selection — data collection"
 )]
 struct Cli {
