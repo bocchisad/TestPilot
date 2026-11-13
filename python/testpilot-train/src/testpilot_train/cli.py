@@ -34,6 +34,16 @@ def main(argv: list[str] | None = None) -> int:
         help="default: <repo>/features_schema.json",
     )
     p_train.add_argument("--seed", type=int, default=42)
+    p_train.add_argument(
+        "--exclude-high-fail-rate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Exclude synthetic changes where >50%% of tests fail from train/val/test "
+            "slices used for metrics and the paired gate (default: on). "
+            "Report still includes dual metrics when high-fail changes exist."
+        ),
+    )
 
     p_eval = sub.add_parser("evaluate")
     p_eval.add_argument("--model", type=Path, required=True)
@@ -52,7 +62,13 @@ def main(argv: list[str] | None = None) -> int:
     schema_path = args.features_schema or (_repo_root() / "features_schema.json")
 
     if args.cmd == "train":
-        payload = train(args.data, args.out, schema_path, seed=args.seed)
+        payload = train(
+            args.data,
+            args.out,
+            schema_path,
+            seed=args.seed,
+            exclude_high_fail_rate=args.exclude_high_fail_rate,
+        )
         print(json.dumps({"status": payload["status"], "out": str(args.out)}, indent=2))
         return 0
 

@@ -357,6 +357,35 @@ pub fn dump_parquet_ex<R: GitRepo>(
     Ok(n)
 }
 
+/// Detect pytest collection-failure phantoms stored as module-level error cases.
+fn is_collection_failure_result(r: &crate::store::TestResultRow) -> bool {
+    if r.outcome != "error" && r.outcome != "fail" {
+        return false;
+    }
+    let msg = r.message.as_deref().unwrap_or("").to_ascii_lowercase();
+    if msg.contains("collection failure")
+        || msg.contains("error collecting")
+        || msg.contains("failed to import")
+    {
+        return true;
+    }
+    // Module-level id: no `::` separator (e.g. `tests.test_basic`).
+    if !r.test_id.contains("::") && !r.test_id.contains('/') {
+        return true;
+    }
+    false
+}
+
+fn is_collection_error_run(results: &[crate::store::TestResultRow], n_parent: usize) -> bool {
+    if results.iter().any(is_collection_failure_result) {
+        return true;
+    }
+    if n_parent > 0 && results.len() * 2 < n_parent {
+        return true;
+    }
+    false
+}
+
 /// Phase B: emit mutant feature rows from frozen snapshot at C. Never updates history.
 fn append_mutant_leaf_rows(
     repo: &GixRepo,
@@ -446,13 +475,47 @@ fn append_mutant_leaf_rows(
         }
         let cov = cov_tracker.lookup(&c_sha, &chain);
 
-        let paths = repo.list_paths_at_rev(&c)?;
-        let py_paths: Vec<String> = paths.into_iter().filter(|p| p.ends_with(".py")).collect();
-        let graph = build_import_graph(repo, store, &c, &py_paths)?;
-        let srcf_owned = srcf.clone();
-        let imp_dist_for = |tf: &str| graph.dist(tf, &srcf_owned);
-
         let results = store.results_for_run(run_id)?;
+        let n_parent = store
+            .last_clean_run_with_results(&c_sha)?
+            .map(|rid| store.results_for_run(rid).map(|r| r.len()))
+            .transpose()?
+            .unwrap_or(0);
+        if is_collection_error_run(&results, n_parent) {
+            tracing::warn!(
+                mutant = %m_sha,
+                n_results = results.len(),
+                n_parent,
+                "skip mutant: collection_error"
+            );
+            continue;
+        }
+
+        // Import graph at M: seed changed sources + every test file (same as Phase A).
+        // Seeding only srcf leaves test→src paths unscanned → imp_dist stuck at 99.
+        let paths_m = repo.list_paths_at_rev(&m)?;
+        let py_paths_m: Vec<String> = paths_m.into_iter().filter(|p| p.ends_with(".py")).collect();
+        let mut seed_set: HashSet<String> = srcf.iter().cloned().collect();
+        for r in &results {
+            seed_set.insert(test_file_of(&r.test_id));
+        }
+        for h in &hunks {
+            if h.path.ends_with(".py") {
+                seed_set.insert(h.path.clone());
+            }
+        }
+        let seeds: Vec<String> = seed_set.into_iter().collect();
+        let graph = build_import_graph_seeded(repo, store, &m, &seeds, &py_paths_m)?;
+        let srcf_owned = srcf.clone();
+        let mut dist_cache: HashMap<String, i64> = HashMap::new();
+        for r in &results {
+            let tf = test_file_of(&r.test_id);
+            dist_cache
+                .entry(tf.clone())
+                .or_insert_with(|| graph.dist(&tf, &srcf_owned));
+        }
+        let imp_dist_for = move |tf: &str| dist_cache.get(tf).copied().unwrap_or(99);
+
         let meta = repo.commit_meta_for(&m)?;
         let t0 = meta.author_ts;
         let cov_prep = CovSnapshot::prepare_src(&srcf, &hunks, &old_sources);
@@ -818,5 +881,51 @@ pub fn show_format(rows: &[FeatureRow], format: &str, out: Option<&Path>) -> Res
             Ok(format!("wrote {} rows to {}", rows.len(), path.display()))
         }
         _ => Ok(writer::rows_to_table(rows)),
+    }
+}
+
+#[cfg(test)]
+mod collection_error_tests {
+    use super::{is_collection_error_run, is_collection_failure_result};
+    use crate::store::TestResultRow;
+
+    fn row(test_id: &str, outcome: &str, message: Option<&str>) -> TestResultRow {
+        TestResultRow {
+            test_id: test_id.into(),
+            outcome: outcome.into(),
+            duration_ms: 0,
+            message: message.map(str::to_string),
+            flaky: false,
+            attempts: 1,
+        }
+    }
+
+    #[test]
+    fn module_phantom_is_collection_failure() {
+        let r = row("tests.test_basic", "error", Some("collection failure"));
+        assert!(is_collection_failure_result(&r));
+    }
+
+    #[test]
+    fn dotted_module_id_without_colon_is_collection() {
+        let r = row("tests.test_api", "error", Some("ImportError"));
+        assert!(is_collection_failure_result(&r));
+    }
+
+    #[test]
+    fn normal_test_failure_not_collection() {
+        let r = row(
+            "tests/test_basic.py::test_ok",
+            "fail",
+            Some("assert 1 == 2"),
+        );
+        assert!(!is_collection_failure_result(&r));
+    }
+
+    #[test]
+    fn half_test_count_vs_parent_is_collection_run() {
+        let results = vec![row("tests/a.py::t1", "pass", None)];
+        assert!(is_collection_error_run(&results, 4)); // 1 < 50% of 4
+        assert!(!is_collection_error_run(&results, 2)); // 1 >= 50% of 2
     }
 }

@@ -19,6 +19,7 @@ class LoadedData:
     n_rows_parent_missing: int
     n_persistent: int
     n_flaky: int
+    n_orphan_vs_parent: int = 0
 
 
 def _parquet_features_version(path: Path) -> int | None:
@@ -51,13 +52,14 @@ def load_parquets(paths: list[Path], schema: FeaturesSchema) -> LoadedData:
         frames.append(df)
     frame = pl.concat(frames, how="vertical") if len(frames) > 1 else frames[0]
     _reject_nonfinite(frame, schema.feature_names)
-    frame, n_missing, n_persistent, n_flaky = add_new_fail(frame)
+    frame, n_missing, n_persistent, n_flaky, n_orphan = add_new_fail(frame)
     return LoadedData(
         frame=frame,
         schema=schema,
         n_rows_parent_missing=n_missing,
         n_persistent=n_persistent,
         n_flaky=n_flaky,
+        n_orphan_vs_parent=n_orphan,
     )
 
 
@@ -68,8 +70,14 @@ def _reject_nonfinite(frame: pl.DataFrame, feature_names: tuple[str, ...]) -> No
             raise ValueError(f"feature column {name!r} contains NaN or Inf")
 
 
-def add_new_fail(frame: pl.DataFrame) -> tuple[pl.DataFrame, int, int, int]:
-    """Add parent_fail, parent_missing, new_fail columns."""
+def add_new_fail(
+    frame: pl.DataFrame,
+) -> tuple[pl.DataFrame, int, int, int, int]:
+    """Add parent_fail, parent_missing, orphan_vs_parent, new_fail columns.
+
+    Returns (frame, n_parent_missing_rows, n_persistent, n_flaky, n_orphan_label1).
+    Orphan = test_id absent from parent change's run → cannot be new_fail.
+    """
     fail_keys = (
         frame.filter((pl.col("label") == 1) & (pl.col("flaky") == 0))
         .select(["repo", "change", "test"])
@@ -82,16 +90,31 @@ def add_new_fail(frame: pl.DataFrame) -> tuple[pl.DataFrame, int, int, int]:
         for r, p in zip(frame["repo"].to_list(), frame["parent"].to_list(), strict=True)
     ]
 
+    parent_tests = (
+        frame.select(["repo", "change", "test"])
+        .unique()
+        .rename({"change": "parent"})
+        .with_columns(pl.lit(True).alias("_on_parent"))
+    )
+
     parent_fails = fail_keys.rename({"change": "parent"})
     enriched = (
         frame.join(parent_fails, on=["repo", "parent", "test"], how="left")
         .with_columns(pl.col("_failed").fill_null(False).alias("parent_fail"))
         .drop("_failed")
+        .join(parent_tests, on=["repo", "parent", "test"], how="left")
+        .with_columns(pl.col("_on_parent").is_null().alias("orphan_vs_parent"))
+        .drop("_on_parent")
         .with_columns(pl.Series("parent_missing", parent_missing))
     )
 
     label1 = (pl.col("label") == 1) & (pl.col("flaky") == 0)
-    new_fail = (label1 & (~pl.col("parent_fail")) & (~pl.col("parent_missing"))).cast(pl.Int64)
+    new_fail = (
+        label1
+        & (~pl.col("parent_fail"))
+        & (~pl.col("parent_missing"))
+        & (~pl.col("orphan_vs_parent"))
+    ).cast(pl.Int64)
     enriched = enriched.with_columns(new_fail.alias("new_fail"))
 
     n_flaky = int(frame.filter(pl.col("flaky") == 1).height)
@@ -99,7 +122,10 @@ def add_new_fail(frame: pl.DataFrame) -> tuple[pl.DataFrame, int, int, int]:
         enriched.filter(label1 & pl.col("parent_fail") & (~pl.col("parent_missing"))).height
     )
     n_missing = int(sum(parent_missing))
-    return enriched, n_missing, n_persistent, n_flaky
+    n_orphan = int(
+        enriched.filter(label1 & pl.col("orphan_vs_parent") & (~pl.col("parent_missing"))).height
+    )
+    return enriched, n_missing, n_persistent, n_flaky, n_orphan
 
 
 def training_mask(frame: pl.DataFrame) -> np.ndarray:
