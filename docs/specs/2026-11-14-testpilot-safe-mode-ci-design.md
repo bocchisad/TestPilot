@@ -20,6 +20,11 @@ Ship a **fail-safe** path from “ranked subset” to “what CI actually runs�
 | DB v7 | Table **`test_run_selection`** (not a column on `test_results`). |
 | Action binary | **Cargo build + rust-cache** for W5; prefer input `testpilot-bin` / env `TESTPILOT_BIN` if present. Releases download = W8. |
 | Snapshot / bad model | **Hard error** from select (nonzero exit). **Not** `fallback_all`. Plugin fail-opens to all tests. |
+| Partial runs (P1) | `test_runs.partial`: select (not shadow, not fallback_all, not plugin_error) → `partial=1`. History / base_run / recent_fail use **only** `partial=0`. |
+| Plugin timeout (P7) | `--testpilot-select-timeout` default **10s**; sleep-11 test uses default. |
+| Auto-index (P6) | `--testpilot-auto-index` default **off**; without index, local select always fail-opens. |
+
+**Amendments P1–P8** (approved 2026-11-14) are incorporated below.
 
 ---
 
@@ -65,6 +70,8 @@ testpilot select … [--safe | --no-safe]
   [--safe-include-covered]         # default off
   [--safe-src-frac-threshold X]    # default 0.30 (30% of .py src files touched)
   [--safe-min-candidates M]        # default 50
+  [--safe-non-py-source | --no-safe-non-py-source]  # default on
+  [--safe-non-py-allowlist GLOB[,GLOB…]]            # extend docs allowlist
 ```
 
 - **Default: `--safe` on.** `--no-safe` disables all safe additions and `fallback_all` gates (Week-4 behavior + `safe.enabled=false`).
@@ -92,14 +99,14 @@ testpilot select … [--safe | --no-safe]
 | `n_safe_added` | safe extras not already forced (0 if `--no-safe` or fallback_all) |
 | `n_ranked` | selected with `reason=ranked` |
 
-### 2.3 `recent_fail` / `flaky`
+### 2.3 `recent_fail` / `flaky` (P2)
 
-- Only **non-synthetic** runs.
-- Walk the same first-parent / clean-run ancestry used for `base_run_sha`, restricted to runs with `sha` **at or before `base`** (author/commit order consistent with Week-4 dump leakage rules).
-- Take the last **K** such clean real runs (`--safe-recent-k`, default 5).
+- Eligible runs: **`synthetic=0` AND `partial=0` AND finished** (`finished_at IS NOT NULL` — exclude aborted). **Runs that contain failures are included** (they are still “full” sessions).
+- Restricted to commits **at or before `base`** (same ancestry / ordering as `base_run` / Week-4 leakage rules).
+- Take the last **K** such runs (`--safe-recent-k`, default 5).
 - Union: tests with `outcome ∈ {fail,error}` on those runs → reason `recent_fail`.
-- Known flaky: `flaky=1` on any of those K runs (or existing flaky dictionary if already in store — prefer evidence from the K runs) → reason `flaky`.
-- **Test:** a failing run recorded at `head` (or after `base`) must **not** change `recent_fail` set (Week-4-style leakage).
+- Known flaky: `flaky=1` on any of those K runs → reason `flaky`.
+- **Tests:** (1) failing run at `head` (after `base`) must **not** affect `recent_fail`; (2) a completed real run **with failures** on `base~1` **does** put those tests into `recent_fail`.
 
 ### 2.4 `covered` (optional)
 
@@ -116,6 +123,7 @@ Only when select can score normally. Each reason string stable for tests/summary
 | `config_surface` | Diff touches any path matching: `**/conftest.py`, `pytest.ini`, `pyproject.toml` (any hunk — whole file, not only `[tool.pytest]`), `setup.cfg`, `requirements*.txt`, `requirements*.in`, `poetry.lock`, `uv.lock`, `Pipfile.lock`, `pdm.lock`, or `.github/workflows/**`. (`Cargo.lock` is **not** included — Rust lockfile churn must not force full Python suite.) |
 | `src_frac` | Changed non-test `.py` paths / all non-test `.py` paths at head > **X** (`--safe-src-frac-threshold`, default 0.30) |
 | `few_candidates` | `n_candidates < M` (`--safe-min-candidates`, default 50) |
+| `non_py_source` (P4) | Diff touches a file **inside a source package** (not a test path), extension **≠ `.py`**, and path is **not** on the docs allowlist. Default allowlist: `*.md`, `*.rst`, `docs/**`, `CHANGES*`, `LICENSE*`. Extensible via `--safe-non-py-allowlist`. Toggle: `--safe-non-py-source` (default **on**) / `--no-safe-non-py-source`. Measure impact on jinja (templates). |
 
 **Not** `fallback_all` (hard errors, nonzero exit):
 
@@ -150,7 +158,8 @@ Plugin maps these to fail-open all tests.
       "recent_k": 5,
       "src_frac": 0.30,
       "min_candidates": 50,
-      "include_covered": false
+      "include_covered": false,
+      "non_py_source": true
     }
   },
   "tests": [
@@ -165,13 +174,14 @@ Plugin maps these to fail-open all tests.
 }
 ```
 
-- `--no-safe`: same fields as Week 4 **plus** `safe.enabled=false`, empty `reasons`, zeros for safe counters, `fallback_all=false`. Deterministic byte-comparable for golden tests where applicable (allowlisted extra keys).
+- **`--no-safe` golden (P8):** exact match on **all Week-4 JSON fields**; the **only** allowed additions are keys `safe`, `n_safe_added`, `n_ranked` (with `safe.enabled=false`, empty `reasons`, `fallback_all=false`, safe counters 0). No fuzzy “≈”.
 - Per-test `reason`: if multiple apply, precedence `fallback_all` > `new_or_changed` > `recent_fail` > `flaky` > `covered` > `ranked` (document in code).
 
-### 2.7 Determinism & synthetic
+### 2.7 Determinism & synthetic / partial (P1)
 
 - Same inputs → same JSON (sort ties by `test_id`).
-- Synthetic runs excluded from recent_fail/flaky/coverage history queries and from candidate base_run (unchanged Week 4).
+- Synthetic **and** `partial=1` runs excluded from recent_fail/flaky/coverage history, `base_run` / last-clean-run queries, and dump snapshot history (same gates as “real full runs”).
+- **`test_runs.partial`:** see §3.8 / §3.9.
 
 ---
 
@@ -187,6 +197,8 @@ pytest --testpilot --testpilot-select
   [--testpilot-no-safe]
   [--testpilot-order]
   [--testpilot-shadow]
+  [--testpilot-auto-index]              # default off (P6)
+  [--testpilot-select-timeout SECONDS]  # default 10 (P7)
 ```
 
 Exactly one budget flag when select is on (mirror CLI).
@@ -202,24 +214,28 @@ Print in terminal summary: `base=<sha> (merge-base|explicit|fallback HEAD~1)`.
 ### 3.3 Binary resolution
 
 `TESTPILOT_BIN` → `PATH` (`testpilot`) → binary next to installed package/wheel if present.  
-Invoke: `testpilot select --format json …` with 10s timeout.
+Invoke: `testpilot select --format json …` with timeout `--testpilot-select-timeout` (default **10s**).
+
+**`--testpilot-auto-index` (P6, default off):** before select, run `collect git` + `features dump` enough to ensure a snapshot at `base`. If off and snapshot missing → select errors → fail-open. README: without an index, local select **always** fail-opens.
 
 ### 3.4 Collection / deselect
 
 - Hook: `pytest_collection_modifyitems`.
 - Match select `test_id` to nodeids; **bare** id matches all parametrized children.
 - **Unknown to select** (collected item with no matching select id): **keep / run**, reason tracked as `unknown_to_select`, counted in summary. Never silently drop.
-- Deselected → `config.hook.pytest_deselected`.
+- Deselected → `config.hook.pytest_deselected`. **Do not write deselected tests into `test_results`** (not even as `skip`) (P1).
 - `--testpilot-order`: reorder kept items by select rank (unknowns after ranked, stable by nodeid).
 
 **xdist:** run select **once on controller**; workers receive the already-filtered/ordered item set (or equivalent gateway broadcast). Test with `-n 2`.
 
 ### 3.5 Fail-open (plugin_error)
 
-On: missing binary, model error, snapshot error, nonzero exit, timeout (10s), JSON parse error → run **all** collected tests; warning; summary `fallback=plugin_error(<kind>)` where `kind ∈ {no_bin, model, snapshot, exit, timeout, json, …}`.  
+On: missing binary, model error, snapshot error, nonzero exit, timeout (`--testpilot-select-timeout`, default 10s), JSON parse error → run **all** collected tests; warning; summary `fallback=plugin_error(<kind>)` where `kind ∈ {no_bin, model, snapshot, exit, timeout, json, …}`.  
 Never select zero silently. Select failures do **not** fail the pytest session (strict flag remains for DB record path only).
 
-**Timeout test:** fake bin that `sleep 11` → after 10s all tests run + `fallback=plugin_error(timeout)` in summary.
+**`plugin_error` + DB (P5):** `mode` would have been `select`, but **do not write any `test_run_selection` rows**; set `test_runs.meta.plugin_error=<kind>`; set **`partial=0`** (full suite ran).
+
+**Timeout test:** fake bin that `sleep 11` with **default** 10s timeout → all tests run + `fallback=plugin_error(timeout)` in summary.
 
 ### 3.6 Shadow
 
@@ -274,6 +290,25 @@ Also store `rank/score/budget_*/model_sha256/safe_enabled` so Week 7 can recompu
 
 `SCHEMA_VERSION = 7`. Migrate v6→v7 additive (CREATE TABLE + index + bump version). Sync Python schema copy via existing `scripts/sync_schema.py`.
 
+### 3.9 `test_runs.partial` (P1)
+
+```sql
+-- v7 additive on test_runs:
+partial INTEGER NOT NULL DEFAULT 0 CHECK (partial IN (0,1))
+```
+
+| Run kind | `partial` | `test_run_selection` |
+|----------|-----------|----------------------|
+| Full pytest without `--testpilot-select` | `0` | none |
+| `--testpilot-select` success, **not** shadow, **not** select `fallback_all`, **not** `plugin_error` | **`1`** | all collected, selected 0/1 |
+| `--testpilot-shadow` | `0` | all collected, selected 0/1 |
+| Select `fallback_all` (ran all candidates / effectively full) | `0` | as select mode rows |
+| `plugin_error` fail-open (ran all) | `0` | **no rows**; `meta.plugin_error` |
+
+**Consumers that must ignore `partial=1`:** `base_run` / last-clean-run, features dump / snapshots history, `recent_fail` / `flaky` (P2), coverage-for-history paths (same as synthetic exclusion).
+
+**Test:** after a `partial=1` select run is in the DB, a subsequent `select --no-safe` and `features dump` are **byte-identical** to the same commands on a DB without that select run.
+
 ---
 
 ## 4. GitHub Action
@@ -304,11 +339,12 @@ Job summary **must** print: resolved path, `testpilot --version`, and **git comm
 | `testpilot-bin` | empty | Prefers existing binary |
 | `db-path` | `.testpilot/db.sqlite` | |
 
-### 4.4 Cache
+### 4.4 Cache (P3)
 
 - **DB only** (not the model).
-- `key`: `testpilot-db-<repo>-<hash>` optional unique; **`restore-keys`**: `testpilot-db-<repo>-` so PRs hit latest main DB.
-- **`save` only on `push` to default branch** (main). PRs restore but do not save (avoid cache pollution / history skew).
+- **Mandatory unique key:** `testpilot-db-<repo>-${{ github.sha }}-${{ github.run_attempt }}`.
+- **`restore-keys`:** `testpilot-db-<repo>-` (prefix) so PRs hit latest main DB.
+- **`save` only on `push` to default branch** (main), after the push pipeline below. PRs restore but do not save.
 
 ### 4.5 Fetch / base / snapshot
 
@@ -317,12 +353,12 @@ Job summary **must** print: resolved path, `testpilot --version`, and **git comm
 - PR path: ensure snapshot at merge-base — if missing, `features dump` incrementally until base (or equivalent collect+dump). If still missing → select errors → plugin fail-open all tests.
 - **e2e cold-cache case:** empty/missing DB → all tests run, job green, summary shows plugin_error/snapshot path.
 
-### 4.6 Push vs PR
+### 4.6 Push vs PR (P3)
 
 | Event | Behavior |
 |-------|----------|
-| Push to main | Full pytest `--testpilot` **without** `--testpilot-select` (grow history; no selection rows) |
-| Pull request | `--testpilot-select` (+ safe default on) |
+| Push to main | **(1)** Full pytest `--testpilot` **without** `--testpilot-select` → **(2)** `collect git` → **(3)** `features dump` → **(4)** **save** DB cache under the unique key |
+| Pull request | `--testpilot-select` (+ safe default on); restore cache; do **not** save |
 
 ### 4.7 e2e (in-repo mini fixture)
 
@@ -341,27 +377,28 @@ Click/jinja: **measurements only** (not CI e2e).
 
 ### 5.1 Rust
 
-- Each `fallback_all` reason → dedicated test.  
+- Each `fallback_all` reason (incl. `non_py_source`) → dedicated test.  
 - Missing snapshot / bad model → nonzero exit (not fallback).  
-- `recent_fail` leakage: head-after-base run ignored.  
+- `recent_fail`: head-after-base ignored; **failing completed run on `base~1` is included**.  
 - Budget: safe extras beyond N; time-budget excludes safe durations.  
-- `--no-safe` JSON ≈ Week 4 + `safe.enabled=false`.  
-- Determinism; synthetic isolation.  
-- **T1 regression:** v6 DB migrates to v7; `features dump` and `select --no-safe` outputs **byte-identical** to Week-4 goldens (dump golden + select fixture where applicable).
+- **`--no-safe` JSON (P8):** exact Week-4 fields + exactly keys `safe`, `n_safe_added`, `n_ranked`.  
+- Determinism; synthetic + **partial** isolation.  
+- **T1 / P1 regression:** v6→v7 migrate; dump + `select --no-safe` goldens; **partial select run does not change** subsequent dump/select bytes.
 
 ### 5.2 Plugin
 
-- Select OK → correct deselect/order; bare param expands.  
+- Select OK → correct deselect/order; bare param expands; deselected absent from `test_results`.  
 - unknown_to_select kept.  
-- Fail-open paths including **timeout** (sleep-11 fake bin).  
-- Shadow metrics; DB v7 writes; no synthetic selection.  
-- xdist `-n 2`.
+- Fail-open paths including **timeout** (sleep-11, default 10s); `plugin_error` → no selection rows, `partial=0`, `meta.plugin_error`.  
+- Shadow metrics; DB v7; no synthetic selection.  
+- xdist `-n 2`.  
+- `--testpilot-auto-index` off by default.
 
 ### 5.3 Measurements (PR body, with commands)
 
 On click & jinja `HEAD~1..HEAD` (or merge-base..HEAD):
 
-- `|selected|` for `--no-safe` / `--safe` / `--safe --safe-include-covered` at fixed budget (e.g. frac 0.1).  
+- `|selected|` for `--no-safe` / `--safe` / `--safe --safe-include-covered` / **`--safe` with non-py-source on jinja templates** at fixed budget (e.g. frac 0.1).  
 - Plugin overhead: median of 5 of `(wall pytest --testpilot-select − wall pytest without select)`.  
 - Bench script remains `--no-safe` for latency continuity with Week 4 (~215 ms click).
 
@@ -372,6 +409,7 @@ On click & jinja `HEAD~1..HEAD` (or merge-base..HEAD):
 - Install: pip plugin + `testpilot` binary + model dir.  
 - Safe **on by default** because production models may be mutant-trained (`useful_on_real_val=null`); always show `safe.enabled` in output.  
 - `--no-safe` / `--testpilot-no-safe` for research / Week-4 parity.  
+- **Without a local index / snapshot, select fail-opens** unless `--testpilot-auto-index` (default off).  
 - Shadow for offline evaluation (Week 7).  
 - Action usage; cache behavior; limitations.
 
@@ -411,44 +449,44 @@ On click & jinja `HEAD~1..HEAD` (or merge-base..HEAD):
 
 > For implementers: TDD where practical; one logical commit per task; no code until this spec is approved.
 
-### Task 1: Schema v7 + Week-4 regression lock
+### Task 1: Schema v7 + partial + Week-4 regression lock
 
-- [ ] Add `test_run_selection` + `SCHEMA_VERSION=7`; v6→v7 migrate in Rust + Python store.  
-- [ ] **Regression:** open a v6 fixture DB → migrate → v7; `features dump` and `testpilot select --no-safe` outputs **byte-identical** to Week-4 goldens (dump parquet / select JSON allowlisting only additive `safe.*` if `--no-safe` still emits the block — prefer exact match on dump; for select, assert Week-4 fields unchanged and `safe.enabled=false`).  
+- [ ] `test_run_selection` + `test_runs.partial` + `SCHEMA_VERSION=7`; v6→v7 migrate (Rust + Python).  
+- [ ] Gate `base_run` / dump history / recent_fail on `partial=0` (and synthetic=0).  
+- [ ] **Goldens (P8):** dump byte-identical; `select --no-safe` = exact W4 fields + exactly `safe`, `n_safe_added`, `n_ranked`.  
+- [ ] **P1 test:** insert partial select run → dump/select unchanged vs without it.  
 - [ ] `scripts/sync_schema.py --check` green.  
-- [ ] Commit: `Add schema v7 test_run_selection and lock dump/select --no-safe goldens.`
+- [ ] Commit: `Add schema v7 selection table, partial runs, and --no-safe goldens.`
 
 ### Task 2: Safe mode in Rust select
 
-- [ ] Implement §2 (order, budgets, recent_fail≤base, covered flag, fallback_all reasons, JSON).  
-- [ ] Tests per fallback reason; leakage; `--no-safe` parity; counters.  
-- [ ] Update `bench_select.py` to pass `--no-safe`.  
-- [ ] Commit: `Add select --safe defaults with fallback_all and safe JSON.`
+- [ ] §2 incl. P2 recent_fail (full runs with fails), P4 `non_py_source`, thresholds JSON, counters.  
+- [ ] Tests per fallback reason (incl. non_py); recent_fail include/exclude; `--no-safe` exact golden; bench `--no-safe`.  
+- [ ] Commit: `Add select --safe with recent_fail, non_py_source, and safe JSON.`
 
 ### Task 3: Pytest plugin select + shadow + xdist
 
-- [ ] Options, base merge-base, bin resolve, 10s timeout, fail-open, unknown_to_select, order.  
-- [ ] Write `test_run_selection` for select/shadow; skip synthetic.  
-- [ ] Shadow metrics in meta.  
-- [ ] Tests: happy path, fail-open, **sleep-11 timeout**, param expand, shadow, `-n 2`.  
+- [ ] Options incl. auto-index (off), select-timeout (10s); base merge-base; fail-open; unknown_to_select; order.  
+- [ ] Selection writes; `partial` rules; plugin_error → no selection rows + meta; no deselected in `test_results`.  
+- [ ] Tests: happy path, fail-open, **sleep-11 timeout**, param expand, shadow, `-n 2`, partial isolation.  
 - [ ] Commit: `Integrate testpilot select into pytest plugin with shadow and fail-open.`
 
 ### Task 4: Composite Action + docs example
 
-- [ ] `.github/actions/testpilot` with bin pref, cargo fallback, DB cache restore-keys, save-on-main only, fetch-depth 0, dump-to-base, summary lines.  
+- [ ] Action: bin pref, cargo fallback; cache key `testpilot-db-<repo>-${{ github.sha }}-${{ github.run_attempt }}` + prefix restore-keys; **push:** pytest full → collect → dump → save; PR select; summary.  
 - [ ] Example workflow under `docs/`.  
 - [ ] Commit: `Add TestPilot composite GitHub Action and example workflow.`
 
 ### Task 5: In-repo e2e fixture + CI job
 
 - [ ] Mini fixture with controllable regression.  
-- [ ] CI job: select hit, shadow 1.0, safe=false miss+visible flag, cold-cache all-green.  
+- [ ] CI: select hit, shadow 1.0, safe=false miss+flag, cold-cache all-green.  
 - [ ] Commit: `Add safe-mode e2e fixture and CI job.`
 
 ### Task 6: Measurements + README + PR
 
-- [ ] Scripts/commands for click/jinja size ±safe ±covered and plugin overhead median×5.  
-- [ ] README safe/shadow/Action/limits.  
+- [ ] click/jinja sizes ±safe ±covered ±non_py (jinja); plugin overhead median×5.  
+- [ ] README: safe default, auto-index off → fail-open, shadow, Action, limits.  
 - [ ] PR body with numbers + commands.  
 - [ ] Commit: `Document Week 5 safe mode, plugin select, and Action.`
 
@@ -463,10 +501,15 @@ On click & jinja `HEAD~1..HEAD` (or merge-base..HEAD):
 | Snapshot / bad model | Error → plugin fail-open; not fallback_all |
 | Time budget vs safe | Safe/force not charged |
 | Selection storage | `test_run_selection` with rank/score/budget/model/safe/mode |
-| Select mode rows | All collected, selected 0/1 |
+| Select mode rows | All collected, selected 0/1; deselected absent from `test_results` |
+| Partial runs | `partial=1` for successful subset select; ignored by history |
+| recent_fail | Last K finished real non-partial runs ≤base, **including failing runs** |
+| non_py_source | fallback_all; default on; extensible allowlist |
+| plugin_error DB | No selection rows; `meta.plugin_error`; `partial=0` |
+| auto-index | Default off |
+| select timeout | Configurable; default 10s |
 | Action binary | Cargo + cache; prefer testpilot-bin / TESTPILOT_BIN |
-| DB cache | Prefix restore-keys; save only on main push |
+| DB cache | Unique key per sha+attempt; prefix restore; save on main after dump |
 | Model cache | Not with DB; print model_sha256 |
 | e2e repo | In-repo mini fixture; click/jinja for benches only |
-| Plugin timeout | 10s → plugin_error(timeout) |
-| T1 golden | v6→v7 + dump/select `--no-safe` byte lock |
+| T1 golden | Exact W4 fields + exactly `safe`/`n_safe_added`/`n_ranked` |
