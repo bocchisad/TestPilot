@@ -1,0 +1,242 @@
+name: TestPilot
+description: |
+  Run pytest with TestPilot indexing (push to default branch) or PR test selection
+  with DB cache restore/save.
+inputs:
+  model-dir:
+    description: Trained LightGBM model directory (not cached with the DB)
+    required: true
+  testpilot-bin:
+    description: Optional path to a prebuilt testpilot binary
+    required: false
+    default: ''
+  db-path:
+    description: SQLite database path relative to working-directory
+    required: false
+    default: .testpilot/db.sqlite
+  budget-frac:
+    description: PR select budget fraction (exactly one budget input on pull_request)
+    required: false
+    default: ''
+  max-tests:
+    description: PR select max test count
+    required: false
+    default: ''
+  time-budget:
+    description: PR select time budget (seconds)
+    required: false
+    default: ''
+  safe:
+    description: Enable safe mode for select (default true)
+    required: false
+    default: 'true'
+  shadow:
+    description: Shadow mode (record would-select, run all tests)
+    required: false
+    default: 'false'
+  base:
+    description: Explicit git base for select (empty = plugin merge-base logic)
+    required: false
+    default: ''
+  working-directory:
+    description: Directory containing the Python project under test
+    required: false
+    default: .
+  pytest-args:
+    description: Extra arguments appended to the pytest invocation
+    required: false
+    default: ''
+  features-dump-out:
+    description: Parquet path for features dump on push to default branch
+    required: false
+    default: .testpilot/pairs.parquet
+  python-version:
+    description: Python version for pip install of pytest-testpilot
+    required: false
+    default: '3.13'
+  toolchain:
+    description: Rust toolchain for cargo fallback build
+    required: false
+    default: '1.85.0'
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Rust toolchain
+      if: inputs.testpilot-bin == ''
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.toolchain }}
+
+    - name: Rust cache
+      if: inputs.testpilot-bin == ''
+      uses: Swatinem/rust-cache@v2
+
+    - name: Resolve TestPilot binary
+      id: tpbin
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        INPUT_BIN: ${{ inputs.testpilot-bin }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
+      run: |
+        set -euo pipefail
+        try_bin() {
+          local p="$1"
+          [[ -n "$p" && -x "$p" ]] || return 1
+          echo "path=$(cd "$(dirname "$p")" && pwd)/$(basename "$p")" >> "$GITHUB_OUTPUT"
+          echo "$p"
+          return 0
+        }
+        if try_bin "$INPUT_BIN"; then exit 0; fi
+        if try_bin "${TESTPILOT_BIN:-}"; then exit 0; fi
+        cargo "+${TOOLCHAIN}" build -p testpilot-cli --release --locked
+        try_bin "${GITHUB_WORKSPACE}/target/release/testpilot"
+
+    - name: Job summary — binary
+      shell: bash
+      run: |
+        set -euo pipefail
+        BIN="${{ steps.tpbin.outputs.path }}"
+        echo "TESTPILOT_BIN=$BIN" >> "$GITHUB_ENV"
+        {
+          echo "### TestPilot binary"
+          echo "- **path:** \`$BIN\`"
+          echo "- **version:**"
+          echo '```'
+          "$BIN" --version || true
+          echo '```'
+          echo "- **build tree commit:** \`${{ github.sha }}\`"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Install pytest-testpilot
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        if [[ -f python/pytest-testpilot/pyproject.toml ]]; then
+          pip install -q -e 'python/pytest-testpilot[dev]'
+        else
+          pip install -q pytest coverage
+        fi
+
+    - name: Restore TestPilot DB cache
+      uses: actions/cache/restore@v4
+      id: tpcache
+      with:
+        path: ${{ inputs.working-directory }}/${{ inputs.db-path }}
+        key: testpilot-db-${{ github.event.repository.name }}-${{ github.sha }}-${{ github.run_attempt }}
+        restore-keys: |
+          testpilot-db-${{ github.event.repository.name }}-
+
+    - name: Run TestPilot pipeline
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TP_MODEL: ${{ inputs.model-dir }}
+        TP_DB: ${{ inputs.db-path }}
+        TP_SAFE: ${{ inputs.safe }}
+        TP_SHADOW: ${{ inputs.shadow }}
+        TP_BASE: ${{ inputs.base }}
+        TP_BUDGET_FRAC: ${{ inputs.budget-frac }}
+        TP_MAX_TESTS: ${{ inputs.max-tests }}
+        TP_TIME_BUDGET: ${{ inputs.time-budget }}
+        TP_PYTEST_ARGS: ${{ inputs.pytest-args }}
+        TP_FEATURES_OUT: ${{ inputs.features-dump-out }}
+        TP_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+        BIN="$TESTPILOT_BIN"
+        DB="$TP_DB"
+        WS="${{ github.workspace }}"
+        if [[ "$TP_MODEL" = /* ]]; then
+          MODEL="$TP_MODEL"
+        else
+          MODEL="$(cd "$WS" && realpath "$TP_MODEL")"
+        fi
+        mkdir -p "$(dirname "$DB")"
+        if [[ ! -f "$DB" ]]; then
+          "$BIN" --db "$DB" init
+        fi
+
+        is_main_push=false
+        if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/${TP_DEFAULT_BRANCH:-main}" ]]; then
+          is_main_push=true
+        fi
+
+        pytest_base=(python -m pytest --testpilot --testpilot-db="$DB")
+        # shellcheck disable=SC2206
+        extra=($TP_PYTEST_ARGS)
+
+        model_sha=""
+        if $is_main_push; then
+          echo "TestPilot: full pytest on default branch (no --testpilot-select)"
+          COVERAGE_CORE=ctrace "${pytest_base[@]}" "${extra[@]}"
+          "$BIN" --db "$DB" collect git
+          mkdir -p "$(dirname "$TP_FEATURES_OUT")"
+          "$BIN" --db "$DB" features dump --out "$TP_FEATURES_OUT"
+        else
+          select_flags=(--testpilot-select --testpilot-model "$MODEL")
+          cli_budget=()
+          n=0
+          if [[ -n "$TP_BUDGET_FRAC" ]]; then
+            select_flags+=(--testpilot-budget-frac "$TP_BUDGET_FRAC")
+            cli_budget=(--budget-frac "$TP_BUDGET_FRAC")
+            n=$((n + 1))
+          fi
+          if [[ -n "$TP_MAX_TESTS" ]]; then
+            select_flags+=(--testpilot-max-tests "$TP_MAX_TESTS")
+            cli_budget=(--max-tests "$TP_MAX_TESTS")
+            n=$((n + 1))
+          fi
+          if [[ -n "$TP_TIME_BUDGET" ]]; then
+            select_flags+=(--testpilot-time-budget "$TP_TIME_BUDGET")
+            cli_budget=(--time-budget "$TP_TIME_BUDGET")
+            n=$((n + 1))
+          fi
+          if [[ "$n" -ne 1 ]]; then
+            echo "PR path requires exactly one of budget-frac, max-tests, time-budget (got $n)" >&2
+            exit 1
+          fi
+          if [[ "$TP_SAFE" == "false" ]]; then
+            select_flags+=(--testpilot-no-safe)
+          fi
+          if [[ "$TP_SHADOW" == "true" ]]; then
+            select_flags+=(--testpilot-shadow)
+          fi
+          if [[ -n "$TP_BASE" ]]; then
+            select_flags+=(--testpilot-base "$TP_BASE")
+          fi
+          echo "TestPilot: PR select"
+          COVERAGE_CORE=ctrace "${pytest_base[@]}" "${select_flags[@]}" "${extra[@]}"
+          base_rev="${TP_BASE:-HEAD~1}"
+          model_sha="$("$BIN" --db "$DB" select --base "$base_rev" --worktree --model "$MODEL" \
+            --format json --safe-min-candidates 3 "${cli_budget[@]}" 2>/dev/null \
+            | python -c 'import json,sys; print(json.load(sys.stdin).get("model_sha256",""))' || true)"
+        fi
+
+        {
+          echo "### TestPilot run"
+          echo "- **resolved bin:** \`$BIN\`"
+          echo "- **db:** \`$DB\`"
+          echo "- **cache restored:** \`${{ steps.tpcache.outputs.cache-hit == 'true' }}\`"
+          if $is_main_push; then
+            echo "- **mode:** push (full pytest → collect git → features dump)"
+          else
+            echo "- **mode:** pull_request (--testpilot-select)"
+          fi
+          if [[ -n "$model_sha" ]]; then
+            echo "- **model_sha256:** \`$model_sha\`"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Save TestPilot DB cache
+      if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ inputs.working-directory }}/${{ inputs.db-path }}
+        key: testpilot-db-${{ github.event.repository.name }}-${{ github.sha }}-${{ github.run_attempt }}

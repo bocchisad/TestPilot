@@ -141,6 +141,25 @@ jobs:
       - run: pip install -e 'python/pytest-testpilot[dev]'
       - run: bash tests/e2e/test_sample_project.sh
 
+  safe-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.85.0"
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: python/pytest-testpilot/pyproject.toml
+      - run: cargo +1.85.0 build -p testpilot-cli --locked
+      - run: pip install -e 'python/pytest-testpilot[dev]'
+      - run: chmod +x tests/e2e/test_safe_e2e.sh && bash tests/e2e/test_safe_e2e.sh
+
   features-oracle:
     runs-on: ubuntu-latest
     steps:

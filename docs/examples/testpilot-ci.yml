@@ -1,0 +1,28 @@
+# Example: TestPilot composite action in your repository.
+# Requires checkout with full history so merge-base works on pull requests.
+
+name: testpilot
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testpilot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TestPilot
+        uses: ./.github/actions/testpilot
+        with:
+          model-dir: path/to/your/model
+          db-path: .testpilot/db.sqlite
+          # On pull_request, set exactly one budget input:
+          budget-frac: '0.15'
+          safe: 'true'
+          working-directory: .
+          pytest-args: '-q'
