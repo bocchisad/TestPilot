@@ -32,7 +32,11 @@ def write_report(out_dir: Path, payload: dict[str, Any]) -> None:
         "",
         f"- status: **{payload.get('status')}**",
         f"- objective: `{payload.get('objective')}`",
-        f"- useful_on_val: {payload.get('useful_on_val')}",
+        f"- useful_on_val ({payload.get('useful_on_val_label', 'useful_on_val')}): "
+        f"{payload.get('useful_on_val')}",
+        f"- useful_on_synthetic_val "
+        f"({payload.get('useful_on_synthetic_val_label', 'useful_on_synthetic_val')}): "
+        f"{payload.get('useful_on_synthetic_val')}",
         f"- features_version: {payload.get('features_version')}",
         f"- schema_sha256: `{payload.get('schema_sha256')}`",
         "",

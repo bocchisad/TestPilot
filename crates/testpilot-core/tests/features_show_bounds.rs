@@ -44,6 +44,14 @@ impl GitRepo for CountingRepo {
         Ok(Sha::from_hex(rev.to_string()))
     }
 
+    fn commit_meta_for(&self, sha: &Sha) -> testpilot_core::error::Result<CommitMeta> {
+        self.commits
+            .iter()
+            .find(|c| c.sha.as_str() == sha.as_str())
+            .cloned()
+            .ok_or_else(|| testpilot_core::error::Error::Git(format!("unknown sha {}", sha)))
+    }
+
     fn walk_topo_old_to_new(
         &self,
         _since_sha: Option<&str>,
@@ -105,6 +113,7 @@ fn seed_run(store: &mut Store, i: usize) {
         diff_hash: None,
         input_hash: None,
         meta: None,
+        synthetic: false,
     };
     let results = vec![TestResultRow {
         test_id: "tests/test_a.py::test_alpha".into(),

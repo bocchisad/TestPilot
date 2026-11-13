@@ -52,30 +52,46 @@ pub struct CoChangeEventSer {
 
 impl From<&HistoryState> for HistorySer {
     fn from(h: &HistoryState) -> Self {
+        // Sort keys so postcard payloads are byte-stable across runs (P3).
+        let mut tests: Vec<_> = h
+            .tests
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    TestStatsSer {
+                        obs: v.obs,
+                        fails: v.fails,
+                        flaky: v.flaky,
+                        first_ts: v.first_ts,
+                        last_dur_ms: v.last_dur_ms,
+                    },
+                )
+            })
+            .collect();
+        tests.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut file_test = h.file_test_rows();
+        file_test.sort();
+        let mut func_test = h.func_test_rows();
+        func_test.sort();
+
+        let mut tests_in_file: Vec<_> = h
+            .tests_in_file
+            .iter()
+            .map(|(k, v)| {
+                let mut ids: Vec<_> = v.iter().cloned().collect();
+                ids.sort();
+                (k.clone(), ids)
+            })
+            .collect();
+        tests_in_file.sort_by(|a, b| a.0.cmp(&b.0));
+
         HistorySer {
-            tests: h
-                .tests
-                .iter()
-                .map(|(k, v)| {
-                    (
-                        k.clone(),
-                        TestStatsSer {
-                            obs: v.obs,
-                            fails: v.fails,
-                            flaky: v.flaky,
-                            first_ts: v.first_ts,
-                            last_dur_ms: v.last_dur_ms,
-                        },
-                    )
-                })
-                .collect(),
-            file_test: h.file_test_rows(),
-            func_test: h.func_test_rows(),
-            tests_in_file: h
-                .tests_in_file
-                .iter()
-                .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
-                .collect(),
+            tests,
+            file_test,
+            func_test,
+            tests_in_file,
         }
     }
 }
@@ -110,16 +126,17 @@ impl From<HistorySer> for HistoryState {
 
 impl From<&CoChangeState> for CoChangeSer {
     fn from(c: &CoChangeState) -> Self {
-        CoChangeSer {
-            events: c
-                .events()
-                .iter()
-                .map(|e| CoChangeEventSer {
-                    files: e.files.clone(),
-                    t: e.t,
-                })
-                .collect(),
-        }
+        let mut events: Vec<_> = c
+            .events()
+            .iter()
+            .map(|e| {
+                let mut files = e.files.clone();
+                files.sort();
+                CoChangeEventSer { files, t: e.t }
+            })
+            .collect();
+        events.sort_by(|a, b| a.t.cmp(&b.t).then_with(|| a.files.cmp(&b.files)));
+        CoChangeSer { events }
     }
 }
 

@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from testpilot_train.data import add_new_fail, load_parquets, training_mask
+from testpilot_train.data import add_new_fail, feature_matrix, load_parquets, training_mask
 from testpilot_train.schema import FeaturesSchema
 
 
@@ -61,6 +61,12 @@ def test_new_fail_and_persistent(features_schema: FeaturesSchema, tmp_path):
     assert train_rows.filter((pl.col("change") == c1) & (pl.col("test") == "tb")).height == 1
     # root rows excluded via parent_missing
     assert train_rows.filter(pl.col("change") == c0).height == 0
+
+
+def test_feature_matrix_rejects_service_columns(features_schema: FeaturesSchema, tmp_path):
+    df = pl.DataFrame({n: [0.0] for n in features_schema.feature_names + ("synthetic",)})
+    with pytest.raises(ValueError, match="service columns"):
+        feature_matrix(df, features_schema.feature_names + ("synthetic",))
 
 
 def test_nan_rejected(tiny_parquet, features_schema: FeaturesSchema, tmp_path):

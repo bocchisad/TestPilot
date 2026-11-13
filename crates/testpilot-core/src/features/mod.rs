@@ -14,7 +14,7 @@ pub mod schema;
 pub mod snapshot;
 pub mod writer;
 
-pub use dump::{compute_dump_rows, compute_show_rows, dump_parquet, show_format};
+pub use dump::{compute_dump_rows, compute_show_rows, dump_parquet, dump_parquet_ex, show_format};
 pub use python_scan::{DefSpan, ImportEdge, ScanResult, scan_python};
 pub use schema::{FEATURE_COLUMNS, FEATURES_VERSION, FeatureColumn, schema_json};
 pub use writer::{FeatureRow, sort_rows, write_parquet};

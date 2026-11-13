@@ -14,7 +14,7 @@ use crate::features::imports::{build_import_graph, build_import_graph_seeded};
 use crate::features::names::name_features;
 use crate::features::snapshot::{find_snapshot_on_lineage, save_snapshot, should_save_snapshot};
 use crate::features::writer::{self, FeatureRow};
-use crate::git::{DiffHunk, GitRepo, Sha};
+use crate::git::{DiffHunk, GitRepo, GixRepo, Sha, list_mutant_refs};
 use crate::store::Store;
 
 /// Infer test file path from a pytest-style node id (`path::…`).
@@ -102,7 +102,14 @@ struct EmitCtx<'a> {
     changed_paths: &'a HashSet<String>,
 }
 
-fn emit_row(ctx: &EmitCtx<'_>, test_id: &str, outcome: &str, flaky: bool) -> FeatureRow {
+fn emit_row(
+    ctx: &EmitCtx<'_>,
+    test_id: &str,
+    outcome: &str,
+    flaky: bool,
+    synthetic: i64,
+    base_change: &str,
+) -> FeatureRow {
     let tf = test_file_of(test_id);
     let (cc_max, cc_sum) = ctx.cochange.score(ctx.srcf, &tf, ctx.time);
     let imp_dist = (ctx.imp_dist_for)(&tf);
@@ -127,6 +134,8 @@ fn emit_row(ctx: &EmitCtx<'_>, test_id: &str, outcome: &str, flaky: bool) -> Fea
         test: test_id.to_string(),
         label: label_of(outcome),
         flaky: if flaky { 1 } else { 0 },
+        synthetic,
+        base_change: base_change.to_string(),
         cc_max,
         cc_sum,
         imp_dist,
@@ -276,7 +285,7 @@ pub fn compute_dump_rows<R: GitRepo>(
                 ch_nfunc,
                 changed_paths: &changed_paths,
             };
-            rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky));
+            rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky, 0, ""));
         }
 
         // --- post-emit updates ---
@@ -327,10 +336,155 @@ pub fn dump_parquet<R: GitRepo>(
     repo_name: &str,
     out: &Path,
 ) -> Result<usize> {
-    let rows = compute_dump_rows(repo, store, repo_name)?;
+    dump_parquet_ex(repo, store, repo_name, out, None)
+}
+
+/// Dump Phase A (real walk). If `mutant_repo` is `Some`, also emit Phase B mutant leaves
+/// from `refs/testpilot/mutants/**` without updating HistoryState / cochange / snapshots.
+pub fn dump_parquet_ex<R: GitRepo>(
+    repo: &R,
+    store: &Store,
+    repo_name: &str,
+    out: &Path,
+    mutant_repo: Option<&GixRepo>,
+) -> Result<usize> {
+    let mut rows = compute_dump_rows(repo, store, repo_name)?;
+    if let Some(grepo) = mutant_repo {
+        append_mutant_leaf_rows(grepo, store, repo_name, &mut rows)?;
+    }
     let n = rows.len();
     writer::write_parquet(out, &rows)?;
     Ok(n)
+}
+
+/// Phase B: emit mutant feature rows from frozen snapshot at C. Never updates history.
+fn append_mutant_leaf_rows(
+    repo: &GixRepo,
+    store: &Store,
+    repo_name: &str,
+    rows: &mut Vec<FeatureRow>,
+) -> Result<()> {
+    let mutants = list_mutant_refs(repo)?;
+    if mutants.is_empty() {
+        return Ok(());
+    }
+
+    let mut commit_idx_by_c: HashMap<String, i64> = HashMap::new();
+    for r in rows.iter() {
+        commit_idx_by_c
+            .entry(r.change.clone())
+            .or_insert(r.commit_idx);
+    }
+
+    for (m_sha, c_sha, _i) in mutants {
+        let Some(&commit_idx) = commit_idx_by_c.get(&c_sha) else {
+            tracing::warn!(
+                mutant = %m_sha,
+                base = %c_sha,
+                "skip mutant: base change has no dump rows (no commit_idx)"
+            );
+            continue;
+        };
+        let Some(run_id) = store.last_synthetic_run_with_results(&m_sha)? else {
+            tracing::warn!(mutant = %m_sha, "skip mutant: no synthetic results run");
+            continue;
+        };
+
+        let (history, cochange, cov_source_sha) = match find_snapshot_on_lineage(store, &c_sha)? {
+            Some((snap_sha, h, c, cov)) if snap_sha == c_sha => (h, c, cov),
+            Some((snap_sha, mut h, mut c, mut cov)) => {
+                catch_up_topo(repo, store, &snap_sha, &c_sha, &mut h, &mut c, &mut cov)?;
+                (h, c, cov)
+            }
+            None => {
+                return Err(Error::Other(format!(
+                    "no feature snapshot for mutant base {c_sha}; run `testpilot features dump` first"
+                )));
+            }
+        };
+
+        let c = Sha::from_hex(&c_sha);
+        let m = Sha::from_hex(&m_sha);
+        let hunks = repo.diff_hunks(&c, &m)?;
+        let srcf = src_files(&hunks);
+        let old_sources = old_sources_for_hunks(repo, &c, &hunks)?;
+        let funcs = all_changed_funcs(&hunks, &old_sources);
+        let (ch_nfiles, ch_nsrc, ch_add, ch_rm, _) = change_size_stats(&hunks);
+        let ch_nfunc = funcs.len() as i64;
+        let changed_paths: HashSet<String> = hunks.iter().map(|h| h.path.clone()).collect();
+
+        let mut chain = vec![c_sha.clone()];
+        let mut cur = c_sha.clone();
+        loop {
+            let Some(pp) = store.first_parent(&cur)? else {
+                break;
+            };
+            if chain.iter().any(|x| x == &pp) {
+                break;
+            }
+            chain.push(pp.clone());
+            cur = pp;
+            if chain.len() > 10_000 {
+                break;
+            }
+        }
+        // Coverage from ≤ C only (non-synthetic runs via store helpers).
+        let mut cov_tracker = CoverageTracker::new();
+        if let Some(ref src) = cov_source_sha {
+            if let Ok(Some(rid)) = store.last_clean_run_with_coverage(src) {
+                if let Ok(map) = load_cov_map(store, rid) {
+                    cov_tracker.record(src, map);
+                }
+            }
+        }
+        for anc in &chain {
+            if let Ok(Some(rid)) = store.last_clean_run_with_coverage(anc) {
+                if let Ok(map) = load_cov_map(store, rid) {
+                    cov_tracker.record(anc, map);
+                }
+            }
+        }
+        let cov = cov_tracker.lookup(&c_sha, &chain);
+
+        let paths = repo.list_paths_at_rev(&c)?;
+        let py_paths: Vec<String> = paths.into_iter().filter(|p| p.ends_with(".py")).collect();
+        let graph = build_import_graph(repo, store, &c, &py_paths)?;
+        let srcf_owned = srcf.clone();
+        let imp_dist_for = |tf: &str| graph.dist(tf, &srcf_owned);
+
+        let results = store.results_for_run(run_id)?;
+        let meta = repo.commit_meta_for(&m)?;
+        let t0 = meta.author_ts;
+        let cov_prep = CovSnapshot::prepare_src(&srcf, &hunks, &old_sources);
+
+        for r in &results {
+            let ctx = EmitCtx {
+                repo_name,
+                change: &m_sha,
+                parent: &c_sha,
+                commit_idx,
+                time: t0,
+                srcf: &srcf,
+                funcs: &funcs,
+                history: &history,
+                cochange: &cochange,
+                imp_dist_for: &imp_dist_for,
+                cov: &cov,
+                cov_prep: &cov_prep,
+                ch_nfiles,
+                ch_nsrc,
+                ch_add,
+                ch_rm,
+                ch_nfunc,
+                changed_paths: &changed_paths,
+            };
+            rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky, 1, &c_sha));
+        }
+        // Intentionally no history / cochange / cov_tracker / snapshot updates.
+    }
+
+    writer::sort_rows(rows);
+    Ok(())
 }
 
 fn show_timings_enabled() -> bool {
@@ -452,7 +606,7 @@ pub fn compute_show_rows<R: GitRepo>(
             ch_nfunc,
             changed_paths: &changed_paths,
         };
-        rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky));
+        rows.push(emit_row(&ctx, &r.test_id, &r.outcome, r.flaky, 0, ""));
     }
     writer::sort_rows(&mut rows);
     let ms_emit = mark(t);

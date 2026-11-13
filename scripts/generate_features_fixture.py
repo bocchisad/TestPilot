@@ -204,7 +204,8 @@ def main() -> int:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(ROOT_SCHEMA.read_text())
-    conn.execute("INSERT INTO schema_version(version) VALUES (3)")
+    # Must match crates/testpilot-core SCHEMA_VERSION (schema.sql already applied).
+    conn.execute("INSERT INTO schema_version(version) VALUES (6)")
 
     # Insert ALL reachable commits (including feature tip) for parent links
     all_shas = set(shas) | {c10}

@@ -15,6 +15,7 @@ from testpilot_train.artifact import save_booster, write_model_json, write_refer
 from testpilot_train.baselines import BASELINE_NAMES, baseline_scores
 from testpilot_train.data import diagnostics, load_parquets
 from testpilot_train.metrics import (
+    MetricPoint,
     bootstrap_ci,
     change_metrics,
     macro_mean,
@@ -38,7 +39,11 @@ from testpilot_train.split import (
 )
 
 
-def _metric_block(per: list[dict[str, float]], seed: int) -> dict[str, Any]:
+def _metric_block(
+    per: list[dict[str, float]],
+    seed: int,
+    cluster_ids: list[str] | None = None,
+) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key in (
         "recall@5%",
@@ -48,13 +53,68 @@ def _metric_block(per: list[dict[str, float]], seed: int) -> dict[str, Any]:
         "first_fail_frac",
         "all_fail_frac",
     ):
-        pt = bootstrap_ci(per, key, seed=seed)
+        pt = bootstrap_ci(per, key, seed=seed, cluster_ids=cluster_ids)
         out[key] = {
             "mean": pt.mean,
             "ci95": [pt.ci_low, pt.ci_high],
             "n_changes": pt.n_changes,
         }
     return out
+
+
+def _cluster_id(frame: pl.DataFrame, repo: str, change: str) -> str:
+    sub = frame.filter((pl.col("repo") == repo) & (pl.col("change") == change))
+    if sub.height == 0:
+        return f"{repo}:{change}"
+    if "synthetic" in sub.columns and int(sub["synthetic"].max() or 0) == 1:
+        bc = sub["base_change"][0]
+        if bc:
+            return f"{repo}:{bc}"
+    return f"{repo}:{change}"
+
+
+def _cluster_ids_for_keys(
+    frame: pl.DataFrame, keys: list[tuple[str, str]]
+) -> list[str]:
+    return [_cluster_id(frame, r, c) for r, c in keys]
+
+
+def _mutant_test_stats(test_df: pl.DataFrame) -> tuple[int, int]:
+    """Mutant changes with ≥1 new_fail, and distinct base_change among them."""
+    if "synthetic" not in test_df.columns:
+        return 0, 0
+    mut = test_df.filter(pl.col("synthetic") == 1)
+    ch = (
+        mut.group_by(["repo", "change"])
+        .agg(pl.col("new_fail").sum().alias("n"))
+        .filter(pl.col("n") > 0)
+    )
+    n_changes = ch.height
+    if "base_change" not in mut.columns:
+        return n_changes, 0
+    meta = mut.select(["repo", "change", "base_change"]).unique()
+    joined = ch.join(meta, on=["repo", "change"], how="left")
+    n_bases = int(
+        joined.filter(pl.col("base_change").is_not_null() & (pl.col("base_change") != ""))
+        .select("base_change")
+        .unique()
+        .height
+    )
+    return n_changes, n_bases
+
+
+def _baseline_keyed_for_slice(
+    slice_df: pl.DataFrame, name: str
+) -> dict[tuple[str, str], dict[str, float]]:
+    keyed: dict[tuple[str, str], dict[str, float]] = {}
+    for keys, grp in slice_df.group_by(["repo", "change"], maintain_order=True):
+        repo, change = keys  # type: ignore[misc]
+        g = grp.filter(~pl.col("parent_missing"))
+        y = g["new_fail"].to_numpy()
+        if int(y.sum()) == 0:
+            continue
+        keyed[(str(repo), str(change))] = change_metrics(y, baseline_scores(g, name))
+    return keyed
 
 
 def _per_change_keyed(
@@ -154,8 +214,12 @@ def train(
     test_scores = predict_raw(fit.booster, test_df, schema)
     val_keyed = _per_change_keyed(val_df, val_scores, "new_fail")
     test_keyed = _per_change_keyed(test_df, test_scores, "new_fail")
-    val_per = [val_keyed[k] for k in sorted(val_keyed)]
-    test_per = [test_keyed[k] for k in sorted(test_keyed)]
+    val_keys = sorted(val_keyed)
+    test_keys = sorted(test_keyed)
+    val_per = [val_keyed[k] for k in val_keys]
+    test_per = [test_keyed[k] for k in test_keys]
+    val_clusters = _cluster_ids_for_keys(val_df, val_keys)
+    test_clusters = _cluster_ids_for_keys(test_df, test_keys)
 
     baseline_val_keyed: dict[str, dict[tuple[str, str], dict[str, float]]] = {}
     best_name = "random"
@@ -177,7 +241,22 @@ def train(
             best_name = name
 
     m_val, b_val = _align_per(val_keyed, baseline_val_keyed[best_name])
-    delta_val = paired_delta_ci(m_val, b_val, "recall@10%", seed=seed)
+    align_keys = sorted(set(val_keyed) & set(baseline_val_keyed[best_name]))
+    align_clusters = _cluster_ids_for_keys(val_df, align_keys)
+    delta_val = paired_delta_ci(
+        m_val, b_val, "recall@10%", seed=seed, cluster_ids=align_clusters
+    )
+
+    cov_val_keyed = _baseline_keyed_for_slice(val_df, "cov_lines")
+    m_cov, b_cov = _align_per(val_keyed, cov_val_keyed)
+    cov_keys = sorted(set(val_keyed) & set(cov_val_keyed))
+    delta_val_cov = paired_delta_ci(
+        m_cov,
+        b_cov,
+        "recall@10%",
+        seed=seed + 11,
+        cluster_ids=_cluster_ids_for_keys(val_df, cov_keys),
+    )
 
     base_test_keyed: dict[tuple[str, str], dict[str, float]] = {}
     for keys, grp in test_df.group_by(["repo", "change"], maintain_order=True):
@@ -190,11 +269,53 @@ def train(
             y, baseline_scores(g, best_name)
         )
     m_test, b_test = _align_per(test_keyed, base_test_keyed)
-    delta_test = paired_delta_ci(m_test, b_test, "recall@10%", seed=seed + 1)
+    test_align_keys = sorted(set(test_keyed) & set(base_test_keyed))
+    delta_test = paired_delta_ci(
+        m_test,
+        b_test,
+        "recall@10%",
+        seed=seed + 1,
+        cluster_ids=_cluster_ids_for_keys(test_df, test_align_keys),
+    )
 
     n_test_new = len(test_keyed)
-    status = "ok" if n_test_new >= 20 else "data_insufficient"
+    has_synthetic = "synthetic" in frame.columns and int(
+        frame.filter(pl.col("synthetic") == 1).height
+    ) > 0
+    # When any synthetic rows exist, gate sufficiency on synthetic test slice (M3).
+    if has_synthetic:
+        n_mut, n_bases = _mutant_test_stats(test_df)
+        status = "ok" if (n_mut >= 20 and n_bases >= 10) else "data_insufficient"
+    else:
+        status = "ok" if n_test_new >= 20 else "data_insufficient"
+
+    # Real useful-gate (vs best val heuristic) — always reported.
     useful_on_val = useful_by_paired(delta_val)
+    useful_on_val_label = "useful_on_real_val" if has_synthetic else "useful_on_val"
+
+    # Synthetic useful-gate vs cov_lines — always when synthetic rows exist (P2).
+    val_syn_df = (
+        val_df.filter(pl.col("synthetic") == 1)
+        if "synthetic" in val_df.columns
+        else val_df.clear()
+    )
+    useful_on_synthetic_val = False
+    delta_synthetic_val_cov: MetricPoint | None = None
+    if val_syn_df.height > 0:
+        syn_scores = predict_raw(fit.booster, val_syn_df, schema)
+        syn_keyed = _per_change_keyed(val_syn_df, syn_scores, "new_fail")
+        cov_syn = _baseline_keyed_for_slice(val_syn_df, "cov_lines")
+        m_s, b_s = _align_per(syn_keyed, cov_syn)
+        syn_keys = sorted(set(syn_keyed) & set(cov_syn))
+        if m_s:
+            delta_synthetic_val_cov = paired_delta_ci(
+                m_s,
+                b_s,
+                "recall@10%",
+                seed=seed + 12,
+                cluster_ids=_cluster_ids_for_keys(val_syn_df, syn_keys),
+            )
+            useful_on_synthetic_val = useful_by_paired(delta_synthetic_val_cov)
 
     gain = fit.booster.feature_importance(importance_type="gain")
     names = list(schema.feature_names)
@@ -215,6 +336,20 @@ def train(
         )
 
     trunc = fit.params.get("lambdarank_truncation_level")
+
+    def _slice_metric_payload(df: pl.DataFrame, sc: np.ndarray, boot_seed: int) -> dict[str, Any]:
+        if df.height == 0:
+            return {}
+        keyed = _per_change_keyed(df, sc, "new_fail")
+        keys = sorted(keyed)
+        if not keys:
+            return {}
+        return _metric_block(
+            [keyed[k] for k in keys],
+            boot_seed,
+            _cluster_ids_for_keys(df, keys),
+        )
+
     payload: dict[str, Any] = {
         "features_version": schema.features_version,
         "schema_sha256": schema.schema_sha256,
@@ -247,8 +382,8 @@ def train(
             "n_persistent": loaded.n_persistent,
             "n_flaky": loaded.n_flaky,
         },
-        "metrics_val_new_fail": _metric_block(val_per, seed),
-        "metrics_test_new_fail": _metric_block(test_per, seed + 2),
+        "metrics_val_new_fail": _metric_block(val_per, seed, val_clusters),
+        "metrics_test_new_fail": _metric_block(test_per, seed + 2, test_clusters),
         "metrics_val_label_with_flaky": _metric_block(
             _label_secondary(val_df, val_scores, drop_flaky=False), seed + 3
         ),
@@ -256,10 +391,16 @@ def train(
             _label_secondary(val_df, val_scores, drop_flaky=True), seed + 4
         ),
         "best_baseline_val": best_name,
+        "foil_baseline_mutation_bootstrap": "cov_lines",
         "paired_delta_ci_val": {
             "mean": delta_val.mean,
             "ci95": [delta_val.ci_low, delta_val.ci_high],
             "n": delta_val.n_changes,
+        },
+        "paired_delta_ci_val_cov_lines": {
+            "mean": delta_val_cov.mean,
+            "ci95": [delta_val_cov.ci_low, delta_val_cov.ci_high],
+            "n": delta_val_cov.n_changes,
         },
         "paired_delta_ci_test": {
             "mean": delta_test.mean,
@@ -267,6 +408,9 @@ def train(
             "n": delta_test.n_changes,
         },
         "useful_on_val": useful_on_val,
+        "useful_on_val_label": useful_on_val_label,
+        "useful_on_synthetic_val": useful_on_synthetic_val,
+        "useful_on_synthetic_val_label": "useful_on_synthetic_val",
         "status": status,
         "feature_gain": feature_gain,
         "sentinel_notes": {"pf_max": -1, "pq_max": -1, "dur": -1, "imp_dist": 99},
@@ -278,10 +422,43 @@ def train(
             "zero_as_missing": False,
         },
     }
-    if status == "data_insufficient":
-        payload["note"] = (
-            "test has <20 changes with ≥1 new_fail; metrics shown but no conclusions"
+    if "synthetic" in frame.columns:
+        val_real_df = val_df.filter(pl.col("synthetic") == 0)
+        val_syn_only = val_df.filter(pl.col("synthetic") == 1)
+        test_real_df = test_df.filter(pl.col("synthetic") == 0)
+        test_syn_df = test_df.filter(pl.col("synthetic") == 1)
+        payload["metrics_val_new_fail_real"] = _slice_metric_payload(
+            val_real_df, predict_raw(fit.booster, val_real_df, schema), seed + 5
         )
+        payload["metrics_val_new_fail_synthetic"] = _slice_metric_payload(
+            val_syn_only, predict_raw(fit.booster, val_syn_only, schema), seed + 6
+        )
+        payload["metrics_test_new_fail_real"] = _slice_metric_payload(
+            test_real_df, predict_raw(fit.booster, test_real_df, schema), seed + 7
+        )
+        payload["metrics_test_new_fail_synthetic"] = _slice_metric_payload(
+            test_syn_df, predict_raw(fit.booster, test_syn_df, schema), seed + 8
+        )
+        if has_synthetic:
+            n_mut, n_bases = _mutant_test_stats(test_df)
+            payload["diagnostics"]["mutant_test_new_fail_changes"] = n_mut
+            payload["diagnostics"]["mutant_test_distinct_base_change"] = n_bases
+    if delta_synthetic_val_cov is not None:
+        payload["paired_delta_ci_synthetic_val_cov_lines"] = {
+            "mean": delta_synthetic_val_cov.mean,
+            "ci95": [delta_synthetic_val_cov.ci_low, delta_synthetic_val_cov.ci_high],
+            "n": delta_synthetic_val_cov.n_changes,
+        }
+    if status == "data_insufficient":
+        if has_synthetic:
+            payload["note"] = (
+                "synthetic data present: test needs ≥20 mutant changes with "
+                "≥1 new_fail and ≥10 distinct base_change; metrics shown but no conclusions"
+            )
+        else:
+            payload["note"] = (
+                "test has <20 changes with ≥1 new_fail; metrics shown but no conclusions"
+            )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     save_booster(fit.booster, out_dir / "model.txt")
@@ -338,5 +515,11 @@ def evaluate(
         parts.append(picked)
     eval_df = pl.concat(parts) if parts else frame.clear()
     scores = predict_raw(booster, eval_df, schema)
-    per = per_change_metrics_for_scores(eval_df, scores, "new_fail")
-    return {"n_rows": eval_df.height, "metrics": _metric_block(per, seed=0)}
+    keyed = _per_change_keyed(eval_df, scores, "new_fail")
+    keys = sorted(keyed)
+    per = [keyed[k] for k in keys]
+    clusters = _cluster_ids_for_keys(eval_df, keys) if keys else None
+    return {
+        "n_rows": eval_df.height,
+        "metrics": _metric_block(per, seed=0, cluster_ids=clusters),
+    }

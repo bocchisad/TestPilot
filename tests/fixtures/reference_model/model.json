@@ -38,7 +38,7 @@
     "ch_rm",
     "ch_nfunc"
   ],
-  "features_version": 1,
+  "features_version": 2,
   "lightgbm_version": "4.5.0",
   "max_depth": 10,
   "n_rows": 4800,
@@ -63,7 +63,7 @@
     "zero_as_missing": false
   },
   "predict_raw_score": true,
-  "schema_sha256": "337d4403753b6a4f954683b884842b004431e9a3031c1aecc7f232a944d9a84c",
+  "schema_sha256": "9e5e9243326d8870bd33dcf8c59b49d34a76d60e921435f501638db23e2c5269",
   "score_mean": -0.05645804856824912,
   "seed": 42,
   "sentinel_notes": {

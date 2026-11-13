@@ -403,7 +403,7 @@ def main() -> int:
 
     def last_clean_with_results(sha: str) -> int | None:
         r = conn.execute(
-            "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 "
+            "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 "
             "AND EXISTS(SELECT 1 FROM test_results tr WHERE tr.run_id=r.id) "
             "ORDER BY r.id DESC LIMIT 1",
             (sha,),
@@ -414,7 +414,7 @@ def main() -> int:
         return [
             int(x[0])
             for x in conn.execute(
-                "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.id!=? "
+                "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 AND r.id!=? "
                 "AND EXISTS(SELECT 1 FROM test_results tr WHERE tr.run_id=r.id) ORDER BY r.id",
                 (sha, primary),
             )
@@ -441,7 +441,7 @@ def main() -> int:
 
     def last_cov_run(sha: str) -> int | None:
         r = conn.execute(
-            "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 "
+            "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 "
             "AND EXISTS(SELECT 1 FROM test_coverage c WHERE c.run_id=r.id) "
             "ORDER BY r.id DESC LIMIT 1",
             (sha,),
@@ -595,6 +595,8 @@ def main() -> int:
                 "test": tid,
                 "label": 1 if outcome in ("fail", "error") else 0,
                 "flaky": int(flaky),
+                "synthetic": 0,
+                "base_change": "",
                 "cc_max": cc_max,
                 "cc_sum": cc_sum,
                 "imp_dist": imp_dist,

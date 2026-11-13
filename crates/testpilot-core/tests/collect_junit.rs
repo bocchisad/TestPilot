@@ -42,6 +42,7 @@ fn force_replaces_existing_run() {
         started_at: None,
         meta: None,
         force,
+        synthetic: false,
         cwd: tmp.path(),
     };
     let s1 = collect_junit(&mut store, opts(false)).unwrap();
@@ -91,6 +92,7 @@ fn sha_head_resolves_to_full_hex() {
             started_at: None,
             meta: None,
             force: false,
+            synthetic: false,
             cwd: tmp.path(),
         },
     )
@@ -129,6 +131,7 @@ fn input_hash_ignores_paths_uses_contents() {
             started_at: None,
             meta: None,
             force: false,
+            synthetic: false,
             cwd: tmp.path(),
         },
     )
@@ -141,6 +144,7 @@ fn input_hash_ignores_paths_uses_contents() {
             started_at: None,
             meta: None,
             force: false,
+            synthetic: false,
             cwd: tmp.path(),
         },
     )
@@ -172,6 +176,7 @@ fn full_sha_ingests_outside_git_repo() {
             started_at: Some(1),
             meta: None,
             force: false,
+            synthetic: false,
             cwd: tmp.path(),
         },
     )
@@ -208,6 +213,7 @@ fn timestamp_offset_applied_on_ingest() {
             started_at: None,
             meta: None,
             force: false,
+            synthetic: false,
             cwd: tmp.path(),
         },
     )

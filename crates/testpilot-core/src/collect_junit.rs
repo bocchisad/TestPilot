@@ -16,6 +16,8 @@ pub struct CollectJunitOpts<'a> {
     pub meta: Option<String>,
     pub force: bool,
     pub cwd: &'a Path,
+    /// Mutant bootstrap runs set this so real history/coverage/show ignore them.
+    pub synthetic: bool,
 }
 
 #[derive(Debug)]
@@ -97,6 +99,7 @@ pub fn collect_junit(store: &mut Store, opts: CollectJunitOpts<'_>) -> Result<Co
         diff_hash: None,
         input_hash: Some(input_hash),
         meta: opts.meta,
+        synthetic: opts.synthetic,
     };
 
     // B13/B16: one transaction; --force deletes prior matching run

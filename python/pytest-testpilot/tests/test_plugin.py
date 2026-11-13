@@ -895,7 +895,8 @@ def test_stale_schema_v1_is_reported(git_repo: Path) -> None:
           dirty INTEGER NOT NULL DEFAULT 0,
           diff_hash TEXT,
           input_hash TEXT,
-          meta TEXT
+          meta TEXT,
+          synthetic INTEGER NOT NULL DEFAULT 0
         );
         """
     )

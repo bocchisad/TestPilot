@@ -174,15 +174,16 @@ jobs:
         run: cargo +1.85.0 build -p testpilot-cli --locked
       - name: Install testpilot-train
         run: pip install -e 'python/testpilot-train[dev]'
-      - name: Pytest train-oracle (<60s)
+      - name: Pytest train-oracle (<180s)
         run: |
           set -euo pipefail
           START=$(date +%s)
           pytest python/testpilot-train -q --durations=10
+          PYTHONPATH=scripts pytest scripts/mutate -q --durations=20
           END=$(date +%s)
           ELAPSED=$((END - START))
           echo "train-oracle elapsed=${ELAPSED}s"
-          if [ "$ELAPSED" -ge 60 ]; then
-            echo "train-oracle exceeded 60s budget" >&2
+          if [ "$ELAPSED" -ge 180 ]; then
+            echo "train-oracle exceeded 180s budget" >&2
             exit 1
           fi

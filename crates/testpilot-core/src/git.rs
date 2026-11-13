@@ -75,6 +75,8 @@ pub struct DiffHunk {
 
 pub trait GitRepo {
     fn rev_parse(&self, rev: &str) -> Result<Sha>;
+    /// Metadata for a single commit (any reachable object, including mutant side refs).
+    fn commit_meta_for(&self, sha: &Sha) -> Result<CommitMeta>;
     /// All commits reachable from HEAD (optionally excluding `since_sha` and its ancestors),
     /// in Kahn topo order (parents before children). Does **not** apply `--max`.
     fn walk_topo_old_to_new(
@@ -267,6 +269,11 @@ impl GixRepo {
 impl GitRepo for GixRepo {
     fn rev_parse(&self, rev: &str) -> Result<Sha> {
         Ok(Self::oid_to_sha(self.parse_oid(rev)?))
+    }
+
+    fn commit_meta_for(&self, sha: &Sha) -> Result<CommitMeta> {
+        let oid = self.parse_oid(sha.as_str())?;
+        self.commit_meta(oid)
     }
 
     fn walk_topo_old_to_new(
@@ -891,6 +898,83 @@ pub fn collect_git<R: GitRepo>(
         200,
         None,
     )
+}
+
+/// Index explicit commit SHAs (e.g. mutant leaves off HEAD). Idempotent per SHA.
+pub fn collect_git_shas<R: GitRepo>(
+    repo: &R,
+    store: &mut Store,
+    shas: &[&str],
+    max_files_per_commit: usize,
+) -> Result<CollectGitStats> {
+    let mut pending: Vec<(CommitMeta, Vec<FileChange>, bool)> = Vec::new();
+    let mut skipped = 0usize;
+    let mut oversized = 0usize;
+    for s in shas {
+        let sha = repo.rev_parse(s)?;
+        if store.commit_exists(sha.as_str())? {
+            skipped += 1;
+            continue;
+        }
+        let meta = repo.commit_meta_for(&sha)?;
+        let mut changes = repo.diff_against_first_parent(&meta.sha)?;
+        let is_oversized = changes.len() > max_files_per_commit;
+        if is_oversized {
+            tracing::warn!(
+                sha = %meta.sha,
+                files = changes.len(),
+                limit = max_files_per_commit,
+                "commit exceeds max-files-per-commit; storing without file_changes"
+            );
+            changes.clear();
+            oversized += 1;
+        }
+        pending.push((meta, changes, is_oversized));
+    }
+    let mut writes_done = 0usize;
+    let inserted = flush_batch(store, &mut pending, &mut writes_done, None)?;
+    Ok(CollectGitStats {
+        inserted,
+        skipped,
+        oversized,
+    })
+}
+
+/// List tips under `refs/testpilot/mutants/<C>/<i>` → `(M_sha, C_sha, i)`.
+pub fn list_mutant_refs(repo: &GixRepo) -> Result<Vec<(String, String, u32)>> {
+    let mut out = Vec::new();
+    let platform = repo
+        .repo
+        .references()
+        .map_err(|e| Error::Git(e.to_string()))?;
+    let iter = platform.all().map_err(|e| Error::Git(e.to_string()))?;
+    for r in iter {
+        let r = r.map_err(|e| Error::Git(e.to_string()))?;
+        let name = r.name().as_bstr().to_string();
+        let Some(rest) = name.strip_prefix("refs/testpilot/mutants/") else {
+            continue;
+        };
+        let mut parts = rest.split('/');
+        let Some(c_sha) = parts.next() else {
+            continue;
+        };
+        let Some(i_s) = parts.next() else {
+            continue;
+        };
+        if parts.next().is_some() {
+            continue;
+        }
+        let Ok(i) = i_s.parse::<u32>() else {
+            continue;
+        };
+        let target = r
+            .into_fully_peeled_id()
+            .map_err(|e| Error::Git(e.to_string()))?;
+        let m_sha = GixRepo::oid_to_sha(target.detach());
+        out.push((m_sha.as_str().to_string(), c_sha.to_string(), i));
+    }
+    out.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
+    Ok(out)
 }
 
 /// Like [`collect_git`], with injectable batch size and mid-batch failure (B4 tests).

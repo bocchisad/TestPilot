@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{Error, Result};
 
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 pub const SCHEMA_SQL: &str = include_str!("../schema.sql");
 
 /// Additive migration from collection schema v2 → features cache v3.
@@ -34,6 +34,13 @@ CREATE TABLE feature_history_snapshot (
   payload BLOB NOT NULL,
   cov_source_sha TEXT
 );
+"#;
+
+/// v5 → v6: flag mutant bootstrap runs so real query paths ignore them.
+/// Applied only when the column is missing (fresh SCHEMA_SQL already has it).
+const MIGRATE_5_TO_6_ADD: &str = r#"
+ALTER TABLE test_runs ADD COLUMN synthetic INTEGER NOT NULL DEFAULT 0
+  CHECK (synthetic IN (0,1));
 "#;
 
 fn schema_version_error(found: i64, expected: i64) -> Error {
@@ -74,6 +81,8 @@ pub struct TestRunRow {
     pub diff_hash: Option<String>,
     pub input_hash: Option<String>,
     pub meta: Option<String>,
+    /// Mutant bootstrap run (1) must not feed real history/coverage/show paths.
+    pub synthetic: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -142,7 +151,7 @@ impl Store {
                 return Ok(());
             }
             // Additive upgrades only; v1 still requires delete.
-            if (2..=4).contains(&v) && SCHEMA_VERSION == 5 {
+            if (2..=5).contains(&v) && SCHEMA_VERSION == 6 {
                 let tx = self.conn.unchecked_transaction()?;
                 if v == 2 {
                     tx.execute_batch(MIGRATE_2_TO_3)?;
@@ -152,6 +161,16 @@ impl Store {
                 }
                 if v <= 4 {
                     tx.execute_batch(MIGRATE_4_TO_5)?;
+                }
+                if v <= 5 {
+                    let has_syn: i64 = tx.query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('test_runs') WHERE name='synthetic'",
+                        [],
+                        |r| r.get(0),
+                    )?;
+                    if has_syn == 0 {
+                        tx.execute_batch(MIGRATE_5_TO_6_ADD)?;
+                    }
                 }
                 tx.execute(
                     "UPDATE schema_version SET version = ?1",
@@ -315,8 +334,8 @@ impl Store {
     pub fn insert_test_run_on(conn: &Connection, run: &TestRunRow) -> Result<Option<i64>> {
         let result = conn.execute(
             "INSERT INTO test_runs(
-                sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta, synthetic
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 run.sha,
                 run.source,
@@ -325,7 +344,8 @@ impl Store {
                 run.dirty as i64,
                 run.diff_hash,
                 run.input_hash,
-                run.meta
+                run.meta,
+                run.synthetic as i64
             ],
         );
         match result {
@@ -428,23 +448,13 @@ impl Store {
             .map_err(Into::into)
     }
 
-    pub fn latest_run_id_for_sha(&self, sha: &str) -> Result<Option<i64>> {
-        self.conn
-            .query_row(
-                "SELECT id FROM test_runs WHERE sha = ?1 ORDER BY id DESC LIMIT 1",
-                params![sha],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(Into::into)
-    }
-
     /// Newest pytest run for `sha` that has at least one coverage row (N5).
+    /// Excludes synthetic (mutant) runs.
     pub fn latest_pytest_run_with_coverage_for_sha(&self, sha: &str) -> Result<Option<i64>> {
         self.conn
             .query_row(
                 "SELECT r.id FROM test_runs r
-                 WHERE r.sha = ?1 AND r.source = 'pytest'
+                 WHERE r.sha = ?1 AND r.source = 'pytest' AND r.synthetic = 0
                    AND EXISTS (SELECT 1 FROM test_coverage c WHERE c.run_id = r.id)
                  ORDER BY r.id DESC LIMIT 1",
                 params![sha],
@@ -571,12 +581,12 @@ impl Store {
         Ok(out)
     }
 
-    /// Last clean run on `sha` that has ≥1 test_results row (pytest or junit).
+    /// Last clean **non-synthetic** run on `sha` that has ≥1 test_results row.
     pub fn last_clean_run_with_results(&self, sha: &str) -> Result<Option<i64>> {
         self.conn
             .query_row(
                 "SELECT r.id FROM test_runs r
-                 WHERE r.sha = ?1 AND r.dirty = 0
+                 WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0
                    AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
                  ORDER BY r.id DESC LIMIT 1",
                 params![sha],
@@ -586,11 +596,11 @@ impl Store {
             .map_err(Into::into)
     }
 
-    /// Other clean runs on `sha` (excluding `primary_id`) — for flaky-only updates.
+    /// Other clean **non-synthetic** runs on `sha` (excluding `primary_id`).
     pub fn other_clean_runs(&self, sha: &str, primary_id: i64) -> Result<Vec<i64>> {
         let mut stmt = self.conn.prepare(
             "SELECT r.id FROM test_runs r
-             WHERE r.sha = ?1 AND r.dirty = 0 AND r.id != ?2
+             WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0 AND r.id != ?2
                AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
              ORDER BY r.id ASC",
         )?;
@@ -602,13 +612,28 @@ impl Store {
         Ok(out)
     }
 
-    /// Last clean run with ≥1 coverage row on `sha` (any source).
+    /// Last clean **non-synthetic** run with ≥1 coverage row on `sha`.
     pub fn last_clean_run_with_coverage(&self, sha: &str) -> Result<Option<i64>> {
         self.conn
             .query_row(
                 "SELECT r.id FROM test_runs r
-                 WHERE r.sha = ?1 AND r.dirty = 0
+                 WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0
                    AND EXISTS (SELECT 1 FROM test_coverage c WHERE c.run_id = r.id)
+                 ORDER BY r.id DESC LIMIT 1",
+                params![sha],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Last synthetic (mutant) run with results on `sha` — Phase B dump only.
+    pub fn last_synthetic_run_with_results(&self, sha: &str) -> Result<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT r.id FROM test_runs r
+                 WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 1
+                   AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
                  ORDER BY r.id DESC LIMIT 1",
                 params![sha],
                 |r| r.get(0),
@@ -699,6 +724,68 @@ mod tests {
     use super::*;
 
     #[test]
+    fn synthetic_runs_excluded_from_clean_queries() {
+        let mut store = Store::open_in_memory().unwrap();
+        let real = TestRunRow {
+            sha: "abc".into(),
+            source: "junit".into(),
+            started_at: 1,
+            finished_at: Some(2),
+            dirty: false,
+            diff_hash: None,
+            input_hash: Some("real".into()),
+            meta: None,
+            synthetic: false,
+        };
+        let syn = TestRunRow {
+            sha: "abc".into(),
+            source: "junit".into(),
+            started_at: 3,
+            finished_at: Some(4),
+            dirty: false,
+            diff_hash: None,
+            input_hash: Some("syn".into()),
+            meta: None,
+            synthetic: true,
+        };
+        let results = vec![TestResultRow {
+            test_id: "t::a".into(),
+            outcome: "pass".into(),
+            duration_ms: 1,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        }];
+        let cov = vec![CoverageRow {
+            test_id: "t::a".into(),
+            path: "x.py".into(),
+            lines: vec![0x01],
+        }];
+        let real_id = store
+            .insert_run_atomic(&real, &results, &cov, false)
+            .unwrap()
+            .unwrap();
+        let syn_id = store
+            .insert_run_atomic(&syn, &results, &cov, false)
+            .unwrap()
+            .unwrap();
+        assert!(syn_id > real_id);
+        assert_eq!(
+            store.last_clean_run_with_results("abc").unwrap(),
+            Some(real_id)
+        );
+        assert_eq!(
+            store.last_clean_run_with_coverage("abc").unwrap(),
+            Some(real_id)
+        );
+        assert_eq!(
+            store.last_synthetic_run_with_results("abc").unwrap(),
+            Some(syn_id)
+        );
+        assert!(store.other_clean_runs("abc", real_id).unwrap().is_empty());
+    }
+
+    #[test]
     fn migrate_idempotent() {
         let store = Store::open_in_memory().unwrap();
         store.migrate().unwrap();
@@ -776,7 +863,7 @@ mod tests {
                 err,
                 Error::SchemaOutdated {
                     found: 1,
-                    expected: 5
+                    expected: 6
                 }
             ),
             "{err}"
@@ -786,15 +873,27 @@ mod tests {
     }
 
     #[test]
-    fn schema_v2_upgrades_in_place_to_v5() {
+    fn schema_v2_upgrades_in_place_to_v6() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("v2.sqlite");
         {
             let conn = Connection::open(&path).unwrap();
             // Minimal v2: version row + enough that open's migrate only needs cache DDL.
+            // Need test_runs for v5→v6 ALTER.
             conn.execute_batch(
                 "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
-                 INSERT INTO schema_version(version) VALUES (2);",
+                 INSERT INTO schema_version(version) VALUES (2);
+                 CREATE TABLE test_runs (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   sha TEXT NOT NULL,
+                   source TEXT NOT NULL,
+                   started_at INTEGER NOT NULL,
+                   finished_at INTEGER,
+                   dirty INTEGER NOT NULL DEFAULT 0,
+                   diff_hash TEXT,
+                   input_hash TEXT,
+                   meta TEXT
+                 );",
             )
             .unwrap();
         }
@@ -803,7 +902,7 @@ mod tests {
             .conn
             .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
         let n: i64 = store
             .conn
             .query_row(
@@ -834,7 +933,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_v4_upgrades_in_place_to_v5() {
+    fn schema_v4_upgrades_in_place_to_v6() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("v4.sqlite");
         {
@@ -842,6 +941,17 @@ mod tests {
             conn.execute_batch(
                 "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
                  INSERT INTO schema_version(version) VALUES (4);
+                 CREATE TABLE test_runs (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   sha TEXT NOT NULL,
+                   source TEXT NOT NULL,
+                   started_at INTEGER NOT NULL,
+                   finished_at INTEGER,
+                   dirty INTEGER NOT NULL DEFAULT 0,
+                   diff_hash TEXT,
+                   input_hash TEXT,
+                   meta TEXT
+                 );
                  CREATE TABLE feature_history_snapshot (
                    sha TEXT PRIMARY KEY,
                    history_json TEXT NOT NULL,
@@ -856,7 +966,7 @@ mod tests {
             .conn
             .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
         let cols: String = store
             .conn
             .query_row(
@@ -867,6 +977,51 @@ mod tests {
             .unwrap();
         assert!(cols.contains("payload"), "{cols}");
         assert!(!cols.contains("history_json"), "{cols}");
+        let has_syn: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('test_runs') WHERE name='synthetic'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_syn, 1);
+    }
+
+    #[test]
+    fn schema_v5_upgrades_in_place_to_v6() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v5.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+                 INSERT INTO schema_version(version) VALUES (5);
+                 CREATE TABLE test_runs (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   sha TEXT NOT NULL,
+                   source TEXT NOT NULL,
+                   started_at INTEGER NOT NULL,
+                   finished_at INTEGER,
+                   dirty INTEGER NOT NULL DEFAULT 0,
+                   diff_hash TEXT,
+                   input_hash TEXT,
+                   meta TEXT
+                 );
+                 CREATE TABLE feature_history_snapshot (
+                   sha TEXT PRIMARY KEY,
+                   payload BLOB NOT NULL,
+                   cov_source_sha TEXT
+                 );",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let v: i64 = store
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 6);
     }
 
     #[test]
@@ -900,6 +1055,7 @@ mod tests {
             diff_hash: None,
             input_hash: None,
             meta: None,
+            synthetic: false,
         };
         let results = vec![
             TestResultRow {

@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS test_runs (
   dirty       INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0,1)),
   diff_hash   TEXT,
   input_hash  TEXT,
-  meta        TEXT
+  meta        TEXT,
+  -- v6: mutant / bootstrap runs must not feed real history/coverage/show paths
+  synthetic   INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0,1))
 );
 
 CREATE TABLE IF NOT EXISTS tests (

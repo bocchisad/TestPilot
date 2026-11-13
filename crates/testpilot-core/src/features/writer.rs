@@ -26,6 +26,8 @@ pub struct FeatureRow {
     pub test: String,
     pub label: i64,
     pub flaky: i64,
+    pub synthetic: i64,
+    pub base_change: String,
     pub cc_max: f64,
     pub cc_sum: f64,
     pub imp_dist: i64,
@@ -174,6 +176,7 @@ fn utf8_val(r: &FeatureRow, c: FeatureColumn) -> &str {
         FeatureColumn::Change => &r.change,
         FeatureColumn::Parent => &r.parent,
         FeatureColumn::Test => &r.test,
+        FeatureColumn::BaseChange => &r.base_change,
         _ => "",
     }
 }
@@ -184,6 +187,7 @@ fn i64_val(r: &FeatureRow, c: FeatureColumn) -> i64 {
         FeatureColumn::Time => r.time,
         FeatureColumn::Label => r.label,
         FeatureColumn::Flaky => r.flaky,
+        FeatureColumn::Synthetic => r.synthetic,
         FeatureColumn::ImpDist => r.imp_dist,
         FeatureColumn::ImpDirect => r.imp_direct,
         FeatureColumn::NameFile => r.name_file,

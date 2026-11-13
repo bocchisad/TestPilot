@@ -16,6 +16,8 @@ SERVICE_NAMES: tuple[str, ...] = (
     "test",
     "label",
     "flaky",
+    "synthetic",
+    "base_change",
 )
 
 

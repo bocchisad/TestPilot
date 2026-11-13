@@ -81,7 +81,7 @@ def main() -> int:
         return 2
 
     cols = load_compare_cols(args.schema)
-    assert len(cols) == 37, f"expected 37 columns, got {len(cols)}"
+    assert len(cols) == 39, f"expected 39 columns, got {len(cols)}"
 
     rust_rows = pq.read_table(args.parquet).to_pylist()
     if args.inject_rust_ch_add is not None:

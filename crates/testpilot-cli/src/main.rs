@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 use testpilot_core::codec;
 use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
 use testpilot_core::features::{self, FEATURES_VERSION};
-use testpilot_core::git::{GitRepo, GixRepo, collect_git};
+use testpilot_core::git::{GitRepo, GixRepo, collect_git, collect_git_shas};
 use testpilot_core::stats;
 use testpilot_core::store::Store;
 
@@ -55,6 +55,9 @@ enum FeaturesCmd {
         /// Git repository root (default: cwd)
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Also emit mutant leaf rows from refs/testpilot/mutants/**
+        #[arg(long, default_value_t = false)]
+        include_mutants: bool,
     },
     /// Features for one change (input to week-4 select).
     /// Test list = last clean run at/before --base. Future: `--tests-from FILE`
@@ -94,6 +97,9 @@ enum CollectCmd {
         max: Option<usize>,
         #[arg(long, default_value_t = 5000)]
         max_files_per_commit: usize,
+        /// Index a single commit SHA (for mutant leaves off HEAD). Repeatable.
+        #[arg(long = "sha")]
+        shas: Vec<String>,
     },
     /// Ingest JUnit XML files
     Junit {
@@ -106,6 +112,9 @@ enum CollectCmd {
         meta: Option<String>,
         #[arg(long)]
         force: bool,
+        /// Mark run as synthetic (mutant bootstrap); excluded from real history paths
+        #[arg(long, default_value_t = false)]
+        synthetic: bool,
     },
 }
 
@@ -142,19 +151,25 @@ fn run() -> Result<()> {
             since_date,
             max,
             max_files_per_commit,
+            shas,
         }) => {
             let db = resolve_db_path(cli.db.as_deref())?;
             let mut store = Store::open(&db).context("open db")?;
             let repo = GixRepo::open(Path::new(".")).context("open git repo")?;
-            let since_ts = since_date.as_deref().map(parse_date).transpose()?;
-            let stats = collect_git(
-                &repo,
-                &mut store,
-                since_sha.as_deref(),
-                since_ts,
-                max,
-                max_files_per_commit,
-            )?;
+            let stats = if !shas.is_empty() {
+                let refs: Vec<&str> = shas.iter().map(|s| s.as_str()).collect();
+                collect_git_shas(&repo, &mut store, &refs, max_files_per_commit)?
+            } else {
+                let since_ts = since_date.as_deref().map(parse_date).transpose()?;
+                collect_git(
+                    &repo,
+                    &mut store,
+                    since_sha.as_deref(),
+                    since_ts,
+                    max,
+                    max_files_per_commit,
+                )?
+            };
             println!(
                 "collected {} new commits (skipped {}, oversized {})",
                 stats.inserted, stats.skipped, stats.oversized
@@ -166,6 +181,7 @@ fn run() -> Result<()> {
             started_at,
             meta,
             force,
+            synthetic,
         }) => {
             let db = resolve_db_path(cli.db.as_deref())?;
             let mut store = Store::open(&db).context("open db")?;
@@ -179,6 +195,7 @@ fn run() -> Result<()> {
                     meta,
                     force,
                     cwd: Path::new("."),
+                    synthetic,
                 },
             )?;
             if st.skipped_dedup {
@@ -190,7 +207,11 @@ fn run() -> Result<()> {
                 );
             }
         }
-        Commands::Features(FeaturesCmd::Dump { out, repo }) => {
+        Commands::Features(FeaturesCmd::Dump {
+            out,
+            repo,
+            include_mutants,
+        }) => {
             let repo_path = resolve_repo_path(repo.as_deref())?;
             let db = resolve_db_path_for(cli.db.as_deref(), &repo_path)?;
             let store = Store::open(&db).context("open db")?;
@@ -199,7 +220,8 @@ fn run() -> Result<()> {
                 .file_name()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| ".".into());
-            let n = features::dump_parquet(&grepo, &store, &repo_name, &out)
+            let mutant = if include_mutants { Some(&grepo) } else { None };
+            let n = features::dump_parquet_ex(&grepo, &store, &repo_name, &out, mutant)
                 .context("features dump")?;
             println!(
                 "wrote {n} rows (features_version={FEATURES_VERSION}) to {}",
