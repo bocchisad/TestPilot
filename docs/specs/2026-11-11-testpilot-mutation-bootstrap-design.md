@@ -101,6 +101,8 @@ Same derivation as week 3 (Python, parquet):
 new_fail = 1  iff  label==1 ∧ flaky==0 ∧ test did not fail on parent C
 ```
 
+**Kill counter (bootstrap report):** after `collect junit --synthetic`, compare hard-fail `test_id` sets from the DB for `M` vs `C` (IDs already normalized by Rust `normalize_test_id`). Do **not** diff raw junit `classname::name` against plugin path IDs.
+
 - Persistent env fails (`less`, etc.) fail on both `C` and `M` → **`new_fail = 0`**, auto-filtered from ranking positives.
 - Mutants with **zero** failing tests (equivalent / uncovered) stay in the dataset as changes **without** ranking positives; counted in report (`n_equivalent`); excluded from per-change ranking macros (need ≥1 `new_fail`).
 
