@@ -53,6 +53,7 @@ pub(crate) fn all_changed_funcs(
     funcs
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_change_row(
     repo_name: &str,
     opts: &ChangeRowsOpts,
@@ -121,11 +122,7 @@ pub(crate) fn emit_change_row(
         t_age_days: history.t_age_days(test_id, opts.time),
         dur: history.dur(test_id),
         tfile_ntests: history.tfile_ntests(&tf),
-        t_changed: if changed_paths.contains(&tf) {
-            1
-        } else {
-            0
-        },
+        t_changed: if changed_paths.contains(&tf) { 1 } else { 0 },
         t_flaky_rate: history.t_flaky_rate(test_id),
         ch_nfiles,
         ch_nsrc,
@@ -137,9 +134,7 @@ pub(crate) fn emit_change_row(
 
 /// Hard error when `feature_history_snapshot` is missing at `base` (A9).
 pub fn snapshot_missing_message(base: &str) -> String {
-    format!(
-        "no feature snapshot for {base}; run: testpilot collect git && testpilot features dump"
-    )
+    format!("no feature snapshot for {base}; run: testpilot collect git && testpilot features dump")
 }
 
 /// Row metadata for a single change `parent..change` feature emit.
@@ -205,6 +200,7 @@ pub fn imp_dist_cache_at_rev<R: GitRepo>(
 }
 
 /// Feature rows for one change using a frozen history snapshot and test outcomes at `base`.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_change_rows<R: GitRepo>(
     repo: &R,
     store: &Store,
@@ -226,10 +222,7 @@ pub fn compute_change_rows<R: GitRepo>(
     let changed_paths: HashSet<String> = hunks.iter().map(|h| h.path.clone()).collect();
     let cov_prep = CovSnapshot::prepare_src(&srcf, hunks, &old_sources);
 
-    let test_files: Vec<String> = results
-        .iter()
-        .map(|r| test_file_of(&r.test_id))
-        .collect();
+    let test_files: Vec<String> = results.iter().map(|r| test_file_of(&r.test_id)).collect();
     let seeds = import_graph_seeds(&srcf, hunks, results.iter().map(|r| &r.test_id));
     let dist_cache = imp_dist_cache_at_rev(repo, store, head, &srcf, &seeds, &test_files)?;
     let imp_dist_for = |tf: &str| dist_cache.get(tf).copied().unwrap_or(99);
@@ -261,10 +254,24 @@ pub fn compute_change_rows<R: GitRepo>(
     Ok(rows)
 }
 
+/// Run used for the candidate base test list (`base_run_sha` in select JSON).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CleanRunRef {
+    pub run_id: i64,
+    pub sha: String,
+}
+
 /// Last clean run on `base` or an ancestor (merge-aware).
 pub fn last_clean_run_at_or_before(store: &Store, base: &str) -> Result<Option<i64>> {
+    Ok(last_clean_run_ref_at_or_before(store, base)?.map(|r| r.run_id))
+}
+
+pub fn last_clean_run_ref_at_or_before(store: &Store, base: &str) -> Result<Option<CleanRunRef>> {
     if let Some(run_id) = store.last_clean_run_with_results(base)? {
-        return Ok(Some(run_id));
+        return Ok(Some(CleanRunRef {
+            run_id,
+            sha: base.to_string(),
+        }));
     }
     let mut cur = base.to_string();
     for _ in 0..100_000 {
@@ -272,12 +279,12 @@ pub fn last_clean_run_at_or_before(store: &Store, base: &str) -> Result<Option<i
             break;
         };
         if let Some(run_id) = store.last_clean_run_with_results(&p)? {
-            return Ok(Some(run_id));
+            return Ok(Some(CleanRunRef { run_id, sha: p }));
         }
         cur = p;
     }
 
-    let mut best: Option<(i64, i64)> = None;
+    let mut best: Option<(i64, i64, String)> = None;
     let mut stack = vec![base.to_string()];
     let mut seen = HashSet::new();
     while let Some(sha) = stack.pop() {
@@ -287,13 +294,15 @@ pub fn last_clean_run_at_or_before(store: &Store, base: &str) -> Result<Option<i
         if let Some(run_id) = store.last_clean_run_with_results(&sha)? {
             let ts = store.commit_author_ts(&sha)?.unwrap_or(0);
             best = Some(match best {
-                Some((bts, brid)) if bts > ts || (bts == ts && brid > run_id) => (bts, brid),
-                _ => (ts, run_id),
+                Some((bts, brid, bsha)) if bts > ts || (bts == ts && brid > run_id) => {
+                    (bts, brid, bsha)
+                }
+                _ => (ts, run_id, sha.clone()),
             });
         }
         for p in store.all_parents(&sha)? {
             stack.push(p);
         }
     }
-    Ok(best.map(|(_, id)| id))
+    Ok(best.map(|(_, id, sha)| CleanRunRef { run_id: id, sha }))
 }

@@ -216,6 +216,29 @@ impl GixRepo {
         Ok(hunks)
     }
 
+    /// File bytes at `head` commit, or from the worktree when `worktree` is true.
+    pub fn file_bytes_at_view(
+        &self,
+        head: &Sha,
+        worktree: bool,
+        path: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        if worktree {
+            let workdir = self
+                .repo
+                .work_dir()
+                .ok_or_else(|| Error::Git("repository has no worktree".into()))?;
+            let p = workdir.join(path);
+            if p.is_file() {
+                Ok(Some(std::fs::read(&p)?))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(self.file_at_rev(head, path)?.map(|b| b.to_vec()))
+        }
+    }
+
     fn oid_to_sha(id: gix::ObjectId) -> Sha {
         Sha::from_hex(id.to_hex().to_string())
     }

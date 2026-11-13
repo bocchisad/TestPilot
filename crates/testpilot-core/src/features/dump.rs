@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::features::change::{change_size_stats, src_files};
+use crate::features::change_rows::last_clean_run_at_or_before;
 use crate::features::change_rows::{
     self, ChangeRowsOpts, all_changed_funcs, compute_change_rows, old_sources_for_hunks,
     snapshot_missing_message, test_file_of,
@@ -12,7 +13,6 @@ use crate::features::change_rows::{
 use crate::features::cochange::CoChangeState;
 use crate::features::coverage::{CovSnapshot, CovSrcPrep, CoverageTracker, decode_lines};
 use crate::features::history::HistoryState;
-use crate::features::change_rows::last_clean_run_at_or_before;
 use crate::features::imports::build_import_graph;
 use crate::features::snapshot::{find_snapshot_on_lineage, save_snapshot, should_save_snapshot};
 use crate::features::writer::{self, FeatureRow};
@@ -37,6 +37,7 @@ fn load_cov_map(
     Ok(by_test)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_row_phase_a(
     repo_name: &str,
     change: &str,
@@ -413,17 +414,7 @@ fn append_mutant_leaf_rows(
             time: meta.author_ts,
         };
         let mut leaf = compute_change_rows(
-            repo,
-            store,
-            repo_name,
-            &c,
-            &m,
-            &hunks,
-            &history,
-            &cochange,
-            &cov,
-            &results,
-            &opts,
+            repo, store, repo_name, &c, &m, &hunks, &history, &cochange, &cov, &results, &opts,
         )?;
         rows.append(&mut leaf);
         // Intentionally no history / cochange / cov_tracker / snapshot updates.
@@ -439,6 +430,43 @@ fn show_timings_enabled() -> bool {
 
 fn mark(t0: std::time::Instant) -> f64 {
     t0.elapsed().as_secs_f64() * 1000.0
+}
+
+/// Feature rows for one change with an explicit test list (show / select).
+#[allow(clippy::too_many_arguments)]
+pub fn feature_rows_for_change<R: GitRepo>(
+    repo: &R,
+    store: &Store,
+    repo_name: &str,
+    base: &Sha,
+    head: &Sha,
+    hunks: &[DiffHunk],
+    results: &[crate::store::TestResultRow],
+    head_time: i64,
+) -> Result<Vec<FeatureRow>> {
+    let base_s = base.as_str().to_string();
+    let (history, cochange, cov_source_sha) = match find_snapshot_on_lineage(store, &base_s)? {
+        Some((snap_sha, h, c, cov)) if snap_sha == base_s => (h, c, cov),
+        Some((snap_sha, mut h, mut c, mut cov)) => {
+            catch_up_topo(repo, store, &snap_sha, &base_s, &mut h, &mut c, &mut cov)?;
+            (h, c, cov)
+        }
+        None => {
+            return Err(Error::Other(snapshot_missing_message(&base_s)));
+        }
+    };
+    let cov = resolve_cov_from_source(store, &base_s, cov_source_sha.as_deref())?;
+    let opts = ChangeRowsOpts {
+        change: head.as_str().to_string(),
+        parent: base_s.clone(),
+        commit_idx: 0,
+        synthetic: 0,
+        base_change: String::new(),
+        time: head_time,
+    };
+    compute_change_rows(
+        repo, store, repo_name, base, head, hunks, &history, &cochange, &cov, results, &opts,
+    )
 }
 
 /// Features for a single change `base..head` (or worktree — caller supplies hunks).
@@ -459,21 +487,8 @@ pub fn compute_show_rows<R: GitRepo>(
     let t_all = std::time::Instant::now();
 
     let t = std::time::Instant::now();
-    let (history, cochange, cov_source_sha) = match find_snapshot_on_lineage(store, &base_s)? {
-        Some((snap_sha, h, c, cov)) if snap_sha == base_s => (h, c, cov),
-        Some((snap_sha, mut h, mut c, mut cov)) => {
-            // Short topo catch-up: same emit-then-update rules as dump, only for
-            // ancestors of `base` after `snap_sha` (W2-12 option b).
-            catch_up_topo(repo, store, &snap_sha, &base_s, &mut h, &mut c, &mut cov)?;
-            (h, c, cov)
-        }
-        None => {
-            return Err(Error::Other(snapshot_missing_message(&base_s)));
-        }
-    };
     let ms_snap = mark(t);
 
-    // Tests: last clean run at base or any ancestor (all parents), preferring newest author_ts.
     let t = std::time::Instant::now();
     let Some(run_id) = last_clean_run_at_or_before(store, &base_s)? else {
         return Ok(vec![]);
@@ -481,43 +496,19 @@ pub fn compute_show_rows<R: GitRepo>(
     let results = store.results_for_run(run_id)?;
     let ms_tests = mark(t);
 
-    let t = std::time::Instant::now();
-    let cov = resolve_cov_from_source(store, &base_s, cov_source_sha.as_deref())?;
-    let ms_cov = mark(t);
-
     let t0 = store
         .commit_author_ts(head.as_str())?
         .or(store.commit_author_ts(base.as_str())?)
         .unwrap_or(0);
-    let opts = ChangeRowsOpts {
-        change: head.as_str().to_string(),
-        parent: base_s.clone(),
-        commit_idx: 0,
-        synthetic: 0,
-        base_change: String::new(),
-        time: t0,
-    };
 
     let t = std::time::Instant::now();
-    let rows = compute_change_rows(
-        repo,
-        store,
-        repo_name,
-        base,
-        head,
-        hunks,
-        &history,
-        &cochange,
-        &cov,
-        &results,
-        &opts,
-    )?;
+    let rows = feature_rows_for_change(repo, store, repo_name, base, head, hunks, &results, t0)?;
     let ms_emit = mark(t);
 
     if timed {
         eprintln!(
             "show timings_ms: snapshot={ms_snap:.1} tests={ms_tests:.1} \
-             cov={ms_cov:.1} emit={ms_emit:.1} total={:.1} rows={}",
+             emit={ms_emit:.1} total={:.1} rows={}",
             mark(t_all),
             rows.len()
         );
