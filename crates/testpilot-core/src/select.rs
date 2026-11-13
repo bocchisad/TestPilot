@@ -187,8 +187,7 @@ pub fn run_select<R: GitRepo>(
         .transpose()?
         .unwrap_or_default();
 
-    base_results =
-        filter_present_on_head(repo, gix, base, head, worktree, hunks, base_results)?;
+    base_results = filter_present_on_head(repo, gix, base, head, worktree, hunks, base_results)?;
 
     let deleted_files: HashSet<String> = hunks
         .iter()
@@ -358,15 +357,11 @@ fn family_key(test_id: &str) -> &str {
 /// True if `base_ids` already covers this id (exact or any `[…]` sibling / bare parent).
 fn base_covers_family(base_ids: &HashSet<String>, tid: &str) -> bool {
     let key = family_key(tid);
-    base_ids
-        .iter()
-        .any(|b| family_key(b) == key)
+    base_ids.iter().any(|b| family_key(b) == key)
 }
 
 fn file_touched_in_hunks(hunks: &[DiffHunk], path: &str) -> bool {
-    hunks
-        .iter()
-        .any(|h| h.path == path && h.change_type != 'A')
+    hunks.iter().any(|h| h.path == path && h.change_type != 'A')
 }
 
 fn filter_present_on_head<R: GitRepo>(
@@ -543,7 +538,10 @@ fn force_flags<R: GitRepo>(
         let Some((_p, qual)) = qualname_from_test_id(tid) else {
             continue;
         };
-        let Some(def) = scan.defs.iter().find(|d| d.kind != "class" && d.qualname == qual)
+        let Some(def) = scan
+            .defs
+            .iter()
+            .find(|d| d.kind != "class" && d.qualname == qual)
         else {
             continue;
         };

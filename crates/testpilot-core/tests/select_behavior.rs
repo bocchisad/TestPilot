@@ -419,15 +419,21 @@ def test_p(x):\n\
         .collect();
     // Full frac → all candidates selected; parametrized ids must remain.
     assert!(
-        selected.iter().any(|t| *t == "tests/test_param.py::test_p[1]"),
+        selected
+            .iter()
+            .any(|t| *t == "tests/test_param.py::test_p[1]"),
         "missing parametrized child: {selected:?}"
     );
     assert!(
-        selected.iter().any(|t| *t == "tests/test_param.py::test_p[2]"),
+        selected
+            .iter()
+            .any(|t| *t == "tests/test_param.py::test_p[2]"),
         "{selected:?}"
     );
     assert!(
-        selected.iter().any(|t| *t == "tests/test_param.py::test_p[3]"),
+        selected
+            .iter()
+            .any(|t| *t == "tests/test_param.py::test_p[3]"),
         "{selected:?}"
     );
     // Bare name must not be forced as "new" when `[…]` children exist in base.
