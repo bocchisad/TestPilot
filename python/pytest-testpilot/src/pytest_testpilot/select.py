@@ -291,6 +291,8 @@ def plan_selection(
         tid = test_id_fn(item)
         entry = match_selected_entry(tid, by_id)
         iid = id(item)
+        score = None
+        rank = None
         if entry is not None:
             selected = 1
             reason = str(entry.get("reason") or "ranked")
@@ -302,13 +304,9 @@ def plan_selection(
         elif plan.fallback_all:
             selected = 1
             reason = "fallback_all"
-            score = None
-            rank = None
         else:
             selected = 0
             reason = "deselected"
-            score = None
-            rank = None
         plan.per_item[iid] = {
             "test_id": tid,
             "selected": selected,

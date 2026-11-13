@@ -203,10 +203,7 @@ class TestPilotPlugin:
         self, session: pytest.Session, items: list[pytest.Item]
     ) -> SelectPlan:
         if not self.repo_root_str:
-            try:
-                self.repo_root = git_toplevel(Path(session.config.rootpath))
-            except Exception:
-                self.repo_root = Path(session.config.rootpath).resolve()
+            self.repo_root = self._resolve_repo_root(session)
             self.repo_root_str = str(self.repo_root)
         shadow = self.config.getoption("--testpilot-shadow")
         order = self.config.getoption("--testpilot-order")
@@ -285,12 +282,19 @@ class TestPilotPlugin:
 
         return plan
 
+    def _resolve_repo_root(self, session: pytest.Session) -> Path:
+        """Prefer cwd's git toplevel so nested pytest rootdir discovery cannot
+        steal a parent monorepo (e.g. temp fixture under TestPilot checkout)."""
+        for start in (Path.cwd(), Path(session.config.rootpath)):
+            try:
+                return git_toplevel(start)
+            except Exception:
+                continue
+        return Path(session.config.rootpath).resolve()
+
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         self.started_at = time.time()
-        try:
-            self.repo_root = git_toplevel(Path(session.config.rootpath))
-        except Exception:
-            self.repo_root = Path(session.config.rootpath).resolve()
+        self.repo_root = self._resolve_repo_root(session)
         self.repo_root_str = str(self.repo_root)
         try:
             # B6: xdist controller must NOT create Coverage
@@ -579,9 +583,14 @@ class TestPilotPlugin:
                 terminalreporter.write_line(line)
             if plan.shadow:
                 sh = plan.summary
+                ratio = sh.get("shadow_caught_fail")
+                ratio_s = (
+                    f"{ratio:.4f}" if isinstance(ratio, (int, float)) else str(ratio)
+                )
                 terminalreporter.write_line(
                     f"testpilot shadow: would_select={sh.get('n_selected_ids')} "
-                    f"collected={sh.get('n_collected_items')}",
+                    f"collected={sh.get('n_collected_items')} "
+                    f"shadow_caught_fail={ratio_s}",
                 )
 
     def _worker_finish(self) -> None:
@@ -693,9 +702,21 @@ class TestPilotPlugin:
                     tid = r.get("test_id")
                     if isinstance(tid, str):
                         would.add(tid)
-                meta_obj.update(
-                    compute_shadow_meta(self._db_path(), plan.base.sha if plan.base else info.sha, results, would)
+                # fallback_all means the suite would have run every candidate;
+                # for shadow metrics treat kept/collected as would-select.
+                if plan.fallback_all:
+                    for item in self._all_collected_items:
+                        tid = self._test_id(item)
+                        would.add(tid)
+                        would.add(bare_test_id(tid))
+                shadow_meta = compute_shadow_meta(
+                    self._db_path(),
+                    plan.base.sha if plan.base else info.sha,
+                    results,
+                    would,
                 )
+                meta_obj.update(shadow_meta)
+                plan.summary.update(shadow_meta)
             if (
                 not plan.shadow
                 and not plan.fallback_all
