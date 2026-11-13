@@ -200,7 +200,7 @@ New/changed tests without history use the **same sentinels as dump** (`dur=-1`, 
 
 ### 3.6 Empty diff
 
-If `hunks` is empty: select **0** tests, print a **warning** on stderr (`empty diff; selecting 0 tests`), exit code **0**. JSON still valid (`n_candidates` may be >0 from base set, but `n_selected=0` — **locked:** empty diff → do not select; candidates may still be computed for diagnostics or skipped entirely for speed — **prefer:** skip scoring, `n_candidates=0`, `n_selected=0`, warning).
+If `hunks` is empty: select **0** tests, print a **warning** on stderr (`empty diff; selecting 0 tests`), exit code **0**. Skip scoring; JSON has `n_candidates=0`, `n_selected=0`, `tests=[]`.
 
 ---
 
