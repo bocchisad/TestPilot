@@ -164,7 +164,7 @@ def run_test_count(db: Path, sha: str, *, synthetic: bool) -> int:
     row = con.execute(
         """
         SELECT r.id FROM test_runs r
-        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=?
+        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=? AND IFNULL(r.partial,0)=0
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
         ORDER BY r.id DESC LIMIT 1
         """,
@@ -264,7 +264,7 @@ def run_fail_set(
     row = con.execute(
         """
         SELECT r.id FROM test_runs r
-        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=?
+        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=? AND IFNULL(r.partial,0)=0
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
         ORDER BY r.id DESC LIMIT 1
         """,

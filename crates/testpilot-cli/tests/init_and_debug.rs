@@ -148,6 +148,7 @@ fn debug_coverage_prefers_pytest_run_with_coverage() {
                 input_hash: None,
                 meta: None,
                 synthetic: false,
+                partial: false,
             },
             &[TestResultRow {
                 test_id: "t::test_a".into(),
@@ -179,6 +180,7 @@ fn debug_coverage_prefers_pytest_run_with_coverage() {
                 input_hash: Some("deadbeef".into()),
                 meta: None,
                 synthetic: false,
+                partial: false,
             },
             &[TestResultRow {
                 test_id: "t::test_a".into(),
@@ -249,6 +251,7 @@ fn debug_coverage_errors_when_no_pytest_coverage() {
                 input_hash: Some("abcd".into()),
                 meta: None,
                 synthetic: false,
+                partial: false,
             },
             &[TestResultRow {
                 test_id: "t::a".into(),

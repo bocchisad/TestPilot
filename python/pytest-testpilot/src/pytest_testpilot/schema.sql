@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS test_runs (
   input_hash  TEXT,
   meta        TEXT,
   -- v6: mutant / bootstrap runs must not feed real history/coverage/show paths
-  synthetic   INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0,1))
+  synthetic   INTEGER NOT NULL DEFAULT 0 CHECK (synthetic IN (0,1)),
+  -- v7: select (non-shadow, non-fallback_all, non-plugin_error) subset runs
+  partial     INTEGER NOT NULL DEFAULT 0 CHECK (partial IN (0,1))
 );
 
 CREATE TABLE IF NOT EXISTS tests (
@@ -87,3 +89,21 @@ CREATE TABLE IF NOT EXISTS feature_history_snapshot (
   payload BLOB NOT NULL,
   cov_source_sha TEXT
 );
+
+-- v7: per-run selection decisions (plugin select/shadow).
+CREATE TABLE IF NOT EXISTS test_run_selection (
+  run_id      INTEGER NOT NULL REFERENCES test_runs(id),
+  test_pk     INTEGER NOT NULL REFERENCES tests(id),
+  selected    INTEGER NOT NULL CHECK (selected IN (0,1)),
+  reason      TEXT NOT NULL,
+  score       REAL,
+  rank        INTEGER,
+  budget_kind TEXT,
+  budget_value REAL,
+  model_sha256 TEXT,
+  safe_enabled INTEGER NOT NULL DEFAULT 0 CHECK (safe_enabled IN (0,1)),
+  PRIMARY KEY (run_id, test_pk)
+);
+
+CREATE INDEX IF NOT EXISTS idx_test_run_selection_run
+  ON test_run_selection(run_id);

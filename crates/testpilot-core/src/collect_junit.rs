@@ -100,6 +100,7 @@ pub fn collect_junit(store: &mut Store, opts: CollectJunitOpts<'_>) -> Result<Co
         input_hash: Some(input_hash),
         meta: opts.meta,
         synthetic: opts.synthetic,
+        partial: false,
     };
 
     // B13/B16: one transaction; --force deletes prior matching run

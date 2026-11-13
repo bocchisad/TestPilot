@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 _MIGRATE_2_TO_3 = """
@@ -37,6 +37,29 @@ CREATE TABLE feature_history_snapshot (
 _MIGRATE_5_TO_6 = """
 ALTER TABLE test_runs ADD COLUMN synthetic INTEGER NOT NULL DEFAULT 0
   CHECK (synthetic IN (0,1));
+"""
+
+_MIGRATE_6_TO_7_PARTIAL = """
+ALTER TABLE test_runs ADD COLUMN partial INTEGER NOT NULL DEFAULT 0
+  CHECK (partial IN (0,1));
+"""
+
+_MIGRATE_6_TO_7_SELECTION = """
+CREATE TABLE IF NOT EXISTS test_run_selection (
+  run_id      INTEGER NOT NULL REFERENCES test_runs(id),
+  test_pk     INTEGER NOT NULL REFERENCES tests(id),
+  selected    INTEGER NOT NULL CHECK (selected IN (0,1)),
+  reason      TEXT NOT NULL,
+  score       REAL,
+  rank        INTEGER,
+  budget_kind TEXT,
+  budget_value REAL,
+  model_sha256 TEXT,
+  safe_enabled INTEGER NOT NULL DEFAULT 0 CHECK (safe_enabled IN (0,1)),
+  PRIMARY KEY (run_id, test_pk)
+);
+CREATE INDEX IF NOT EXISTS idx_test_run_selection_run
+  ON test_run_selection(run_id);
 """
 
 
@@ -82,7 +105,7 @@ class Store:
             if found == SCHEMA_VERSION:
                 return
             # Additive upgrades only; v1 still requires delete.
-            if found in (2, 3, 4, 5) and SCHEMA_VERSION == 6:
+            if found in (2, 3, 4, 5, 6) and SCHEMA_VERSION == 7:
                 if found == 2:
                     self.conn.executescript(_MIGRATE_2_TO_3)
                 if found <= 3:
@@ -96,6 +119,14 @@ class Store:
                     }
                     if "synthetic" not in cols:
                         self.conn.executescript(_MIGRATE_5_TO_6)
+                if found <= 6:
+                    cols = {
+                        r[1]
+                        for r in self.conn.execute("PRAGMA table_info(test_runs)").fetchall()
+                    }
+                    if "partial" not in cols:
+                        self.conn.executescript(_MIGRATE_6_TO_7_PARTIAL)
+                    self.conn.executescript(_MIGRATE_6_TO_7_SELECTION)
                 self.conn.execute(
                     "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
                 )
@@ -143,6 +174,7 @@ class Store:
         meta: str | None,
         results: list[dict[str, Any]],
         coverage: list[dict[str, Any]],
+        partial: bool = False,
     ) -> int:
         self.conn.execute("BEGIN")
         try:
@@ -150,8 +182,8 @@ class Store:
                 """
                 INSERT INTO test_runs(
                     sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta,
-                    synthetic
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    synthetic, partial
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 """,
                 (
                     sha,
@@ -162,6 +194,7 @@ class Store:
                     diff_hash,
                     input_hash,
                     meta,
+                    1 if partial else 0,
                 ),
             )
             run_id = int(cur.lastrowid)
@@ -197,6 +230,40 @@ class Store:
         except Exception:
             self.conn.execute("ROLLBACK")
             raise
+
+    def insert_selection(
+        self,
+        run_id: int,
+        rows: list[dict[str, Any]],
+        *,
+        budget_kind: str | None = None,
+        budget_value: float | None = None,
+        model_sha256: str | None = None,
+        safe_enabled: bool = False,
+    ) -> None:
+        for r in rows:
+            pk = self._upsert_test(r["test_id"])
+            self.conn.execute(
+                """
+                INSERT INTO test_run_selection(
+                    run_id, test_pk, selected, reason, score, rank,
+                    budget_kind, budget_value, model_sha256, safe_enabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    pk,
+                    1 if r.get("selected") else 0,
+                    r["reason"],
+                    r.get("score"),
+                    r.get("rank"),
+                    budget_kind,
+                    budget_value,
+                    model_sha256,
+                    1 if safe_enabled else 0,
+                ),
+            )
+        self.conn.commit()
 
     def close(self) -> None:
         self.conn.close()

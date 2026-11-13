@@ -27,7 +27,7 @@ def _has_clean_nonsynthetic_run(con: sqlite3.Connection, sha: str) -> bool:
     row = con.execute(
         """
         SELECT 1 FROM test_runs r
-        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0
+        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 AND IFNULL(r.partial, 0) = 0
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         LIMIT 1
         """,
@@ -55,7 +55,7 @@ def _duration_sec(con: sqlite3.Connection, sha: str) -> float | None:
         """
         SELECT r.finished_at, r.started_at
         FROM test_runs r
-        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0
+        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 AND IFNULL(r.partial, 0) = 0
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         ORDER BY r.id DESC
         LIMIT 1
@@ -70,7 +70,7 @@ def _duration_sec(con: sqlite3.Connection, sha: str) -> float | None:
     run_id_row = con.execute(
         """
         SELECT r.id FROM test_runs r
-        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0
+        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 AND IFNULL(r.partial, 0) = 0
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         ORDER BY r.id DESC
         LIMIT 1

@@ -156,6 +156,7 @@ mod tests {
             input_hash: Some("real".into()),
             meta: None,
             synthetic: false,
+            partial: false,
         };
         let syn = TestRunRow {
             sha: sha.into(),
@@ -167,6 +168,7 @@ mod tests {
             input_hash: Some("syn".into()),
             meta: None,
             synthetic: true,
+            partial: false,
         };
         let pass = vec![TestResultRow {
             test_id: "t::ok".into(),
