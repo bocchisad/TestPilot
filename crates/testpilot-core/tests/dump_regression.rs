@@ -50,11 +50,7 @@ fn dump_bytes(repo: &std::path::Path, include_mutants: bool) -> Vec<u8> {
 #[test]
 fn dump_matches_committed_golden() {
     let golden = golden_path();
-    assert!(
-        golden.is_file(),
-        "missing golden at {}",
-        golden.display()
-    );
+    assert!(golden.is_file(), "missing golden at {}", golden.display());
 
     let tmp = TempDir::new().unwrap();
     let repo = tmp.path().join("repo");

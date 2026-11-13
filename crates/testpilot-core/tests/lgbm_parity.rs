@@ -7,8 +7,7 @@ use testpilot_core::features::schema::MODEL_FEATURE_NAMES;
 use testpilot_core::lgbm::{load_model_dir, predict_raw};
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/reference_model")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/reference_model")
 }
 
 fn parse_f64_cell(s: &str) -> f64 {

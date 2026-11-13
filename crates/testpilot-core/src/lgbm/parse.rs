@@ -12,8 +12,7 @@ use crate::error::{Error, Result};
 use crate::features::schema::{FEATURES_VERSION, MODEL_FEATURE_NAMES};
 
 /// Bytes of repo-root `features_schema.json` (locked at compile time).
-pub const EMBEDDED_FEATURES_SCHEMA: &[u8] =
-    include_bytes!("../../../../features_schema.json");
+pub const EMBEDDED_FEATURES_SCHEMA: &[u8] = include_bytes!("../../../../features_schema.json");
 
 #[derive(Debug, Clone)]
 pub struct ModelMeta {
@@ -52,12 +51,10 @@ pub fn embedded_schema_sha256() -> String {
 pub fn load_model_dir(dir: &Path) -> Result<Booster> {
     let txt_path = dir.join("model.txt");
     let json_path = dir.join("model.json");
-    let txt = fs::read_to_string(&txt_path).map_err(|e| {
-        Error::Other(format!("read {}: {e}", txt_path.display()))
-    })?;
-    let json_raw = fs::read_to_string(&json_path).map_err(|e| {
-        Error::Other(format!("read {}: {e}", json_path.display()))
-    })?;
+    let txt = fs::read_to_string(&txt_path)
+        .map_err(|e| Error::Other(format!("read {}: {e}", txt_path.display())))?;
+    let json_raw = fs::read_to_string(&json_path)
+        .map_err(|e| Error::Other(format!("read {}: {e}", json_path.display())))?;
     let model_sha256 = hex::encode(Sha256::digest(txt.as_bytes()));
     let meta_val: Value = serde_json::from_str(&json_raw)
         .map_err(|e| Error::Other(format!("parse model.json: {e}")))?;
@@ -151,9 +148,7 @@ fn validate_model_json(v: &Value, model_sha256: &str) -> Result<ModelMeta> {
             ));
         }
         if c.get("linear_tree") == Some(&Value::Bool(true)) {
-            return Err(Error::Other(
-                "model uses linear_tree (unsupported)".into(),
-            ));
+            return Err(Error::Other("model uses linear_tree (unsupported)".into()));
         }
     }
     if let Some(prs) = v.get("predict_raw_score") {
@@ -175,8 +170,7 @@ fn validate_model_json(v: &Value, model_sha256: &str) -> Result<ModelMeta> {
 
     let synthetic_only_warning = matches!(v.get("useful_on_val"), Some(Value::Null))
         || matches!(v.get("useful_on_real_val"), Some(Value::Null))
-        || (v.get("useful_on_val_label").and_then(|x| x.as_str())
-            == Some("useful_on_real_val")
+        || (v.get("useful_on_val_label").and_then(|x| x.as_str()) == Some("useful_on_real_val")
             && matches!(v.get("useful_on_val"), Some(Value::Null)));
 
     Ok(ModelMeta {
@@ -245,8 +239,8 @@ fn parse_model_txt(text: &str) -> Result<(Vec<String>, Vec<Tree>)> {
             "num_tree_per_iteration must be 1, got {num_tree_per_iteration:?}"
         )));
     }
-    let names = feature_names
-        .ok_or_else(|| Error::Other("model.txt missing feature_names".into()))?;
+    let names =
+        feature_names.ok_or_else(|| Error::Other("model.txt missing feature_names".into()))?;
     Ok((names, trees))
 }
 
