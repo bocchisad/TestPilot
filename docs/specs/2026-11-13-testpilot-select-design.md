@@ -2,33 +2,35 @@
 
 **Date:** 2026-11-13  
 **Base:** `main` after PR #2–#5 (`fa12d97`)  
+**Amendments:** A1–A10 (approved 2026-11-13)  
 **Scope:** Rust `testpilot select` — pure-Rust LightGBM `model.txt` inference + change feature vectors + budgeted ranking. No Python at runtime.  
 **Non-goals (week 5+):** safe mode, pytest-plugin integration, GitHub Action, SHAP, embeddings, GPU, online learning.
 
 ## Goal
 
-Given a trained artifact from `testpilot-train` (`model.txt` + `model.json` + optional `reference_predictions.parquet`), a local SQLite DB with `feature_history_snapshot` rows, and a change `base..head` (or worktree), emit a **deterministic ranked subset** of tests under a budget — using the **same 29 features** and **same raw scores** as LightGBM `predict(raw_score=True)` (parity ≤ `1e-6`).
+Given a trained artifact from `testpilot-train` (`model.txt` + `model.json` + optional reference preds), a local SQLite DB with `feature_history_snapshot` rows, and a change `base..head` (or worktree), emit a **deterministic ranked subset** of tests under a budget — using the **same 29 features** and **same raw scores** as LightGBM `predict(raw_score=True)` (parity ≤ `1e-6`).
 
 ## Context (locked)
 
 | Item | Value |
 |------|--------|
 | `FEATURES_VERSION` | `2` |
-| Model features | exactly **29** names, order locked in `features_schema.json` |
+| Model features | exactly **29** names, order locked in embedded `features_schema.json` |
 | Service columns (never scored) | `repo, change, parent, commit_idx, time, test, label, flaky, synthetic, base_change` |
 | Objectives | `binary` **or** `lambdarank` — both emit a single raw margin; `num_class=1`, `num_tree_per_iteration=1` |
 | Snapshot | zstd + postcard HistoryState/CoChangeState, schema **v6** |
 | Synthetic runs | excluded from all real history / coverage / candidate-base queries (as dump) |
 | Import graph (Phase B / change) | **seeded** at the **head** (or worktree overlay): seeds = changed sources + candidate test files + hunk `.py` paths |
+| Schema check | **embedded** in the binary (`include_bytes!` of repo-root `features_schema.json`); no CLI `--features-schema` |
 
-**Honest limitations (document in README):** production models may be trained on mutation bootstrap. Features `t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag` were near-constant on that training set → near-zero gain. Real useful-gate remains `data_insufficient` when val has no real `new_fail`.
+**Honest limitations (document in README):** production models may be trained on mutation bootstrap. Features `t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag` were near-constant on that training set → near-zero gain. Real useful-gate remains `data_insufficient` when val has no real `new_fail`. If `model.json` has `useful_on_val: null` / `useful_on_real_val` null (A10), emit one stderr warning.
 
 ---
 
 ## 1. Architecture
 
 ```text
-                    model.json ──► validate schema / objective / best_iteration
+                    model.json ──► validate vs embedded schema / objective / best_iteration
                     model.txt  ──► Booster (pure Rust)
                                          │
 base, head|worktree, db ──► compute_change_rows()  ◄── SAME CODE as features show/dump leaf
@@ -51,12 +53,13 @@ base, head|worktree, db ──► compute_change_rows()  ◄── SAME CODE as 
 
 | Path | Role |
 |------|------|
-| `crates/testpilot-core/src/lgbm/` | parse `model.txt`, validate vs `model.json`, `predict_raw` |
-| `crates/testpilot-core/src/features/change_rows.rs` (or refactor `dump.rs`) | **one** `compute_change_rows` used by `show`, dump leaf emit helper, and `select` |
+| `crates/testpilot-core/src/lgbm/` | parse `model.txt`, validate vs `model.json` + embedded schema, `predict_raw` |
+| `crates/testpilot-core/src/features/change_rows.rs` (or refactor `dump.rs`) | **one** `compute_change_rows` used by `show`, dump leaf helpers, and `select` |
 | `crates/testpilot-core/src/select.rs` | candidates, scoring, budgets, output structs |
 | `crates/testpilot-cli` | `testpilot select …` |
 | `scripts/bench_select.py` | warm-up + 10 timed runs → median/p90 |
-| `tests/` / crate tests | parser parity, feature parity vs dump, budgets, determinism, synthetic isolation |
+| `scripts/gen_lgbm_parity_csv.py` | regenerate exact-f64 parity CSV from LightGBM |
+| `tests/` / crate tests | parser parity, feature parity vs dump, budgets, determinism, synthetic isolation, dump regression |
 
 No new runtime Python deps. No `lightgbm-sys` / FFI.
 
@@ -73,18 +76,17 @@ DIR/model.txt
 DIR/model.json
 ```
 
-(`reference_predictions.parquet` required only for the parity CI test, not for `select` itself.)
-
 **`model.json` gates (hard error, non-zero exit):**
 
-1. `features_version == 2` (this is the “version 2” gate; no separate `version` field required).
-2. `schema_sha256` == SHA-256 of the **exact bytes** of `--features-schema` (default: `./features_schema.json` if it exists in cwd, else error asking for `--features-schema`). Must match `model.json`.
-3. `feature_names` length **29**, identical order to schema / `features_schema.json`.
+1. `features_version` == embedded schema `features_version` (**2**).
+2. `schema_sha256` == SHA-256 of the **exact bytes** of the schema file **embedded in the binary** (`include_bytes!("…/features_schema.json")`). No `--features-schema` flag; no cwd lookup (A3).
+3. `feature_names` length **29**, identical order to the embedded schema.
 4. `objective` ∈ {`binary`, `lambdarank`} (string may be `binary` or start with `binary `; lambdarank similarly). Reject `multiclass`, `xentropy`, etc.
 5. `constraints.categorical == false` (or absent + model has `num_cat=0` everywhere).
 6. `constraints.linear_tree == false` (and every tree `is_linear=0`).
 7. `predict_raw_score == true` (if field present; if absent, still predict raw margins and warn once on stderr).
-8. `best_iteration` (positive int): use **only the first `best_iteration` trees** from `model.txt` even if the file contains more.
+8. `best_iteration` (positive int): use **only the first `best_iteration` trees**. If `best_iteration >` number of trees in `model.txt` → **hard error** (A6).
+9. A10: if `useful_on_val` is JSON `null` **or** the payload uses label `useful_on_real_val` with null (check both `useful_on_val` and any explicit null real-gate field) → print **one** stderr line: `warning: model validated on synthetic only` (do not fail).
 
 **`model.txt` gates:**
 
@@ -104,7 +106,7 @@ Each internal node carries a LightGBM `decision_type` **bitmask** (u8). Supporte
 | missing_type | `None` / `Zero` / `NaN` (bits as in LightGBM 4.x) |
 | default_left | missing goes left if set; else right |
 
-Numeric split: go **left** if `fval ≤ threshold` (LightGBM `<=` convention for the trees we emit). Missing handling follows `missing_type` + `default_left` exactly as LightGBM’s C++ predictor for `raw_score`.
+Numeric split: go **left** if `fval ≤ threshold` (LightGBM `<=` convention). Missing handling follows `missing_type` + `default_left` exactly as LightGBM’s C++ predictor for `raw_score`.
 
 `use_missing=true`, `zero_as_missing=false` (train constraints): zeros are real values; only true missing/NaN use the missing path. Our feature matrix has **no NaN** (dump rejects NaN); sentinels are ordinary numbers (`-1`, `99`). Parser must still implement missing paths for fidelity / future-proofing.
 
@@ -114,20 +116,19 @@ Numeric split: go **left** if `fval ≤ threshold` (LightGBM `<=` convention for
 score(x) = sum_{t=0..best_iteration-1} tree_t(x)
 ```
 
-Same as LightGBM `predict(..., raw_score=True)` for binary and lambdarank (both single-score).
+Same as LightGBM `predict(..., raw_score=True)` for binary and lambdarank (both single-score). T1 must use the **same** `num_iteration` / `best_iteration` that produced `reference_predictions` (recorded in `model.json`; fix the fixture if missing) (A6).
 
-### 2.4 Parity test
+### 2.4 Parity test (A7)
 
-Fixture: `tests/fixtures/reference_model/` (`model.txt`, `model.json`, `reference_predictions.parquet`, `pairs.parquet`).
+Primary fixture for CI: **CSV with exact f64** (Python `repr` or hex float) generated by `scripts/gen_lgbm_parity_csv.py` from the reference model + `pairs.parquet`, committed under `tests/fixtures/reference_model/`.
 
-`reference_predictions.parquet` columns: `repo, change, test, raw_score` (no feature matrix). Features come from `pairs.parquet` joined on `(repo, change, test)` (same order as train: sort by those keys).
+Optional: keep reading parquet only behind a **dev-dependency** if useful for local checks; CI gate uses the CSV.
 
-1. Load booster in Rust; for every joined row, take the 29 feature columns in schema order.
-2. Compare to `raw_score`.
-3. Assert `max_i |rust_i − ref_i| ≤ 1e-6` over **all** rows.
-4. Test prints `max_abs_err=…` and `n=…`.
+1. Load booster in Rust with `best_iteration` from `model.json`.
+2. For every CSV row, take the 29 features in schema order; compare to `raw_score`.
+3. Assert `max_i |rust_i − ref_i| ≤ 1e-6` over **all** rows; print `max_abs_err` and `n`.
 
-Additional unit tests: reject categorical / `linear_tree` / wrong `schema_sha256` / wrong feature order / multiclass header.
+Additional unit tests: reject categorical / `linear_tree` / wrong `schema_sha256` (vs embedded) / wrong feature order / multiclass / `best_iteration` too large.
 
 ---
 
@@ -135,27 +136,27 @@ Additional unit tests: reject categorical / `linear_tree` / wrong `schema_sha256
 
 ### 3.1 Shared API
 
-Public (or crate-visible) function:
-
 ```rust
 pub fn compute_change_rows<R: GitRepo>(
     repo: &R,
     store: &Store,
     repo_name: &str,
     base: &Sha,
-    head: &Sha,                 // HEAD sha when --worktree; still used for metadata
+    head: &Sha,                 // HEAD sha when --worktree (for metadata / time)
     hunks: &[DiffHunk],         // base..head OR base..worktree
-    opts: ChangeRowsOpts,       // see §3.3 candidates
+    opts: ChangeRowsOpts,
 ) -> Result<Vec<FeatureRow>>
 ```
 
-**Refactor:** today’s `compute_show_rows` becomes a thin wrapper around `compute_change_rows` with default opts (candidates = last clean run ≤ base only). Dump’s per-commit emit stays on the walk, but **import-graph seeding and `emit_row` inputs** for a single change must call the same helpers as `compute_change_rows` (no duplicated seed/graph logic).
+**Refactor:** today’s `compute_show_rows` becomes a thin wrapper around `compute_change_rows`. Dump’s per-commit emit stays on the walk, but **import-graph seeding and `emit_row` inputs** for a single change must call the same helpers (no duplicated seed/graph logic).
+
+**A5 dump regression:** after the refactor, a fixture test asserts that a real-only dump (with and without `--include-mutants` on a DB that has mutants) is **byte-identical** to a golden parquet captured **before** the refactor (committed fixture). PR body also reports click dump row count + sha256 of the parquet (local command).
 
 ### 3.2 Snapshot + history
 
-- Load `feature_history_snapshot` at `base` (exact). If missing: hard error  
-  `no feature snapshot for {base}; run: testpilot features dump`  
-  (mention `features backfill` / dump in the message — same spirit as show today). **No silent first-parent rebuild.**
+- Load `feature_history_snapshot` at `base` (exact). If missing: hard error (A9):  
+  `no feature snapshot for {base}; run: testpilot collect git && testpilot features dump`  
+  **No silent first-parent rebuild.**
 - Coverage / history queries: **non-synthetic only**.
 - Coverage source + lag rules: identical to `features show` / dump.
 
@@ -163,44 +164,57 @@ pub fn compute_change_rows<R: GitRepo>(
 
 For change `base..head` (or worktree):
 
-1. Resolve **file bytes for scanning** from **head** when `--head <rev>`; from **worktree filesystem** when `--worktree` (dirty overlay). Module **index** = all `.py` paths at that same view.
+1. Resolve **file bytes for scanning** from **head** when `--head <rev>`; from **worktree filesystem** when `--worktree`. Module **index** = all `.py` paths at that same view.
 2. Seeds = `srcf` ∪ test-file paths of every candidate `test_id` ∪ hunk paths ending in `.py`.
-3. `build_import_graph_seeded(repo, store, head_view, seeds, index)` — same helper as Phase B mutant dump (seeds + BFS), not a full walk of every file as root.
+3. `build_import_graph_seeded(…)` — same helper as Phase B mutant dump.
 
-**Parity note:** historical dump rows for commit `H` already use files at `H`. After this refactor, `features show --base P --head H` must match dump rows for change `H` on the 29 features for tests that appear in both (see §6.2). If today’s show still graphs at `base`, **change it** to head as part of this work — that is intentional alignment, not a silent behavior drift without tests.
+**Parity note:** `features show --base P --head H` must match dump rows for change `H` on the 29 features for shared tests. If today’s show graphs at `base`, change it to **head**.
 
-### 3.4 Worktree
+### 3.4 Worktree (A4)
 
-| Flag | Diff | File bytes for graph / name / changed-funcs |
-|------|------|-----------------------------------------------|
-| `--head REV` | `diff_hunks(base, REV)` | at `REV` |
-| `--worktree` | `diff_worktree(base)` | worktree working tree |
-| `--head WORKTREE` | **alias** of `--worktree` | same |
+| Flag | Diff | File bytes | Author/time for `time` / `t_age_days` |
+|------|------|------------|----------------------------------------|
+| `--head REV` | `diff_hunks(base, REV)` | at `REV` | author time of `REV` |
+| `--worktree` / `--head WORKTREE` | `diff_worktree(base)` | worktree FS | author time of **`HEAD` commit**, **not** wall clock |
 
-`change` / `time` service fields: for worktree, `change` may be the literal `WORKTREE` (or `HEAD` sha + dirty marker) — **locked for select JSON:** `head: "WORKTREE"` when worktree mode; feature `commit_idx` / history still keyed off `base`. Ranking does not use service fields.
+JSON: `head: "WORKTREE"` in worktree mode. Ranking does not use service fields. **T5 (determinism) must also run in `--worktree` mode.**
 
 ### 3.5 Candidate tests
 
-**Base set:** test_ids from the last **clean, non-synthetic** results run at `base` or earlier (same ancestor walk as show/dump).
+**Base set:** test_ids from the last **clean, non-synthetic** results run at `base` or earlier (same ancestor walk as show/dump). Record that run’s commit SHA as `base_run_sha` (A8). If the first-parent distance from `base_run_sha` to `base` is **> 20** commits, print one stderr warning (still succeed).
 
-**Diff-discovered set:**
+**Present on head (A2):** drop any base-set test that no longer exists on head/worktree:
 
-1. For each hunk path with `is_test_path(path)` and ends with `.py`:
-2. Read file bytes at head/worktree; `scan_python` → defs.
-3. Keep defs whose leaf name starts with `test_` (functions / methods). Map to nodeid:
-   - file-level: `{path}::{func}`
-   - method: `{path}::{Class}.{method}` → normalize to pytest-style `{path}::{Class}::{method}` if that is what the plugin stores (match existing `test_id` strings in DB; unit-test against plugin nodeids for a tiny fixture).
-4. **No parametrize expansion** in week 4 (document limitation). Parametrized ids only appear if already in the base run.
+- If the test’s file path is **deleted** in the diff → drop all tests from that file.
+- Else scan the file at head/worktree with `scan_python`; keep the test only if its def still exists (match nodeid ↔ def).  
+  Test: delete one test in a commit → it must not appear in select output.
 
-**Union** = base set ∪ diff-discovered. Dedup by `test_id`.
+**Diff-discovered set (new tests):**
 
-**Force-include (beyond budget):** any candidate that is **new** (not in base set) **or** whose test file path appears in hunks (`t_changed`-equivalent) gets `reason = "new_or_changed"` and is **always** present in the selected output even if over budget. Remaining slots filled by ranked `reason = "ranked"`.
+1. For each hunk path with `is_test_path` + `.py` that exists on head:
+2. `scan_python` → defs with leaf name `test_*`; map to pytest-style nodeids (match plugin / DB strings).
+3. Any such id **not** in the (filtered) base set is a **new** candidate.
+4. No parametrize expansion in week 4.
 
-New/changed tests without history use the **same sentinels as dump** (`dur=-1`, `pf_max/pq_max=-1`, `imp_dist=99` when no path, zeros where dump zeros, etc.).
+**Union** = (base set minus deleted) ∪ new defs. Dedup by `test_id`.
+
+### 3.5.1 Force-include (A1) — **not** whole-file
+
+A candidate is force-included (`reason = "new_or_changed"`) iff **either**:
+
+1. **New:** `test_id` absent from the base run set, **or**
+2. **Touched def:** the def’s line span on **head** intersects at least one changed line from the hunks for that file (new-side and/or old-side mapping as in dump’s changed-func logic).
+
+**Not** force-included merely because the test file path appears in hunks.  
+**Test:** edit one function in a file with 100 tests → `n_forced == 1`.
+
+Force-include is always present in the selected output even if over budget. Remaining slots filled with `reason = "ranked"`. JSON includes **`n_forced`** (A1).
+
+New/touched tests without history use the **same sentinels as dump**.
 
 ### 3.6 Empty diff
 
-If `hunks` is empty: select **0** tests, print a **warning** on stderr (`empty diff; selecting 0 tests`), exit code **0**. Skip scoring; JSON has `n_candidates=0`, `n_selected=0`, `tests=[]`.
+If `hunks` is empty: select **0** tests, stderr warning (`empty diff; selecting 0 tests`), exit **0**. Skip scoring; JSON: `n_candidates=0`, `n_selected=0`, `n_forced=0`, `tests=[]`.
 
 ---
 
@@ -211,7 +225,6 @@ testpilot select
   --repo PATH                 # default: cwd git root
   --db PATH                   # default: <repo>/.testpilot/db.sqlite
   --model DIR                 # model.txt + model.json
-  [--features-schema PATH]    # default: ./features_schema.json then DIR/../… — see §2.1
   --base <rev>
   --head <rev|WORKTREE>       # XOR with --worktree; WORKTREE ⇒ worktree mode
   [--worktree]                # XOR with --head rev
@@ -222,41 +235,29 @@ testpilot select
     --time-budget SECONDS     # SECONDS > 0
 ```
 
-Exit codes:
+No `--features-schema` (A3).
 
-| Situation | Code |
-|-----------|------|
-| Success (incl. empty diff → 0 tests) | 0 |
-| Usage / validation / missing snapshot / bad model / unknown rev | ≠0 |
-| `N == 0` or `F` out of range or no budget flag / two budget flags | ≠0 |
+Exit codes: success (incl. empty diff) → 0; validation / missing snapshot / bad model / unknown rev / `N==0` / bad F / missing|duplicate budget → ≠0.
 
 ### 4.1 Ranking order
 
-1. Predict `raw_score` for every candidate.
-2. Sort: `score` **descending**, tie-break `test_id` **ascending** (lexicographic UTF-8).
-3. Partition: force-include set vs rankable set (rankable = not force-included, or force-included also keep their scores for JSON but budget applies only to filling remaining capacity — **locked algorithm:**
-
 ```text
-force = { candidates with new_or_changed }
-rankable = candidates sorted by (score↓, test_id↑)
-selected = []
-# 1) always add all force (stable order: score↓, test_id↑)
-selected.extend(sorted(force, key=…))
-# 2) fill budget from rankable \ selected
+force = { candidates matching A1 }
+rankable = all candidates sorted by (score↓, test_id↑)
+selected = sorted(force) then fill from rankable \ selected under budget
+final print order = selected sorted by (score↓, test_id↑)
 ```
 
 **Budget accounting:**
 
-- `--max-tests N`: stop when `len(selected) >= N`, but if `|force| > N`, still include all force (selected may exceed N). Document: force can exceed N.
-- `--budget-frac F`: let `n = |candidates|` (full union); `k = max(1, ceil(F * n))`; same fill rules as `--max-tests N=k` (force may still make `|selected| > k`).
-- `--time-budget S`: walk rankable order (after placing force first, still ordered by score); add test if `sum(dur_sec) + dur_i <= S` **OR** selected is empty (always ≥1 test unless empty diff). `dur_i` from feature `dur`: if `dur == -1` → **repo median** of known `dur` among candidates with `dur >= 0` (milliseconds→seconds); if none known → **1.0 s**. Convert dump’s `dur` (ms integer) → seconds as `dur_ms / 1000.0`.
+- `--max-tests N`: fill until `len(selected) >= N`, but if `|force| > N`, still include all force (may exceed N).
+- `--budget-frac F`: `k = max(1, ceil(F * |candidates|))`; same as `N=k`.
+- `--time-budget S`: after placing force, walk remaining by score; add if `sum(dur_sec)+dur_i ≤ S` **or** selected empty (always ≥1 when candidates exist). `dur == -1` → median known `dur_ms/1000` among candidates with `dur≥0`, else **1.0 s**.
 
 ### 4.2 Output
 
-**`lines`:** one `test_id` per line, selected order (force block then ranked fill — overall still score↓ within the printed list? **locked:** print final `selected` sorted by `(score↓, test_id↑)` for stable pytest feeding). No header.
-
-**`table`:** human-readable columns `rank score dur reason test_id`.
-
+**`lines`:** one `test_id` per line, final sort `(score↓, test_id↑)`.  
+**`table`:** `rank score dur reason test_id`.  
 **`json`:**
 
 ```json
@@ -265,8 +266,10 @@ selected.extend(sorted(force, key=…))
   "features_version": 2,
   "base": "<resolved sha>",
   "head": "<resolved sha|WORKTREE>",
+  "base_run_sha": "<sha of last clean run used for candidates>",
   "n_candidates": 0,
   "n_selected": 0,
+  "n_forced": 0,
   "budget": {"kind": "frac|count|time", "value": 0.1},
   "tests": [
     {"test_id": "…", "score": 0.0, "rank": 1, "dur": -1, "reason": "ranked|new_or_changed"}
@@ -274,17 +277,15 @@ selected.extend(sorted(force, key=…))
 }
 ```
 
-`rank` is 1-based in the printed selected order. `dur` is the feature value (ms sentinel `-1`), not the imputed seconds used for time budget.
-
-Determinism: two runs with identical inputs → **byte-identical** stdout for `json` and `lines` (stable key order in JSON via explicit serialization).
+`dur` is the feature value (ms, sentinel `-1`). Determinism: two runs → byte-identical `json`/`lines` (also under `--worktree`, A4/T5).
 
 ---
 
 ## 5. Performance
 
-**Target:** `testpilot select --base HEAD~1 --head HEAD` on click (~2.2k tests), release build, model load included, **median wall &lt; 300 ms** over 10 timed runs after 1 warm-up.
+**Target:** `select --base HEAD~1 --head HEAD` on click (~2.2k tests), release, model load included, **median &lt; 300 ms** over 10 timed runs after 1 warm-up.
 
-Script: `scripts/bench_select.py` (or `.sh`) prints `median_ms`, `p90_ms`, `n`, command. CI may run a smaller fixture smoke; the click number is reported in the PR (machine noted).
+`scripts/bench_select.py` prints `median_ms`, `p90_ms`, `n`. PR reports local click numbers.
 
 ---
 
@@ -292,162 +293,130 @@ Script: `scripts/bench_select.py` (or `.sh`) prints `median_ms`, `p90_ms`, `n`, 
 
 | ID | Assert |
 |----|--------|
-| T1 | Parser parity vs `reference_predictions.parquet`, max abs err ≤ 1e-6; print max err |
-| T2 | Reject categorical / linear_tree / bad schema_sha256 / multiclass |
-| T3 | Feature parity: 3 real click commits — for each test in dump ∩ select, 29 floats **exact** (bitwise or decimal equality) |
-| T4 | Budgets: `F=1.0` selects all rankable (+force); `N=0` errors; `N > n` selects all; time-budget &lt; first test still selects 1; `dur=-1` uses median/1.0s |
-| T5 | Determinism: two `select` invocations → identical `lines` and `json` bytes |
-| T6 | Missing snapshot → non-zero exit + hint to dump |
-| T7 | Synthetic isolation: DB with mutants vs without → identical select for a real `base..head` |
+| T1 | Parser parity vs exact-f64 CSV; `best_iteration` as in `model.json`; max abs err ≤ 1e-6 |
+| T2 | Reject categorical / linear_tree / bad schema_sha256 vs embedded / multiclass / `best_iteration` too large |
+| T3 | Feature parity: fixture (+ optional click) — 29 values exact vs dump for shared tests |
+| T4 | Budgets: `F=1.0`; `N=0` error; `N>n`; time-budget &lt; first still selects 1; `dur=-1` |
+| T5 | Determinism for `lines`/`json` **and** `--worktree` |
+| T6 | Missing snapshot → ≠0 + A9 hint (`collect git` && `features dump`) |
+| T7 | Synthetic isolation: DB with/without mutants → identical select for real change |
 | T8 | Empty diff → 0 selected, exit 0, stderr warning |
-| T9 | Unknown rev → non-zero exit |
-
-Click for T3/bench: use `.cache/repos/click` when present; otherwise skip with clear message (CI uses fixture for T1/T2/T4–T9; T3 may be `#[ignore]` unless `TESTPILOT_CLICK_REPO` set — **locked:** T3 runs in CI on the generate_features_fixture / small repo if click unavailable; plus an optional ignored click test for local/PR numbers).
+| T9 | Unknown rev → ≠0 |
+| T10 | A1: one function edit in 100-test file → `n_forced==1` |
+| T11 | A2: deleted test absent from output |
+| T12 | A5: dump golden byte-identical (real slice, ±`--include-mutants`) |
+| T13 | A3: wrong `schema_sha256` in model.json → error |
+| T14 | A10: null useful-on-real → one stderr warning |
 
 ---
 
 ## 7. Documentation
 
-README section **`select`**:
-
-- Example commands (`lines` → `pytest $(cat …)` / `xargs`).
-- Budget flags.
-- Prerequisite: `features dump` for snapshots; model from `testpilot-train`.
-- Limitations: mutant-trained models; constant history features; no parametrize discovery; real gate data_insufficient.
-- Link this spec.
+README **`select`**: examples, budgets, dump prerequisite, embedded schema, limitations (mutant-trained models, constant history features, no parametrize, synthetic-only validation warning), link this spec.
 
 ---
 
 ## 8. CI
 
-- Existing jobs stay green: `fmt`, `clippy -D warnings`, `cargo test`, python jobs, oracles.
-- Add parser parity + select unit/integration tests to the rust job (or train-oracle only if they need the fixture parquet — prefer **rust** job with committed reference model).
-- No click download required for merge gate; PR body includes local click bench numbers + parity max err.
+- fmt, clippy `-D warnings`, cargo test, existing python/oracle jobs.
+- Parity + select tests in **rust** job (CSV fixture; parquet only if optional dev-dep).
+- No click download for merge gate; PR body: max abs err, click median/p90, click dump row count + sha256.
 
 ---
 
 ## 9. Out of scope
 
-Safe mode, pytest plugin auto-select, GitHub Action, SHAP, `--tests-from` collect-only file (still reserved), multiclass, categorical LightGBM, GPU.
+Safe mode, pytest plugin auto-select, GitHub Action, SHAP, `--tests-from`, multiclass, categorical LightGBM, GPU.
 
 ---
 
 # Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: `superpowers:subagent-driven-development` or `superpowers:executing-plans`. Checkbox steps for tracking. **Do not start until the design above is approved.**
+> **For agentic workers:** REQUIRED SUB-SKILL: `superpowers:subagent-driven-development` or `superpowers:executing-plans`. Checkbox steps for tracking.
 
-**Goal:** Ship `testpilot select` with pure-Rust LightGBM raw_score inference, shared change features, budgets, and parity/determinism tests.
+**Goal:** Ship `testpilot select` with pure-Rust LightGBM raw_score inference, shared change features, budgets, and parity/determinism tests (A1–A10).
 
-**Architecture:** `lgbm` module loads/validates artifact → `compute_change_rows` (shared with show) builds 29-D rows → `select` ranks + budgets → CLI formats output.
+**Architecture:** `lgbm` validates vs embedded schema → `compute_change_rows` → `select` ranks/budgets/force → CLI.
 
-**Tech Stack:** Rust (edition as workspace), existing `testpilot-core` git/store/features, clap CLI, no FFI.
+**Tech Stack:** Rust workspace, clap, no FFI; optional parquet **dev-dependency** only.
 
 ## Global Constraints
 
 - No Python at `select` runtime; no `lightgbm-sys`.
-- Exactly 29 features; service columns never scored.
-- Snapshot miss = hard error; synthetic runs never affect real select.
-- Import graph: seeded at head/worktree (seeds = srcf + tests + hunks).
-- Force-include `new_or_changed` may exceed `--max-tests` / frac.
-- Empty diff → 0 tests, exit 0, stderr warning.
-- CI: fmt, clippy `-D warnings`, cargo test green; PR quotes max abs err + click median/p90.
+- Embedded `features_schema.json` only (A3).
+- Force-include = new **or** def∩hunk only (A1); deleted tests dropped (A2).
+- Worktree time from `HEAD` author (A4).
+- Dump byte-identical golden after refactor (A5).
+- `best_iteration` must not exceed tree count (A6).
+- Exact-f64 CSV parity fixture (A7).
+- `base_run_sha` + lag>20 warning (A8); snapshot hint A9; synthetic-only warning A10.
+- CI green; PR quotes max abs err + click median/p90 + dump sha.
 
 ## File map
 
 | Path | Role |
 |------|------|
-| `crates/testpilot-core/src/lgbm/mod.rs` (+ `parse.rs`, `predict.rs`) | model.txt/json load, predict_raw |
-| `crates/testpilot-core/src/features/change_rows.rs` | shared change feature computation |
-| `crates/testpilot-core/src/features/dump.rs` | call shared helpers; thin show wrapper |
-| `crates/testpilot-core/src/select.rs` | candidates, budget, JSON structs |
-| `crates/testpilot-core/src/lib.rs` | module exports |
-| `crates/testpilot-cli/src/main.rs` | `Select` subcommand |
-| `crates/testpilot-core/tests/lgbm_parity.rs` | T1/T2 |
-| `crates/testpilot-core/tests/select_*.rs` | T3–T9 |
-| `scripts/bench_select.py` | latency median/p90 |
-| `README.md` | `select` section |
+| `crates/testpilot-core/src/lgbm/` | model.txt/json, predict_raw |
+| `crates/testpilot-core/src/features/change_rows.rs` | shared change features |
+| `crates/testpilot-core/src/features/dump.rs` | shared helpers; dump regression golden |
+| `crates/testpilot-core/src/select.rs` | candidates, A1/A2, budgets, JSON |
+| `crates/testpilot-cli/src/main.rs` | `Select` |
+| `scripts/gen_lgbm_parity_csv.py` | A7 fixture generator |
+| `scripts/bench_select.py` | latency |
+| `tests/fixtures/…` | parity CSV, dump golden, select fixtures |
+| `README.md` | select section |
 
 ---
 
-### Task 1: LightGBM text parser + validation
+### Task 1: LightGBM text parser + embedded schema gates
 
-**Files:** `lgbm/*`, unit tests with tiny hand-written trees + reference fixture header checks.
+- [ ] Parse v4 `model.txt`; load `model.json`; gates §2.1 including A3/A6/A10.
+- [ ] Commit: `Add pure-Rust LightGBM model.txt parser with embedded schema gates.`
 
-- [ ] Parse v4 `model.txt` header + trees (`split_feature`, `threshold`, `decision_type`, children, `leaf_value`, `shrinkage`, `is_linear`, `num_cat`).
-- [ ] Load `model.json`; enforce §2.1 gates; truncate to `best_iteration`.
-- [ ] Reject categorical / linear / multiclass / bad sha / name order mismatch.
-- [ ] Commit: `Add pure-Rust LightGBM model.txt parser with schema gates.`
+### Task 2: Predict + exact-f64 CSV parity
 
-### Task 2: Predict raw_score + reference parity
+- [ ] `scripts/gen_lgbm_parity_csv.py`; commit CSV; T1 ≤ 1e-6 with `best_iteration`.
+- [ ] Commit: `Match LightGBM raw_score within 1e-6 on parity CSV.`
 
-**Files:** `lgbm/predict.rs`, `tests/lgbm_parity.rs`.
+### Task 3: Shared `compute_change_rows` + dump golden (A5)
 
-- [ ] Implement missing/default_left/≤ split semantics.
-- [ ] Parity vs `tests/fixtures/reference_model/reference_predictions.parquet` ≤ 1e-6; print max abs err.
-- [ ] Commit: `Match LightGBM raw_score within 1e-6 on reference_predictions.`
+- [ ] Extract shared path; head-seeded graph; A9 snapshot message.
+- [ ] Capture/commit dump golden; assert byte-identical ± mutants flag.
+- [ ] Commit: `Share change feature rows and lock dump regression golden.`
 
-### Task 3: Shared `compute_change_rows` + head-seeded import graph
+### Task 4: Candidates — A1 force, A2 deleted, A8 base_run_sha
 
-**Files:** `change_rows.rs`, refactor `dump.rs` / show CLI path.
-
-- [ ] Extract shared computation; show becomes wrapper.
-- [ ] Graph at head/worktree with Phase-B-style seeds.
-- [ ] Missing snapshot → explicit error string with dump hint.
-- [ ] Commit: `Share change feature rows between show and select.`
-
-### Task 4: Candidates + force-include new/changed tests
-
-**Files:** `select.rs`, python_scan usage, tests on fixture repo.
-
-- [ ] Base set from last clean non-synthetic run ≤ base.
-- [ ] Diff-discovered `test_*` defs → nodeids; union + force-include rules.
-- [ ] Sentinels identical to dump for unseen tests.
-- [ ] Commit: `Select candidates from base run plus new/changed tests.`
+- [ ] Implement candidate union + force def∩hunk + deletions; T10/T11; lag warning.
+- [ ] Commit: `Select candidates with def-touch force-include and deletions.`
 
 ### Task 5: Budgets + CLI output
 
-**Files:** `select.rs`, `testpilot-cli`.
-
-- [ ] Exactly one of frac / max-tests / time-budget; validation errors.
-- [ ] Time-budget dur imputation (median / 1.0s); always ≥1 test when candidates exist.
-- [ ] Formats `json|table|lines`; `model_sha256`; deterministic JSON.
-- [ ] Empty diff / unknown rev behavior per §3.6 / §4.
+- [ ] frac / max-tests / time-budget; json with `n_forced`, `base_run_sha`; worktree HEAD time (A4).
 - [ ] Commit: `Add testpilot select CLI with frac, count, and time budgets.`
 
-### Task 6: Isolation, determinism, feature parity tests
+### Task 6: Isolation, determinism, worktree T5, feature parity
 
-**Files:** integration tests, optional click ignored test.
-
-- [ ] T5 determinism, T6 snapshot, T7 synthetic isolation, T8 empty diff.
-- [ ] T3 feature parity on fixture (and optional click).
+- [ ] T5 (incl worktree), T6–T9, T3, T13–T14.
 - [ ] Commit: `Cover select determinism, snapshot errors, and dump parity.`
 
-### Task 7: Bench script + README + PR numbers
+### Task 7: Bench + README + PR numbers
 
-**Files:** `scripts/bench_select.py`, `README.md`.
-
-- [ ] Warm-up + 10 runs; print median/p90.
-- [ ] README `select` section + limitations.
-- [ ] PR: commands, max abs err, click median/p90 (local).
+- [ ] Bench script; README; PR with max abs err, click median/p90, dump sha commands.
 - [ ] Commit: `Document select and add latency benchmark script.`
 
 ---
 
-## Open points resolved in this doc
+## Open points resolved
 
 | Topic | Decision |
 |-------|----------|
-| Graph location | Seeded at **head**/worktree (align show with dump-at-child) |
-| New tests | AST `test_*` defs in changed test files; no parametrize expand |
-| Force-include vs N | Force may exceed `--max-tests` / frac |
-| Schema path | `--features-schema` optional; must match `model.json` hash |
-| `version 2` | Means `features_version == 2` |
-| Empty diff | 0 selected, exit 0, stderr warning |
-| Worktree head field | JSON `head: "WORKTREE"` |
-
-## Spec self-review
-
-- No TBD placeholders left for week-4 scope.
-- Safe mode / plugin / GHA / SHAP explicitly out of scope.
-- Force-include vs strict N documented (overflow allowed).
-- Click-in-CI: fixture for gate; click numbers in PR from local bench.
+| Force-include | New **or** def span ∩ hunk only (A1); `n_forced` in JSON |
+| Deleted tests | Dropped via scan / deleted file (A2) |
+| Schema | Embedded bytes only (A3) |
+| Worktree time | `HEAD` author time (A4); T5 includes worktree |
+| Dump refactor | Golden byte-identical (A5) |
+| `best_iteration` | Error if &gt; tree count (A6) |
+| Parity fixture | Exact-f64 CSV + generator (A7) |
+| Stale base run | `base_run_sha` + warn if &gt;20 commits (A8) |
+| Snapshot hint | `collect git` then `features dump` (A9) |
+| Synthetic-only model | One stderr warning (A10) |
