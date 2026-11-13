@@ -50,3 +50,8 @@ def test_loro_two_repos(tmp_path: Path, features_schema: FeaturesSchema):
     assert "macro_recall@10%" in loro
     # macro is finite or nan if no new_fail in held-out tests — still a float
     assert isinstance(loro["macro_recall@10%"], float)
+    for row in loro["per_repo"]:
+        bases = row.get("baselines") or {}
+        assert set(bases) >= {"cov_lines", "cc_max", "random"}
+        for v in bases.values():
+            assert isinstance(v, float)

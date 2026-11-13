@@ -158,7 +158,20 @@ def write_report(out_dir: Path, payload: dict[str, Any]) -> None:
         lines += ["", "## LORO (macro recall@10% new_fail on held-out test)", ""]
         lines.append(f"- macro: {loro.get('macro_recall@10%')}")
         for row in loro.get("per_repo") or []:
-            lines.append(f"- {row.get('held_out')}: {row.get('recall@10%')}")
+            held = row.get("held_out")
+            lines.append(
+                f"- {held}: model={row.get('recall@10%')} "
+                f"n_changes={row.get('n_changes')}"
+            )
+            bases = row.get("baselines") or {}
+            if bases:
+                parts = [
+                    f"{name}={bases.get(name)}"
+                    for name in ("cov_lines", "cc_max", "random")
+                    if name in bases
+                ]
+                if parts:
+                    lines.append(f"  - baselines: {', '.join(parts)}")
     lines += ["", "## Paired delta (model − best baseline)", ""]
     lines.append(f"- val: {payload.get('paired_delta_ci_val')}")
     lines.append(f"- test: {payload.get('paired_delta_ci_test')}")

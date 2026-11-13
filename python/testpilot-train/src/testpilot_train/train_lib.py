@@ -12,7 +12,11 @@ import numpy as np
 import polars as pl
 
 from testpilot_train.artifact import save_booster, write_model_json, write_reference_predictions
-from testpilot_train.baselines import BASELINE_NAMES, baseline_scores
+from testpilot_train.baselines import (
+    BASELINE_NAMES,
+    baseline_scores,
+    eval_baseline_per_change,
+)
 from testpilot_train.data import diagnostics, load_parquets
 from testpilot_train.metrics import (
     MetricPoint,
@@ -158,6 +162,9 @@ def _label_secondary(
     return out
 
 
+_LORO_BASELINES = ("cov_lines", "cc_max", "random")
+
+
 def _run_loro(
     frame: pl.DataFrame,
     plan,
@@ -175,6 +182,10 @@ def _run_loro(
         scores = predict_raw(fit.booster, te, schema)
         per = per_change_metrics_for_scores(te, scores, "new_fail")
         r10 = macro_mean(per, "recall@10%")
+        baselines: dict[str, float] = {}
+        for bname in _LORO_BASELINES:
+            bper = eval_baseline_per_change(te, bname, "new_fail")
+            baselines[bname] = macro_mean(bper, "recall@10%")
         per_repo.append(
             {
                 "held_out": held,
@@ -182,6 +193,7 @@ def _run_loro(
                 "n_changes": len(per),
                 "objective": fit.objective,
                 "best_iteration": fit.best_iteration,
+                "baselines": baselines,
             }
         )
         if r10 == r10:
