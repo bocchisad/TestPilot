@@ -63,8 +63,10 @@ def test_chrono_mutants_share_commit_idx(tmp_path, features_schema: FeaturesSche
 
 
 def test_chrono_too_few(tmp_path, features_schema: FeaturesSchema):
+    from testpilot_train.split import InsufficientCommitsError
+
     path = tmp_path / "s.parquet"
     generate_synthetic_parquet(path, features_schema, n_changes=5, n_tests=5, seed=3)
     frame = load_parquets([path], features_schema).frame
-    with pytest.raises(ValueError, match="need >= 10"):
+    with pytest.raises(InsufficientCommitsError, match="need >= 10"):
         chrono_split(frame)

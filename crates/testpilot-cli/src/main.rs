@@ -889,7 +889,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         let fp_limb = first_parent_shas(&repo, last_fp)?;
         match run_backfill_shas(&scripts, &repo, &db, &fp_limb, None, &interrupted) {
             Ok(()) => {}
-            Err(e) if is_interrupt_err(&e) => {
+            Err(e) if e.is::<ChildInterrupted>() || interrupted.load(Ordering::SeqCst) => {
                 return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
             }
             Err(e) => return Err(e),
@@ -909,7 +909,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         if !need.is_empty() {
             match run_backfill_shas(&scripts, &repo, &db, &need, None, &interrupted) {
                 Ok(()) => {}
-                Err(e) if is_interrupt_err(&e) => {
+                Err(e) if e.is::<ChildInterrupted>() || interrupted.load(Ordering::SeqCst) => {
                     return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
                 }
                 Err(e) => return Err(e),
@@ -951,7 +951,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             &interrupted,
         ) {
             Ok(o) => o,
-            Err(e) if is_interrupt_err(&e) => {
+            Err(e) if e.is::<MutateInterrupted>() || interrupted.load(Ordering::SeqCst) => {
                 if let Some(partial) = e.downcast_ref::<MutateInterrupted>() {
                     merge_completed_pairs(
                         &mut state.mutate_completed_pairs,
@@ -996,7 +996,9 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
 
     // --- train (R1/R2 gate computed inside testpilot-train on synth TEST) ---
     bootstrap_check_stop(&repo, &mut state, "train", &interrupted, deadline)?;
-    if state.steps.get("train") != Some(&StepStatus::Done) {
+    // Resume: re-run train if model.json missing/invalid even if step marked Done.
+    let train_artifact_ok = model_artifact_usable(&out_dir);
+    if state.steps.get("train") != Some(&StepStatus::Done) || !train_artifact_ok {
         if !parquet.is_file() {
             bail!(
                 "features dump missing at {}; cannot train",
@@ -1004,15 +1006,21 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             );
         }
         let seed_train = opts.seed ^ 0x5452;
-        run_train(
+        match run_train(
             &repo,
             &parquet,
             &out_dir,
             seed_train,
             opts.train_threads,
             &interrupted,
-        )?;
+        )? {
+            ChildOutcome::Interrupted => {
+                return bootstrap_flush_interrupted(&repo, &mut state, "train");
+            }
+            ChildOutcome::Ok => {}
+        }
         state.steps.insert("train".into(), StepStatus::Done);
+        state.status = None;
         save_state(&repo, &state)?;
         println!("train: {}", out_dir.join("model.json").display());
     }
@@ -1027,15 +1035,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         let raw = std::fs::read_to_string(&model_json).context("read model.json")?;
         let v: serde_json::Value =
             serde_json::from_str(&raw).context("parse model.json for gate")?;
-        let verdict = v
-            .pointer("/bootstrap/verdict")
-            .and_then(|x| x.as_str())
-            .unwrap_or("(missing)");
-        let reason = v
-            .pointer("/bootstrap/reason")
-            .and_then(|x| x.as_str())
-            .unwrap_or("");
-        let ranker = v.get("ranker").and_then(|x| x.as_str()).unwrap_or("model");
+        let (verdict, reason, ranker) = gate_verdict_from_model(&v);
         println!("gate: verdict={verdict} ranker={ranker} reason={reason}");
         eprintln!("bootstrap.verdict={verdict} ranker={ranker}");
         state.steps.insert("gate".into(), StepStatus::Done);
@@ -1146,13 +1146,74 @@ fn train_command(parquet: &Path, out_dir: &Path, seed: u64, train_threads: u32) 
         .arg("--out")
         .arg(out_dir)
         .arg("--seed")
-        .arg(seed.to_string());
+        .arg(seed.to_string())
+        // Bootstrap-only: cold baseline when commit_idx < 10.
+        .arg("--allow-cold-baseline");
     let threads = train_threads.max(1).to_string();
     cmd.env("OMP_NUM_THREADS", &threads);
     cmd.env("OPENBLAS_NUM_THREADS", &threads);
     cmd.env("MKL_NUM_THREADS", &threads);
     cmd.env("NUMEXPR_NUM_THREADS", &threads);
     cmd
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ChildOutcome {
+    Ok,
+    Interrupted,
+}
+
+fn model_artifact_usable(out_dir: &Path) -> bool {
+    let path = out_dir.join("model.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    v.get("ranker").and_then(|x| x.as_str()).is_some()
+        && v.pointer("/bootstrap/verdict")
+            .and_then(|x| x.as_str())
+            .is_some()
+}
+
+/// Resolve printed gate fields; null/missing CI never counts as accept.
+fn gate_verdict_from_model(v: &serde_json::Value) -> (String, String, String) {
+    let ranker = v
+        .get("ranker")
+        .and_then(|x| x.as_str())
+        .unwrap_or("cov_lines")
+        .to_string();
+    if let Some(boot) = v.get("bootstrap") {
+        let verdict = boot
+            .get("verdict")
+            .and_then(|x| x.as_str())
+            .unwrap_or("use_baseline")
+            .to_string();
+        let reason = boot
+            .get("reason")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        return (verdict, reason, ranker);
+    }
+    // No bootstrap block: null CI on synth-test foil ⇒ baseline (never accept).
+    let ci_low = v
+        .pointer("/paired_delta_ci_synthetic_test_cov_lines/ci95/0")
+        .and_then(|x| x.as_f64());
+    match ci_low {
+        None => (
+            "use_baseline".into(),
+            "no_test_signal".into(),
+            "cov_lines".into(),
+        ),
+        Some(x) if x >= 0.0 => ("use_model".into(), "synth_test_ci_low_ge_0".into(), ranker),
+        Some(_) => (
+            "use_baseline".into(),
+            "synth_test_ci_low_lt_0".into(),
+            "cov_lines".into(),
+        ),
+    }
 }
 
 fn which_bin(name: &str) -> bool {
@@ -1170,13 +1231,14 @@ fn run_train(
     seed: u64,
     train_threads: u32,
     interrupted: &AtomicBool,
-) -> Result<()> {
+) -> Result<ChildOutcome> {
     std::fs::create_dir_all(out_dir)?;
     let mut cmd = train_command(parquet, out_dir, seed, train_threads);
     cmd.current_dir(repo);
     let (st, _stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
-    if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) {
-        bail!("train interrupted");
+    // Interrupt = parent stop flag or child exit 130 / SIGINT|SIGTERM (not substring).
+    if interrupted.load(Ordering::SeqCst) || status_is_interrupt(&st) {
+        return Ok(ChildOutcome::Interrupted);
     }
     if !st.success() {
         bail!(
@@ -1184,17 +1246,13 @@ fn run_train(
             String::from_utf8_lossy(&stderr)
         );
     }
-    if !out_dir.join("model.json").is_file() {
+    if !model_artifact_usable(out_dir) {
         bail!(
-            "train did not write {}",
-            out_dir.join("model.json").display()
+            "train did not write usable model.json under {}",
+            out_dir.display()
         );
     }
-    Ok(())
-}
-
-fn is_interrupt_err(e: &anyhow::Error) -> bool {
-    e.to_string().contains("interrupted")
+    Ok(ChildOutcome::Ok)
 }
 
 fn bootstrap_flush_interrupted(
@@ -1338,6 +1396,19 @@ fn run_interruptible_captured(
     Ok((status, stdout, stderr))
 }
 
+/// Typed interrupt from a child process (exit 130 / signal / parent stop flag).
+/// Do not detect interrupts by substring-matching error messages.
+#[derive(Debug)]
+struct ChildInterrupted;
+
+impl std::fmt::Display for ChildInterrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "child process interrupted")
+    }
+}
+
+impl std::error::Error for ChildInterrupted {}
+
 #[derive(Debug)]
 struct MutateInterrupted {
     completed_pairs: Vec<String>,
@@ -1464,7 +1535,7 @@ fn run_backfill_shas(
     }
     let (st, _stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
     if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) {
-        bail!("backfill.py interrupted");
+        return Err(ChildInterrupted.into());
     }
     if !st.success() {
         bail!(

@@ -7,6 +7,10 @@ from dataclasses import dataclass
 import polars as pl
 
 
+class InsufficientCommitsError(ValueError):
+    """Raised when a repo has fewer unique commit_idx values than min_changes."""
+
+
 @dataclass(frozen=True)
 class RepoSplit:
     repo: str
@@ -97,12 +101,26 @@ def chrono_split(frame: pl.DataFrame, min_changes: int = 10) -> SplitPlan:
         ordered = _ordered_changes(frame, repo)
         n = len(unique_idxs)
         if n < min_changes:
-            raise ValueError(f"repo {repo!r}: only {n} commit_idx values (need >= {min_changes})")
+            raise InsufficientCommitsError(
+                f"repo {repo!r}: only {n} commit_idx values (need >= {min_changes})"
+            )
         i_train = int(0.70 * n)
         i_val = int(0.85 * n)
         train, val, test = _partition_by_commit_idx(ordered, unique_idxs, i_train, i_val)
         parts.append(_repo_split_from_chunks(repo, train, val, test))
     return SplitPlan(by_repo=tuple(parts))
+
+
+def count_unique_commit_idxs(frame: pl.DataFrame) -> int:
+    """Min unique commit_idx across repos (0 if empty)."""
+    if frame.height == 0 or "commit_idx" not in frame.columns:
+        return 0
+    repos = frame["repo"].unique().to_list() if "repo" in frame.columns else [None]
+    counts: list[int] = []
+    for repo in repos:
+        sub = frame if repo is None else frame.filter(pl.col("repo") == repo)
+        counts.append(int(sub["commit_idx"].n_unique()))
+    return min(counts) if counts else 0
 
 
 def _chrono_split_by_changes(frame: pl.DataFrame, min_changes: int = 10) -> SplitPlan:
@@ -113,7 +131,9 @@ def _chrono_split_by_changes(frame: pl.DataFrame, min_changes: int = 10) -> Spli
         ordered = _ordered_changes(frame, repo)
         n = len(ordered)
         if n < min_changes:
-            raise ValueError(f"repo {repo!r}: only {n} changes (need >= {min_changes})")
+            raise InsufficientCommitsError(
+                f"repo {repo!r}: only {n} changes (need >= {min_changes})"
+            )
         i_train = int(0.70 * n)
         i_val = int(0.85 * n)
         train, val, test = ordered[:i_train], ordered[i_train:i_val], ordered[i_val:]

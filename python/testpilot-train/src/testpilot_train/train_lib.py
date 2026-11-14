@@ -34,9 +34,15 @@ from testpilot_train.model import (
     select_objective,
 )
 from testpilot_train.report import write_report
-from testpilot_train.schema import assert_schema_matches_model, load_features_schema
+from testpilot_train.schema import (
+    FeaturesSchema,
+    assert_schema_matches_model,
+    load_features_schema,
+)
 from testpilot_train.split import (
+    InsufficientCommitsError,
     chrono_split,
+    count_unique_commit_idxs,
     filter_slice,
     loro_train_val,
     split_to_json,
@@ -313,6 +319,43 @@ def _baseline_recall_table(
     return table
 
 
+def _cold_baseline_payload(
+    schema: FeaturesSchema,
+    *,
+    n_commit_idx: int,
+    reason: str = "insufficient_commit_idx",
+) -> dict[str, Any]:
+    """Deterministic baseline-only model.json (no wall clock / paths)."""
+    return {
+        "best_iteration": 1,
+        "bootstrap": {
+            "gate": "synthetic_test_vs_cov_lines_cluster_C",
+            "reason": reason,
+            "verdict": "use_baseline",
+        },
+        "constraints": {
+            "categorical": False,
+            "linear_tree": False,
+            "num_threads_train": 1,
+            "use_missing": True,
+            "zero_as_missing": False,
+        },
+        "diagnostics": {"n_commit_idx": n_commit_idx},
+        "feature_names": list(schema.feature_names),
+        "features_version": schema.features_version,
+        "note": (
+            f"cold baseline: only {n_commit_idx} unique commit_idx "
+            "(need >= 10 for chrono_split); no booster fitted"
+        ),
+        "objective": "binary",
+        "predict_raw_score": True,
+        "ranker": "cov_lines",
+        "schema_sha256": schema.schema_sha256,
+        "seed": 0,
+        "status": "data_insufficient",
+    }
+
+
 def train(
     data_paths: list[Path],
     out_dir: Path,
@@ -320,6 +363,7 @@ def train(
     seed: int = 42,
     *,
     exclude_high_fail_rate: bool = True,
+    allow_cold_baseline: bool = False,
 ) -> dict[str, Any]:
     schema = load_features_schema(features_schema)
     loaded = load_parquets(data_paths, schema)
@@ -331,12 +375,38 @@ def train(
     # Primary diagnostics / histograms after HF filter (gate slice).
     diag = diagnostics(frame_gate)
     diag_incl_hf = diagnostics(frame) if high_fail_keys else None
-    plan = chrono_split(frame_gate)
+
+    n_idx = count_unique_commit_idxs(frame_gate)
+    if n_idx < 10:
+        if not allow_cold_baseline:
+            raise InsufficientCommitsError(
+                f"only {n_idx} unique commit_idx values (need >= 10)"
+            )
+        payload = _cold_baseline_payload(schema, n_commit_idx=n_idx)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # No model.txt — select uses ranker=cov_lines.
+        write_model_json(out_dir / "model.json", payload)
+        write_report(out_dir, payload)
+        return payload
+
+    try:
+        plan = chrono_split(frame_gate)
+        plan_all = chrono_split(frame)
+    except InsufficientCommitsError:
+        if not allow_cold_baseline:
+            raise
+        payload = _cold_baseline_payload(
+            schema, n_commit_idx=count_unique_commit_idxs(frame_gate)
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        write_model_json(out_dir / "model.json", payload)
+        write_report(out_dir, payload)
+        return payload
+
     train_df = filter_slice(frame_gate, plan, "train")
     val_df = filter_slice(frame_gate, plan, "val")
     test_df = filter_slice(frame_gate, plan, "test")
     # Full slices (incl. high-fail) for dual metrics reporting.
-    plan_all = chrono_split(frame)
     val_df_all = filter_slice(frame, plan_all, "val")
     test_df_all = filter_slice(frame, plan_all, "test")
 

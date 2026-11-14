@@ -8,8 +8,12 @@ use tempfile::tempdir;
 use testpilot_core::features::schema::{FEATURES_VERSION, MODEL_FEATURE_NAMES};
 use testpilot_core::lgbm::{Ranker, embedded_schema_sha256, load_model_dir};
 
-fn baseline_only_model_json() -> serde_json::Value {
-    serde_json::json!({
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn baseline_model_json(extra: serde_json::Value) -> serde_json::Value {
+    let mut base = serde_json::json!({
         "features_version": FEATURES_VERSION,
         "schema_sha256": embedded_schema_sha256(),
         "feature_names": MODEL_FEATURE_NAMES,
@@ -23,7 +27,13 @@ fn baseline_only_model_json() -> serde_json::Value {
             "gate": "synthetic_test_vs_cov_lines_cluster_C"
         },
         "constraints": { "categorical": false, "linear_tree": false }
-    })
+    });
+    if let Some(obj) = extra.as_object() {
+        for (k, v) in obj {
+            base[k] = v.clone();
+        }
+    }
+    base
 }
 
 #[test]
@@ -31,38 +41,67 @@ fn load_baseline_only_hashes_model_json_bytes() {
     let dir = tempdir().unwrap();
     let model = dir.path().join("model");
     fs::create_dir_all(&model).unwrap();
-    let json_path = model.join("model.json");
-    // write_model_json style: sorted keys + trailing newline
-    let payload = baseline_only_model_json();
-    let raw = serde_json::to_string_pretty(&payload).unwrap() + "\n";
-    // Actually train uses sort_keys=True via json.dumps — approximate with canonical bytes we write.
-    fs::write(&json_path, &raw).unwrap();
+    let raw =
+        serde_json::to_string_pretty(&baseline_model_json(serde_json::json!({}))).unwrap() + "\n";
+    fs::write(model.join("model.json"), &raw).unwrap();
     assert!(!model.join("model.txt").exists());
 
     let booster = load_model_dir(&model).expect("baseline-only load");
     assert_eq!(booster.meta.ranker, Ranker::CovLines);
-    let expect = hex::encode(Sha256::digest(raw.as_bytes()));
-    assert_eq!(booster.meta.model_sha256, expect);
     assert_eq!(
-        booster.meta.bootstrap.as_ref().map(|b| b.verdict.as_str()),
-        Some("use_baseline")
+        booster.meta.model_sha256,
+        format!("{:x}", Sha256::digest(raw.as_bytes()))
     );
 }
 
 #[test]
-fn cov_lines_with_model_txt_still_hashes_json() {
+fn cov_lines_with_real_model_txt_still_hashes_json() {
     let dir = tempdir().unwrap();
     let model = dir.path().join("model");
     fs::create_dir_all(&model).unwrap();
-    let payload = baseline_only_model_json();
+    let fixture_txt = repo_root().join("tests/fixtures/reference_model/model.txt");
+    assert!(fixture_txt.is_file(), "missing {fixture_txt:?}");
+    fs::copy(&fixture_txt, model.join("model.txt")).unwrap();
+    // best_iteration must fit truncated parse; reference has 50 trees — use 1 for speed of validate.
+    let payload = baseline_model_json(serde_json::json!({ "best_iteration": 1 }));
     let raw = serde_json::to_string_pretty(&payload).unwrap() + "\n";
     fs::write(model.join("model.json"), &raw).unwrap();
-    // Minimal invalid-as-booster path shouldn't be hit: we still need valid model.txt
-    // if present. Skip: only test hash choice when txt missing is enough for R10.
-    let _ = PathBuf::from("unused");
-    let booster = load_model_dir(&model).unwrap();
+
+    let booster = load_model_dir(&model).expect("load with model.txt");
+    assert_eq!(booster.meta.ranker, Ranker::CovLines);
+    assert!(!booster.trees.is_empty(), "expected trees from model.txt");
     assert_eq!(
         booster.meta.model_sha256,
-        hex::encode(Sha256::digest(raw.as_bytes()))
+        format!("{:x}", Sha256::digest(raw.as_bytes())),
+        "R10: cov_lines hashes model.json bytes even when model.txt exists"
+    );
+}
+
+#[test]
+fn null_ci95_loads_as_baseline_without_panic() {
+    let dir = tempdir().unwrap();
+    let model = dir.path().join("model");
+    fs::create_dir_all(&model).unwrap();
+    let payload = baseline_model_json(serde_json::json!({
+        "paired_delta_ci_synthetic_test_cov_lines": {
+            "mean": null,
+            "ci95": [null, null],
+            "n": 0,
+            "n_C": 0,
+            "n_mutants": 0
+        },
+        "bootstrap": {
+            "verdict": "use_baseline",
+            "reason": "no_test_signal",
+            "gate": "synthetic_test_vs_cov_lines_cluster_C"
+        }
+    }));
+    let raw = serde_json::to_string_pretty(&payload).unwrap() + "\n";
+    fs::write(model.join("model.json"), &raw).unwrap();
+    let booster = load_model_dir(&model).expect("null ci must not panic");
+    assert_eq!(booster.meta.ranker, Ranker::CovLines);
+    assert_eq!(
+        booster.meta.bootstrap.as_ref().map(|b| b.verdict.as_str()),
+        Some("use_baseline")
     );
 }
