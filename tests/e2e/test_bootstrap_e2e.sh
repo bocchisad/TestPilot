@@ -277,25 +277,17 @@ assert n >= 1, f"completed_pairs before SIGINT={n}"
 assert n < total, f"completed_pairs={n} not < total={total} (need room to resume)"
 print("pre-SIGINT pairs", n, "total", total)
 PY
-# SIGINT while paused; never block forever on wait (CI hang guard).
-kill -INT "$BPID" 2>/dev/null || true
-for _ in $(seq 1 40); do
-  if ! kill -0 "$BPID" 2>/dev/null; then
-    break
-  fi
-  sleep 0.25
-done
-# Unblock pause sleep if signal path stalled, then escalate.
+# Handshake: remove marker → pause sets _STOP → mutate exits 130 → Rust flushes
+# interrupted. Do not rely on SIGINT to a background Rust process (fails on CI).
 rm -f "$MARKER"
-kill -INT "$BPID" 2>/dev/null || true
-for _ in $(seq 1 20); do
+for _ in $(seq 1 80); do
   if ! kill -0 "$BPID" 2>/dev/null; then
     break
   fi
   sleep 0.25
 done
 if kill -0 "$BPID" 2>/dev/null; then
-  echo "bootstrap hung after SIGINT; sending KILL" >&2
+  echo "bootstrap hung after pause release; sending KILL" >&2
   kill -KILL "$BPID" 2>/dev/null || true
   kill -KILL "-$BPID" 2>/dev/null || true
 fi

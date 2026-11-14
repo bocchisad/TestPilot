@@ -151,6 +151,10 @@ def maybe_test_pause_after_pairs(repo: Path, n_completed: int) -> None:
     """Test-only: after N completed pairs, write a marker and sleep until removed/SIGINT.
 
     No-op unless ``TESTPILOT_TEST_PAUSE_AFTER_PAIRS`` is set to a positive int.
+
+    When the marker is removed (e2e handshake), set ``_STOP``/``_HARD_STOP`` so
+    mutate exits 130 without relying on SIGINT reaching the Rust parent — ctrlc
+    does not reliably fire for background processes on CI runners.
     """
     raw = os.environ.get(_PAUSE_ENV)
     if raw is None or raw.strip() == "":
@@ -167,6 +171,9 @@ def maybe_test_pause_after_pairs(repo: Path, n_completed: int) -> None:
     # Sleep until marker deleted (tests) or process interrupted.
     while marker.is_file() and not _STOP.is_set() and not _HARD_STOP.is_set():
         time.sleep(0.05)
+    if not marker.is_file():
+        _STOP.set()
+        _HARD_STOP.set()
 
 
 def run_bootstrap(

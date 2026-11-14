@@ -25,6 +25,8 @@ def test_pause_hook_writes_marker_then_exits_when_removed(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("TESTPILOT_TEST_PAUSE_AFTER_PAIRS", "2")
+    mb._STOP.clear()
+    mb._HARD_STOP.clear()
     marker = tmp_path / ".testpilot" / "bootstrap" / mb._PAUSE_MARKER_NAME
 
     import threading
@@ -43,3 +45,4 @@ def test_pause_hook_writes_marker_then_exits_when_removed(
     mb.maybe_test_pause_after_pairs(tmp_path, n_completed=2)
     t.join(timeout=5)
     assert not marker.exists()
+    assert mb._STOP.is_set() and mb._HARD_STOP.is_set()
