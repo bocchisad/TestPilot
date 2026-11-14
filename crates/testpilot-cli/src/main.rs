@@ -1178,6 +1178,10 @@ fn model_artifact_usable(out_dir: &Path) -> bool {
 }
 
 /// Resolve printed gate fields; null/missing CI never counts as accept.
+///
+/// When `bootstrap` is absent, mirror `decide_bootstrap_verdict`: accept only if
+/// `ci_low ≥ 0` **and** data_sufficient (`n_C ≥ 10` ∧ `n_mutants ≥ 20` on the
+/// synth-TEST paired block). Never treat null CI as ≥0.
 fn gate_verdict_from_model(v: &serde_json::Value) -> (String, String, String) {
     let ranker = v
         .get("ranker")
@@ -1197,10 +1201,39 @@ fn gate_verdict_from_model(v: &serde_json::Value) -> (String, String, String) {
             .to_string();
         return (verdict, reason, ranker);
     }
-    // No bootstrap block: null CI on synth-test foil ⇒ baseline (never accept).
-    let ci_low = v
-        .pointer("/paired_delta_ci_synthetic_test_cov_lines/ci95/0")
+    // No bootstrap block: recompute from synth-TEST foil fields.
+    let foil = v.get("paired_delta_ci_synthetic_test_cov_lines");
+    let n_c = foil
+        .and_then(|f| f.get("n_C"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0);
+    let n_mut = foil
+        .and_then(|f| f.get("n_mutants"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0);
+    let ci_low = foil
+        .and_then(|f| f.pointer("/ci95/0"))
         .and_then(|x| x.as_f64());
+    // Prefer explicit status when present; else derive from n_C / n_mutants.
+    let data_sufficient = match v.get("status").and_then(|x| x.as_str()) {
+        Some("ok") => n_c >= 10 && n_mut >= 20,
+        Some(_) => false,
+        None => n_c >= 10 && n_mut >= 20,
+    };
+    if n_c < 10 {
+        return (
+            "use_baseline".into(),
+            "insufficient_test_C".into(),
+            "cov_lines".into(),
+        );
+    }
+    if !data_sufficient {
+        return (
+            "use_baseline".into(),
+            "data_insufficient".into(),
+            "cov_lines".into(),
+        );
+    }
     match ci_low {
         None => (
             "use_baseline".into(),
@@ -1738,4 +1771,85 @@ fn civil_to_unix(y: i64, m: i64, d: i64) -> i64 {
     let doy = (153 * mp + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     (era * 146097 + doe - 719468) * 86400
+}
+
+#[cfg(test)]
+mod gate_verdict_tests {
+    use super::gate_verdict_from_model;
+
+    #[test]
+    fn bootstrap_block_wins() {
+        let v = serde_json::json!({
+            "ranker": "model",
+            "bootstrap": {
+                "verdict": "use_baseline",
+                "reason": "insufficient_test_C"
+            },
+            "paired_delta_ci_synthetic_test_cov_lines": {
+                "ci95": [0.5, 1.0],
+                "n_C": 20,
+                "n_mutants": 40
+            },
+            "status": "ok"
+        });
+        let (verdict, reason, ranker) = gate_verdict_from_model(&v);
+        assert_eq!(verdict, "use_baseline");
+        assert_eq!(reason, "insufficient_test_C");
+        assert_eq!(ranker, "model");
+    }
+
+    #[test]
+    fn fallback_positive_ci_without_data_sufficient_is_baseline() {
+        // Melochi T5: ci_low ≥ 0 alone must not accept.
+        let v = serde_json::json!({
+            "ranker": "model",
+            "status": "data_insufficient",
+            "paired_delta_ci_synthetic_test_cov_lines": {
+                "mean": 0.1,
+                "ci95": [0.01, 0.2],
+                "n_C": 12,
+                "n_mutants": 5
+            }
+        });
+        let (verdict, reason, ranker) = gate_verdict_from_model(&v);
+        assert_eq!(verdict, "use_baseline");
+        assert_eq!(reason, "data_insufficient");
+        assert_eq!(ranker, "cov_lines");
+    }
+
+    #[test]
+    fn fallback_accepts_only_with_ci_and_data_sufficient() {
+        let v = serde_json::json!({
+            "ranker": "model",
+            "status": "ok",
+            "paired_delta_ci_synthetic_test_cov_lines": {
+                "mean": 0.1,
+                "ci95": [0.0, 0.2],
+                "n_C": 10,
+                "n_mutants": 20
+            }
+        });
+        let (verdict, reason, ranker) = gate_verdict_from_model(&v);
+        assert_eq!(verdict, "use_model");
+        assert_eq!(reason, "synth_test_ci_low_ge_0");
+        assert_eq!(ranker, "model");
+    }
+
+    #[test]
+    fn fallback_null_ci_never_accepts() {
+        let v = serde_json::json!({
+            "ranker": "model",
+            "status": "ok",
+            "paired_delta_ci_synthetic_test_cov_lines": {
+                "mean": null,
+                "ci95": [null, null],
+                "n_C": 15,
+                "n_mutants": 30
+            }
+        });
+        let (verdict, reason, ranker) = gate_verdict_from_model(&v);
+        assert_eq!(verdict, "use_baseline");
+        assert_eq!(reason, "no_test_signal");
+        assert_eq!(ranker, "cov_lines");
+    }
 }
