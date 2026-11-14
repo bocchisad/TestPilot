@@ -50,6 +50,38 @@ pub struct BootstrapState {
     pub n_eligible: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_actual: Option<u32>,
+    /// Accumulated wall seconds per step (sums across resume attempts).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub step_timings_s: BTreeMap<String, f64>,
+    /// Backfill accounting for the last completed backfill step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_backfill_new: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_backfill_reused: Option<u32>,
+    /// Mutate counters from last successful mutate JSON (for report / rates).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_mutants_attempted: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_timeout: Option<u32>,
+}
+
+/// Add `secs` into `state.step_timings_s[step]` (resume-safe sum).
+pub fn add_step_timing(state: &mut BootstrapState, step: &str, secs: f64) {
+    *state.step_timings_s.entry(step.to_string()).or_insert(0.0) += secs;
+}
+
+/// Steps that are not yet `done`/`skipped` at process start (resume list).
+pub fn pending_steps(state: &BootstrapState) -> Vec<String> {
+    STEP_IDS
+        .iter()
+        .filter(|id| {
+            !matches!(
+                state.steps.get(**id),
+                Some(StepStatus::Done) | Some(StepStatus::Skipped)
+            )
+        })
+        .map(|s| (*s).to_string())
+        .collect()
 }
 
 #[derive(Debug)]
@@ -88,6 +120,11 @@ pub fn load_or_init_state(
         dump_fingerprint: None,
         n_eligible: None,
         n_actual: None,
+        step_timings_s: BTreeMap::new(),
+        n_backfill_new: None,
+        n_backfill_reused: None,
+        n_mutants_attempted: None,
+        n_timeout: None,
     })
 }
 

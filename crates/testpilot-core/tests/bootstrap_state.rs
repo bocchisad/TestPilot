@@ -288,13 +288,66 @@ fn dry_run_b_set_matches_live_with_root() {
     let fp_limb = first_parent_shas(root, 20).unwrap();
     // Pretend sampler returned root + children (before filter).
     let sampled_raw = vec![root_sha.clone(), c1.clone(), c2.clone()];
-    let dry = build_b_set(root, &fp_limb, &sampled_raw).unwrap();
-    let live = build_b_set(root, &fp_limb, &sampled_raw).unwrap();
-    assert_eq!(dry, live, "dry-run B_set must equal live B_set");
-    // Root may appear via FP limb, but filter drops it from sampled-only path.
     let filtered = filter_with_first_parent(root, &sampled_raw).unwrap();
     assert!(!filtered.iter().any(|s| s == &root_sha));
     assert!(filtered.iter().any(|s| s == &c1));
+    assert!(filtered.iter().any(|s| s == &c2));
+    // Independent expectation (not build_b_set vs itself).
+    let expected = union_b_set(&fp_limb, &filtered);
+    let got = build_b_set(root, &fp_limb, &sampled_raw).unwrap();
+    assert_eq!(got, expected, "build_b_set must equal filter∪fp_limb");
+}
+
+#[test]
+fn step_timings_sum_across_resume_and_pending_steps() {
+    use testpilot_core::bootstrap::BootstrapInputs;
+    use testpilot_core::bootstrap::resolve_fingerprint;
+    use testpilot_core::bootstrap::{BootstrapState, StepStatus, add_step_timing, pending_steps};
+    use testpilot_core::store::SCHEMA_VERSION;
+
+    let fp = resolve_fingerprint(&BootstrapInputs {
+        head_sha: "abc".into(),
+        n: 2,
+        k: 1,
+        seed: 1,
+        b_override: None,
+        bin_version: "0".into(),
+        schema_version: SCHEMA_VERSION,
+    });
+    let mut state = BootstrapState {
+        fingerprint: fp,
+        steps: testpilot_core::bootstrap::STEP_IDS
+            .iter()
+            .map(|id| {
+                let st = if *id == "backfill" || *id == "mutate" {
+                    StepStatus::Pending
+                } else if *id == "collect_git" {
+                    StepStatus::Done
+                } else {
+                    StepStatus::Pending
+                };
+                ((*id).to_string(), st)
+            })
+            .collect(),
+        status: None,
+        backfill_done_shas: vec![],
+        mutate_completed_pairs: vec![],
+        dump_fingerprint: None,
+        n_eligible: None,
+        n_actual: None,
+        step_timings_s: Default::default(),
+        n_backfill_new: None,
+        n_backfill_reused: None,
+        n_mutants_attempted: None,
+        n_timeout: None,
+    };
+    add_step_timing(&mut state, "mutate", 1.5);
+    add_step_timing(&mut state, "mutate", 2.5);
+    assert!((state.step_timings_s["mutate"] - 4.0).abs() < 1e-9);
+    let pending = pending_steps(&state);
+    assert!(pending.contains(&"mutate".to_string()));
+    assert!(pending.contains(&"backfill".to_string()));
+    assert!(!pending.contains(&"collect_git".to_string()));
 }
 
 #[test]

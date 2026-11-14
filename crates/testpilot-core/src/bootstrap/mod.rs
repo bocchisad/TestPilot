@@ -19,6 +19,7 @@ pub use estimate::{
 };
 pub use fingerprint::{BootstrapInputs, Fingerprint, resolve_fingerprint, schema_sql_sha256};
 pub use state::{
-    BootstrapState, ResumeDecision, SaveFault, StepStatus, decide_resume, load_or_init_state,
-    load_state, save_state, save_state_with_fault, state_path,
+    BootstrapState, ResumeDecision, STEP_IDS, SaveFault, StepStatus, add_step_timing,
+    decide_resume, load_or_init_state, load_state, pending_steps, save_state,
+    save_state_with_fault, state_path,
 };

@@ -1,0 +1,24 @@
+{
+  "click": 32520.0,
+  "jinja": 19730.0,
+  "attrs": 19730.0,
+  "estimated_total_s": 104500.0,
+  "estimated_total_h": 29.03,
+  "max_est_s": 14400,
+  "abort_reason": "estimated_total_gt_4h",
+  "note": "Priors still use unmeasured backfill placeholders; real wall may differ. Full runs blocked pending mell approval.",
+  "pins": {
+    "click": {
+      "tag": "8.1.8",
+      "sha": "934813e4d421071a1b3db3973c02fe2721359a6e"
+    },
+    "jinja": {
+      "tag": "3.1.6",
+      "sha": "15206881c006c79667fe5154fe80c01c65410679"
+    },
+    "attrs": {
+      "tag": "24.3.0",
+      "sha": "598494a618410490cfbe0c896b7a544f6d23e0d9"
+    }
+  }
+}

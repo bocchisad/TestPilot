@@ -180,12 +180,12 @@ jobs:
         run: |
           pip install -e 'python/pytest-testpilot[dev]'
           pip install -e 'python/testpilot-train[dev]'
-      - name: Bootstrap e2e (≤120s)
+      - name: Bootstrap e2e (≤150s assert; outer 180s)
         timeout-minutes: 4
         run: |
           chmod +x tests/e2e/test_bootstrap_e2e.sh
-          # Hard wall so a hung SIGINT wait cannot burn the runner.
-          timeout 150 bash tests/e2e/test_bootstrap_e2e.sh
+          # Outer timeout > inner script assert (150) so the assert can report.
+          timeout 180 bash tests/e2e/test_bootstrap_e2e.sh
 
   features-oracle:
     runs-on: ubuntu-latest

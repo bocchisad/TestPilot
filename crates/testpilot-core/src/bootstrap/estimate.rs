@@ -16,6 +16,9 @@ pub const EMBEDDED_PRIORS_PATH: &str = "docs/measurements/bootstrap_time_priors.
 pub struct SuiteSeconds {
     pub click: f64,
     pub jinja: f64,
+    /// Optional attrs hat; when 0 / absent, dry-run falls back to jinja.
+    #[serde(default)]
+    pub attrs: f64,
     #[serde(default)]
     pub measured: bool,
 }
@@ -54,6 +57,13 @@ pub fn load_priors_file(path: &Path) -> Result<BootstrapPriors> {
 fn suite_pick(s: &SuiteSeconds, suite: &str) -> f64 {
     match suite {
         "jinja" => s.jinja,
+        "attrs" => {
+            if s.attrs > 0.0 {
+                s.attrs
+            } else {
+                s.jinja
+            }
+        }
         _ => s.click,
     }
 }
@@ -147,6 +157,7 @@ pub fn format_dry_run_report(
         fmt_hours(est.dump_train_s)
     ));
     out.push_str(&format!("estimate total: {}\n", fmt_hours(est.total_s)));
+    out.push_str(&format!("total_s={:.3}\n", est.total_s));
     out.push_str(&format!(
         "resume: {}\n",
         if resume_allowed {

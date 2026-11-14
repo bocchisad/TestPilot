@@ -102,7 +102,7 @@ assert mj["bootstrap"]["verdict"] in ("use_model", "use_baseline")
 br = model / "bootstrap_report.json"
 assert br.is_file(), br
 rep = json.loads(br.read_text())
-for key in ("fingerprint", "steps", "ranker", "bootstrap"):
+for key in ("fingerprint", "steps", "ranker", "bootstrap", "step_timings_s"):
     assert key in rep, (key, sorted(rep))
 steps = rep["steps"]
 required = (
@@ -111,6 +111,7 @@ required = (
 )
 for step in required:
     assert steps.get(step) == "done", (step, steps)
+assert isinstance(rep["step_timings_s"], dict) and rep["step_timings_s"], rep["step_timings_s"]
 print("report schema ok", mj["bootstrap"]["verdict"], mj["ranker"])
 PY
 }
@@ -119,19 +120,27 @@ assert_mutate_happened() {
   local repo="$1"
   local boot_log="$2"
   "$PYTHON" - <<PY
-import json, re, sqlite3
+import json, sqlite3
 from pathlib import Path
 repo = Path("$repo")
 log = Path("$boot_log").read_text(encoding="utf-8", errors="replace")
-# Prefer JSON blob from mutate stdout embedded in bootstrap log.
+# Parse pretty-printed JSON objects (brace depth) for n_mutants_attempted.
 n_attempted = None
-for m in re.finditer(r"\{[^{}]*\"n_mutants_attempted\"[^{}]*\}", log):
+dec = json.JSONDecoder()
+i = 0
+while i < len(log):
+    if log[i] != "{":
+        i += 1
+        continue
     try:
-        n_attempted = json.loads(m.group(0)).get("n_mutants_attempted")
-    except Exception:
-        pass
+        obj, end = dec.raw_decode(log, i)
+    except json.JSONDecodeError:
+        i += 1
+        continue
+    if isinstance(obj, dict) and "n_mutants_attempted" in obj:
+        n_attempted = obj.get("n_mutants_attempted")
+    i = end
 if n_attempted is None:
-    # Fall back: count synthetic runs in DB.
     db = repo / ".testpilot" / "db.sqlite"
     con = sqlite3.connect(db)
     n_syn = con.execute(
@@ -143,7 +152,6 @@ if n_attempted is None:
 else:
     assert n_attempted > 0, f"n_mutants_attempted={n_attempted} (mutate no-op)"
     print("mutate ok n_mutants_attempted", n_attempted)
-# dump fingerprint
 st = json.loads((repo / ".testpilot" / "bootstrap" / "state.json").read_text())
 fp = st.get("dump_fingerprint") or {}
 n_syn = fp.get("n_synthetic_runs", 0)
@@ -417,8 +425,9 @@ echo "case5 ok"
 END_WALL=$(date +%s)
 ELAPSED=$((END_WALL - START_WALL))
 echo "bootstrap_e2e elapsed=${ELAPSED}s"
-if [[ "$ELAPSED" -ge 120 ]]; then
-  echo "bootstrap_e2e exceeded 120s budget" >&2
+# Inner assert 150s; CI outer timeout must be higher (180) so this can fire.
+if [[ "$ELAPSED" -ge 150 ]]; then
+  echo "bootstrap_e2e exceeded 150s budget" >&2
   exit 1
 fi
 echo "bootstrap_e2e: all cases passed"

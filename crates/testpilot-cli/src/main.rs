@@ -11,9 +11,9 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use testpilot_core::bootstrap::{
     self, BootstrapInputs, DbDumpFingerprint, EMBEDDED_PRIORS_PATH, ResumeDecision, StepStatus,
-    build_b_set, decide_resume, default_priors, dump_needs_refresh, estimate_wall,
-    first_parent_shas, format_dry_run_report, load_priors_file, resolve_fingerprint, save_state,
-    shas_needing_backfill, startup_cleanup, state_path, union_b_set,
+    add_step_timing, build_b_set, decide_resume, default_priors, dump_needs_refresh, estimate_wall,
+    first_parent_shas, format_dry_run_report, load_priors_file, pending_steps, resolve_fingerprint,
+    save_state, shas_needing_backfill, startup_cleanup, state_path, union_b_set,
 };
 use testpilot_core::codec;
 use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
@@ -805,7 +805,9 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         .time_budget
         .map(|secs| Instant::now() + Duration::from_secs(secs));
 
+    let t_cleanup = Instant::now();
     let _cleanup = startup_cleanup(&repo).context("bootstrap startup cleanup")?;
+    let cleanup_s = t_cleanup.elapsed().as_secs_f64();
 
     let decision = if opts.resume {
         decide_resume(&repo, &fp, opts.force)?
@@ -819,9 +821,14 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         ResumeDecision::Refuse { hint } => bail!("{hint}"),
         ResumeDecision::Fresh(s) | ResumeDecision::Continue(s) => s,
     };
+    // Steps not already done when this process started (resume reporting).
+    let steps_resumed = pending_steps(&state);
+
+    add_step_timing(&mut state, "cleanup", cleanup_s);
     state.steps.insert("cleanup".into(), StepStatus::Done);
 
     // Ensure exclude + DB (never touches .gitignore).
+    let t_init = Instant::now();
     let db = resolve_db_path_for(opts.db.as_deref(), &repo)?;
     if let Some(parent) = db.parent() {
         std::fs::create_dir_all(parent)?;
@@ -849,12 +856,14 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     }
     ensure_git_exclude_at(&exclude, ".testpilot/")?;
     let mut store = Store::open(&db).context("open/create bootstrap db")?;
+    add_step_timing(&mut state, "init", t_init.elapsed().as_secs_f64());
     state.steps.insert("init".into(), StepStatus::Done);
     save_state(&repo, &state)?;
 
     // --- collect_git ---
     bootstrap_check_stop(&repo, &mut state, "collect_git", &interrupted, deadline)?;
     if state.steps.get("collect_git") != Some(&StepStatus::Done) {
+        let t0 = Instant::now();
         let grepo = GixRepo::open(&repo).context("open git repo for collect")?;
         let stats =
             collect_git(&grepo, &mut store, None, None, None, 5000).context("collect git")?;
@@ -862,6 +871,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             "collect_git: inserted={} skipped={} oversized={}",
             stats.inserted, stats.skipped, stats.oversized
         );
+        add_step_timing(&mut state, "collect_git", t0.elapsed().as_secs_f64());
         state.steps.insert("collect_git".into(), StepStatus::Done);
         save_state(&repo, &state)?;
     }
@@ -903,19 +913,11 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         return Ok(());
     }
 
-    // --- backfill (R6): last_fp first, then sampled C gaps ---
+    // --- backfill (R6): sample → B_set → count new/reused → pytest gaps ---
     bootstrap_check_stop(&repo, &mut state, "backfill", &interrupted, deadline)?;
     if state.steps.get("backfill") != Some(&StepStatus::Done) {
+        let t0 = Instant::now();
         let fp_limb = first_parent_shas(&repo, last_fp)?;
-        match run_backfill_shas(&scripts, &repo, &db, &fp_limb, None, &interrupted) {
-            Ok(()) => {}
-            Err(e) if e.is::<ChildInterrupted>() || interrupted.load(Ordering::SeqCst) => {
-                return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
-            }
-            Err(e) => return Err(e),
-        }
-        state.backfill_done_shas.extend(fp_limb.iter().cloned());
-
         let sample =
             sample_commits_py_repo(&scripts, &db, opts.max_commits, opts.seed, Some(&repo))?;
         state.n_eligible = Some(sample.n_eligible);
@@ -926,9 +928,24 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             sample.sampled.len()
         );
         let b_set = build_b_set(&repo, &fp_limb, &sample.sampled)?;
+        // Count before any backfill pytest so clean-start measures see n_reused=0.
         let need = shas_needing_backfill(&store, &b_set)?;
-        if !need.is_empty() {
-            match run_backfill_shas(&scripts, &repo, &db, &need, None, &interrupted) {
+        let n_reused = (b_set.len().saturating_sub(need.len())) as u32;
+        let n_new = need.len() as u32;
+        // Prefer FP limb order first, then remaining need.
+        let mut ordered: Vec<String> = Vec::new();
+        for s in &fp_limb {
+            if need.iter().any(|x| x == s) {
+                ordered.push(s.clone());
+            }
+        }
+        for s in &need {
+            if !ordered.iter().any(|x| x == s) {
+                ordered.push(s.clone());
+            }
+        }
+        if !ordered.is_empty() {
+            match run_backfill_shas(&scripts, &repo, &db, &ordered, None, &interrupted) {
                 Ok(()) => {}
                 Err(e) if e.is::<ChildInterrupted>() || interrupted.load(Ordering::SeqCst) => {
                     return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
@@ -941,13 +958,18 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                 state.backfill_done_shas.push(s.clone());
             }
         }
+        state.n_backfill_new = Some(n_new);
+        state.n_backfill_reused = Some(n_reused);
+        add_step_timing(&mut state, "backfill", t0.elapsed().as_secs_f64());
         state.steps.insert("backfill".into(), StepStatus::Done);
         save_state(&repo, &state)?;
+        println!("backfill: n_new={n_new} n_reused={n_reused}");
     }
 
     // --- mutate ---
     bootstrap_check_stop(&repo, &mut state, "mutate", &interrupted, deadline)?;
     if state.steps.get("mutate") != Some(&StepStatus::Done) {
+        let t0 = Instant::now();
         let n = state.n_actual.unwrap_or(opts.max_commits).max(1);
         let deadline_unix = deadline.map(|dl| {
             let now = Instant::now();
@@ -979,6 +1001,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                         &partial.completed_pairs,
                     );
                 }
+                add_step_timing(&mut state, "mutate", t0.elapsed().as_secs_f64());
                 return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
             }
             Err(e) => return Err(e),
@@ -987,6 +1010,9 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             &mut state.mutate_completed_pairs,
             &mutate_out.completed_pairs,
         );
+        state.n_mutants_attempted = Some(mutate_out.n_mutants_attempted);
+        state.n_timeout = Some(mutate_out.n_timeout);
+        add_step_timing(&mut state, "mutate", t0.elapsed().as_secs_f64());
         if mutate_out.interrupted {
             return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
         }
@@ -1000,6 +1026,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     let cur_fp = DbDumpFingerprint::from_store(&store)?;
     let need_dump = dump_needs_refresh(parquet.is_file(), state.dump_fingerprint.as_ref(), &cur_fp);
     if state.steps.get("features_dump") != Some(&StepStatus::Done) || need_dump {
+        let t0 = Instant::now();
         std::fs::create_dir_all(&out_dir)?;
         let grepo = GixRepo::open(&repo)?;
         let repo_name = repo
@@ -1010,6 +1037,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         features::dump_parquet_ex(&grepo, &store, &repo_name, &parquet, Some(&grepo))
             .context("features dump --include-mutants")?;
         state.dump_fingerprint = Some(cur_fp);
+        add_step_timing(&mut state, "features_dump", t0.elapsed().as_secs_f64());
         state.steps.insert("features_dump".into(), StepStatus::Done);
         save_state(&repo, &state)?;
         println!("features_dump: {}", parquet.display());
@@ -1020,6 +1048,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     // Resume: re-run train if model.json missing/invalid even if step marked Done.
     let train_artifact_ok = model_artifact_usable(&out_dir);
     if state.steps.get("train") != Some(&StepStatus::Done) || !train_artifact_ok {
+        let t0 = Instant::now();
         if !parquet.is_file() {
             bail!(
                 "features dump missing at {}; cannot train",
@@ -1036,10 +1065,12 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             &interrupted,
         )? {
             ChildOutcome::Interrupted => {
+                add_step_timing(&mut state, "train", t0.elapsed().as_secs_f64());
                 return bootstrap_flush_interrupted(&repo, &mut state, "train");
             }
             ChildOutcome::Ok => {}
         }
+        add_step_timing(&mut state, "train", t0.elapsed().as_secs_f64());
         state.steps.insert("train".into(), StepStatus::Done);
         state.status = None;
         save_state(&repo, &state)?;
@@ -1049,6 +1080,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     // --- gate: surface verdict from model.json (computed at train) ---
     bootstrap_check_stop(&repo, &mut state, "gate", &interrupted, deadline)?;
     if state.steps.get("gate") != Some(&StepStatus::Done) {
+        let t0 = Instant::now();
         let model_json = out_dir.join("model.json");
         if !model_json.is_file() {
             bail!("gate requires {}", model_json.display());
@@ -1059,6 +1091,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         let (verdict, reason, ranker) = gate_verdict_from_model(&v);
         println!("gate: verdict={verdict} ranker={ranker} reason={reason}");
         eprintln!("bootstrap.verdict={verdict} ranker={ranker}");
+        add_step_timing(&mut state, "gate", t0.elapsed().as_secs_f64());
         state.steps.insert("gate".into(), StepStatus::Done);
         save_state(&repo, &state)?;
     }
@@ -1066,9 +1099,12 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     // --- finalize: bootstrap report pointing at train artifacts ---
     bootstrap_check_stop(&repo, &mut state, "finalize", &interrupted, deadline)?;
     if state.steps.get("finalize") != Some(&StepStatus::Done) {
+        let t0 = Instant::now();
         // Mark done before serializing so bootstrap_report.json shows finalize=done.
         state.steps.insert("finalize".into(), StepStatus::Done);
-        write_bootstrap_finalize(&repo, &out_dir, &state, &opts)?;
+        add_step_timing(&mut state, "finalize", t0.elapsed().as_secs_f64());
+        write_bootstrap_finalize(&repo, &out_dir, &state, &opts, &steps_resumed)?;
+        maybe_write_local_priors(&repo, &state, &opts.suite)?;
         save_state(&repo, &state)?;
     }
 
@@ -1082,11 +1118,98 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     Ok(())
 }
 
+/// Prefer cwd-relative path; never emit absolute home/tmp paths into committed reports.
+fn path_for_report(p: &Path) -> String {
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(rel) = p.strip_prefix(&cwd) {
+            return rel.display().to_string();
+        }
+    }
+    p.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "path".into())
+}
+
+fn backfill_rate_fields(
+    state: &bootstrap::BootstrapState,
+) -> (serde_json::Value, serde_json::Value) {
+    let n_new = state.n_backfill_new.unwrap_or(0);
+    let wall = state.step_timings_s.get("backfill").copied().unwrap_or(0.0);
+    if n_new >= 10 {
+        (
+            serde_json::json!(wall / f64::from(n_new)),
+            serde_json::Value::Null,
+        )
+    } else {
+        (serde_json::Value::Null, serde_json::json!("n_new_lt_10"))
+    }
+}
+
+fn mutate_rate_fields(state: &bootstrap::BootstrapState) -> serde_json::Value {
+    let attempted = state.n_mutants_attempted.unwrap_or(0);
+    let wall = state.step_timings_s.get("mutate").copied().unwrap_or(0.0);
+    if attempted == 0 {
+        serde_json::Value::Null
+    } else {
+        serde_json::json!(wall / f64::from(attempted))
+    }
+}
+
+fn timeout_rate_fields(state: &bootstrap::BootstrapState) -> serde_json::Value {
+    let attempted = state.n_mutants_attempted.unwrap_or(0);
+    let n_timeout = state.n_timeout.unwrap_or(0);
+    if attempted == 0 {
+        serde_json::Value::Null
+    } else {
+        serde_json::json!(f64::from(n_timeout) / f64::from(attempted))
+    }
+}
+
+fn maybe_write_local_priors(
+    repo: &Path,
+    state: &bootstrap::BootstrapState,
+    suite: &str,
+) -> Result<()> {
+    let n_new = state.n_backfill_new.unwrap_or(0);
+    let attempted = state.n_mutants_attempted.unwrap_or(0);
+    let backfill_wall = state.step_timings_s.get("backfill").copied().unwrap_or(0.0);
+    let mutate_wall = state.step_timings_s.get("mutate").copied().unwrap_or(0.0);
+    if n_new < 10 && attempted == 0 {
+        return Ok(());
+    }
+    let mut priors = default_priors();
+    if n_new >= 10 {
+        let rate = backfill_wall / f64::from(n_new);
+        match suite {
+            "jinja" => priors.backfill_s_per_commit.jinja = rate,
+            "attrs" => priors.backfill_s_per_commit.attrs = rate,
+            _ => priors.backfill_s_per_commit.click = rate,
+        }
+        priors.backfill_s_per_commit.measured = true;
+    }
+    if attempted > 0 {
+        let rate = mutate_wall / f64::from(attempted);
+        match suite {
+            "jinja" => priors.mutate_s_per_mutant.jinja = rate,
+            "attrs" => priors.mutate_s_per_mutant.attrs = rate,
+            _ => priors.mutate_s_per_mutant.click = rate,
+        }
+        priors.mutate_s_per_mutant.measured = true;
+    }
+    let path = repo.join(".testpilot/bootstrap/priors.json");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&priors)? + "\n")?;
+    Ok(())
+}
+
 fn write_bootstrap_finalize(
     repo: &Path,
     out_dir: &Path,
     state: &bootstrap::BootstrapState,
     opts: &BootstrapCli,
+    steps_resumed: &[String],
 ) -> Result<()> {
     std::fs::create_dir_all(out_dir)?;
     let model_json = out_dir.join("model.json");
@@ -1096,18 +1219,31 @@ fn write_bootstrap_finalize(
     } else {
         serde_json::json!({})
     };
+    let (backfill_s_per_commit, backfill_reason) = backfill_rate_fields(state);
+    let mutate_s_per_mutant = mutate_rate_fields(state);
+    let timeout_rate = timeout_rate_fields(state);
     // Sidecar only — do not clobber train's report.md / report.json.
     let report = serde_json::json!({
         "fingerprint": state.fingerprint,
         "steps": state.steps,
+        "steps_resumed": steps_resumed,
+        "step_timings_s": state.step_timings_s,
         "n_eligible": state.n_eligible,
         "n_actual": state.n_actual,
+        "n_backfill_new": state.n_backfill_new,
+        "n_backfill_reused": state.n_backfill_reused,
+        "backfill_s_per_commit": backfill_s_per_commit,
+        "backfill_s_per_commit_reason": backfill_reason,
+        "n_mutants_attempted": state.n_mutants_attempted,
+        "n_timeout": state.n_timeout,
+        "timeout_rate": timeout_rate,
+        "mutate_s_per_mutant": mutate_s_per_mutant,
         "mutate_completed_pairs": state.mutate_completed_pairs.len(),
         "jobs": opts.jobs,
         "seed": opts.seed,
         "train_threads": opts.train_threads,
-        "out": out_dir.display().to_string(),
-        "repo": repo.display().to_string(),
+        "out": path_for_report(out_dir),
+        "repo": path_for_report(repo),
         "ranker": train_payload.get("ranker"),
         "bootstrap": train_payload.get("bootstrap"),
         "status": train_payload.get("status"),
@@ -1128,7 +1264,7 @@ fn write_bootstrap_finalize(
          - jobs: {} seed: {} train_threads: {}\n\n\
          Train metrics: `report.md` / `report.json` from testpilot-train.\n\
          Model: `model.json` (ranker + bootstrap.verdict).\n",
-        out_dir.display(),
+        path_for_report(out_dir),
         train_payload
             .get("ranker")
             .and_then(|x| x.as_str())
@@ -1484,19 +1620,25 @@ impl std::error::Error for MutateInterrupted {}
 struct MutateOut {
     completed_pairs: Vec<String>,
     interrupted: bool,
+    n_mutants_attempted: u32,
+    n_timeout: u32,
 }
 
-fn parse_mutate_json(stdout: &[u8]) -> (Vec<String>, bool) {
-    let text = String::from_utf8_lossy(stdout);
-    let start = match text.find('{') {
-        Some(i) => i,
-        None => return (vec![], false),
+fn parse_mutate_json(stdout: &[u8]) -> MutateOut {
+    let empty = MutateOut {
+        completed_pairs: vec![],
+        interrupted: false,
+        n_mutants_attempted: 0,
+        n_timeout: 0,
     };
-    // Prefer last JSON object (script may print noise before --json).
-    let start = text.rfind('{').unwrap_or(start);
+    let text = String::from_utf8_lossy(stdout);
+    let start = match text.rfind('{') {
+        Some(i) => i,
+        None => return empty,
+    };
     let slice = &text[start..];
     let Ok(v) = serde_json::from_str::<serde_json::Value>(slice) else {
-        return (vec![], false);
+        return empty;
     };
     let pairs = v
         .get("completed_pairs")
@@ -1511,7 +1653,17 @@ fn parse_mutate_json(stdout: &[u8]) -> (Vec<String>, bool) {
         .get("interrupted")
         .and_then(|x| x.as_bool())
         .unwrap_or(false);
-    (pairs, interrupted)
+    let n_mutants_attempted = v
+        .get("n_mutants_attempted")
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0) as u32;
+    let n_timeout = v.get("n_timeout").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    MutateOut {
+        completed_pairs: pairs,
+        interrupted,
+        n_mutants_attempted,
+        n_timeout,
+    }
 }
 
 fn bundled_scripts(scripts: &Path) -> Result<PathBuf> {
@@ -1663,25 +1815,24 @@ fn run_mutate(
         cmd.arg("--python").arg(py);
     }
     let (st, stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
-    let (pairs, json_intr) = parse_mutate_json(&stdout);
+    let mut parsed = parse_mutate_json(&stdout);
     // Also harvest pairs-out JSONL in case stdout was truncated.
-    let mut all_pairs = pairs;
     if pairs_out.is_file() {
         if let Ok(text) = std::fs::read_to_string(&pairs_out) {
             for line in text.lines() {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
                     if let Some(p) = v.get("pair").and_then(|x| x.as_str()) {
-                        if !all_pairs.iter().any(|x| x == p) {
-                            all_pairs.push(p.to_string());
+                        if !parsed.completed_pairs.iter().any(|x| x == p) {
+                            parsed.completed_pairs.push(p.to_string());
                         }
                     }
                 }
             }
         }
     }
-    if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) || json_intr {
+    if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) || parsed.interrupted {
         return Err(MutateInterrupted {
-            completed_pairs: all_pairs,
+            completed_pairs: parsed.completed_pairs,
         }
         .into());
     }
@@ -1691,10 +1842,7 @@ fn run_mutate(
             String::from_utf8_lossy(&stderr)
         );
     }
-    Ok(MutateOut {
-        completed_pairs: all_pairs,
-        interrupted: json_intr,
-    })
+    Ok(parsed)
 }
 
 fn cmd_init(explicit_db: Option<&Path>) -> Result<()> {
