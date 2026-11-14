@@ -17,16 +17,11 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from mutate.run_mutant import junit_collection_error, run_mutant  # noqa: E402
+from mutate.testpilot_bin import resolve_testpilot_bin  # noqa: E402
 
 
 def _testpilot() -> str:
-    for cand in (
-        _ROOT / "target" / "debug" / "testpilot",
-        _ROOT / "target" / "release" / "testpilot",
-    ):
-        if cand.is_file():
-            return str(cand)
-    pytest.skip("testpilot binary not built")
+    return resolve_testpilot_bin()
 
 
 def _write_junit(path: Path, cases: list[dict]) -> None:

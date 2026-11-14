@@ -51,16 +51,39 @@ testpilot-train train --data pairs.parquet --out /tmp/tp-model --features-schema
 
 Primary label is `new_fail` (see [`docs/specs/2026-11-09-testpilot-training-design.md`](docs/specs/2026-11-09-testpilot-training-design.md)). Package details: [`python/testpilot-train/README.md`](python/testpilot-train/README.md).
 
-### Mutation bootstrap (when real `new_fail` is absent)
+### Cold-start bootstrap (week 6)
 
-Historical green `main` histories (e.g. click/jinja) yield no ranking positives. Generate synthetic failures via AST mutants as real commits under `refs/testpilot/mutants/`, then dump with `--include-mutants`. Design: [`docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md`](docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md).
+One command: real backfill + mutation labels + train + quality gate. Prefer this over the low-level mutate script below. Design: [`docs/specs/2026-11-14-testpilot-bootstrap-design.md`](docs/specs/2026-11-14-testpilot-bootstrap-design.md).
+
+```bash
+cargo build -p testpilot-cli --release
+./target/release/testpilot bootstrap --repo "$REPO" --out "$MODEL_DIR" \
+  --max-commits 200 --mutants-per-commit 4 --jobs 2 --seed 42
+# Defaults are N=200 × K=4. Use --resume after interrupt; --force to restart;
+# --dry-run prints plan + time estimate (no writes).
+```
+
+`model.json` carries `ranker` (`model` or `cov_lines`) and `bootstrap.verdict` / `reason`. Sidecar `bootstrap_report.json` has step timings and mutate/backfill counters. `.testpilot/` is added to `.git/info/exclude` (not `.gitignore`) so the tree stays clean.
+
+Gate `use_baseline` reasons (select uses `cov_lines` from the same artifact — no `model.txt` required):
+
+- `insufficient_commit_idx` — unique `commit_idx` &lt; 10; chrono_split never starts (cold path before the quality gate).
+- `insufficient_test_C` — split ran, but synth TEST has `n_C` &lt; 10 (not a different “data insufficient” label for the cold path).
+
+After more history or a larger N, re-run with `--force`.
+
+**n_C widths** (why 200×4): see [`docs/measurements/mut2-80x5-click-jinja.json`](docs/measurements/mut2-80x5-click-jinja.json). **Measured step times / timeout rates / LORO:** [`docs/measurements/`](docs/measurements/) (do not invent numbers — open the JSON files). Dry-run hats: [`docs/measurements/bootstrap_time_priors.json`](docs/measurements/bootstrap_time_priors.json).
+
+**Click on Linux:** install **`less`**. Without it, pager tests fail on every commit (persistent, not `new_fail`).
+
+### Mutation bootstrap (low-level; when real `new_fail` is absent)
+
+Historical green `main` histories yield no ranking positives. The CLI above wraps this path. Manual AST mutants: [`docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md`](docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md).
 
 ```bash
 python scripts/mutate_bootstrap.py --repo "$REPO" --db "$DB" --commits 5 --mutants-per-commit 3 --seed 42
 testpilot features dump --out pairs.parquet --include-mutants
 ```
-
-**Click on Linux:** install **`less`** (e.g. `apt install less`). Without it, every commit fails all `test_echo_via_pager` parametrizations for `less` — persistent env failures, not `new_fail`. Do not exclude those tests; install the pager.
 
 ## Select (week 4)
 

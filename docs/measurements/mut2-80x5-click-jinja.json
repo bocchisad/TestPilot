@@ -1,0 +1,16 @@
+{
+  "note": "Snapshot of Week 4/5 mutant train report (was /tmp/tp-model-mut2/report.json). In-repo so bootstrap docs/priors do not depend on /tmp.",
+  "preset": "80x5",
+  "N": 80,
+  "K": 5,
+  "diagnostics": {
+    "mutant_test_new_fail_changes": 40,
+    "mutant_test_distinct_base_change": 17
+  },
+  "paired_delta_ci_test": {
+    "mean": 0.08961600713317878,
+    "ci95": [-0.0031402826351433783, 0.2386818821382696],
+    "n": 40
+  },
+  "n_C_test_over_N": 0.2125
+}

@@ -39,3 +39,4 @@ parquet = { version = "54", default-features = false, features = ["arrow", "snap
 bytes = "1"
 postcard = { version = "1", features = ["alloc"] }
 zstd = "0.13"
+ctrlc = "3"

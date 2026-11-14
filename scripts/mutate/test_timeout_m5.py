@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from mutate.testpilot_bin import resolve_testpilot_bin  # noqa: E402
+
 _SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
@@ -25,13 +27,7 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def _testpilot() -> str:
-    for cand in (
-        ROOT / "target" / "debug" / "testpilot",
-        ROOT / "target" / "release" / "testpilot",
-    ):
-        if cand.is_file():
-            return str(cand)
-    pytest.skip("testpilot binary not built")
+    return resolve_testpilot_bin()
 
 
 def test_infinite_loop_timeout_cleans_up(tmp_path: Path) -> None:

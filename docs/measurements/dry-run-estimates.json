@@ -1,0 +1,23 @@
+{
+  "click": 6825.4,
+  "jinja": 3044.2,
+  "attrs": 7455.0,
+  "estimated_total_s": 24150.0,
+  "estimated_total_h": 6.71,
+  "max_est_s": 14400,
+  "note": "After T6 cold limb=max(N,20) + mell N=20 rates. 3×full + 2nd click still >4h at N=200 (click mutate still W3 12s/mutant placeholder). Full 200×4 not started — mell recalibrates N=20.",
+  "pins": {
+    "click": {
+      "tag": "8.1.8",
+      "sha": "934813e4d421071a1b3db3973c02fe2721359a6e"
+    },
+    "jinja": {
+      "tag": "3.1.6",
+      "sha": "15206881c006c79667fe5154fe80c01c65410679"
+    },
+    "attrs": {
+      "tag": "24.3.0",
+      "sha": "598494a618410490cfbe0c896b7a544f6d23e0d9"
+    }
+  }
+}

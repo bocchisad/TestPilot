@@ -12,7 +12,7 @@ use crate::features::model_vec::model_feature_vector;
 use crate::features::python_scan::{DefSpan, ScanResult, scan_python};
 use crate::features::schema::FEATURES_VERSION;
 use crate::git::{DiffHunk, GitRepo, GixRepo, Sha};
-use crate::lgbm::{Booster, predict_raw};
+use crate::lgbm::{Booster, Ranker, predict_raw};
 use crate::store::{Store, TestResultRow};
 
 const BASE_RUN_LAG_WARN: i64 = 20;
@@ -106,9 +106,22 @@ pub struct SelectedTestJson {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct BootstrapSelectJson {
+    pub verdict: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct SelectJson {
     pub model_sha256: String,
     pub features_version: u32,
+    /// `model` (LightGBM) or `cov_lines` (R10 baseline). Legacy models omit → treat as model.
+    pub ranker: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bootstrap: Option<BootstrapSelectJson>,
     pub base: String,
     pub head: String,
     pub base_run_sha: String,
@@ -120,6 +133,20 @@ pub struct SelectJson {
     pub budget: BudgetJson,
     pub safe: SafeJson,
     pub tests: Vec<SelectedTestJson>,
+}
+
+fn select_json_ranker_fields(booster: &Booster) -> (String, Option<BootstrapSelectJson>) {
+    let ranker = booster.meta.ranker.as_str().to_string();
+    let bootstrap = booster
+        .meta
+        .bootstrap
+        .as_ref()
+        .map(|b| BootstrapSelectJson {
+            verdict: b.verdict.clone(),
+            reason: b.reason.clone(),
+            gate: b.gate.clone(),
+        });
+    (ranker, bootstrap)
 }
 
 fn safe_thresholds_json(opts: &SafeOpts) -> SafeThresholdsJson {
@@ -202,12 +229,26 @@ pub fn run_select<R: GitRepo>(
     if booster.meta.synthetic_only_warning {
         stderr_warnings.push("warning: model validated on synthetic only".to_string());
     }
+    let (ranker_s, bootstrap_json) = select_json_ranker_fields(booster);
+    stderr_warnings.push(format!("ranker={ranker_s}"));
+    if let Some(ref b) = bootstrap_json {
+        stderr_warnings.push(format!(
+            "bootstrap.verdict={}{}",
+            b.verdict,
+            b.reason
+                .as_ref()
+                .map(|r| format!(" reason={r}"))
+                .unwrap_or_default()
+        ));
+    }
 
     if hunks.is_empty() {
         stderr_warnings.push("warning: empty diff; selecting 0 tests".into());
         let payload = SelectJson {
             model_sha256: booster.meta.model_sha256.clone(),
             features_version: FEATURES_VERSION,
+            ranker: ranker_s,
+            bootstrap: bootstrap_json,
             base: base.as_str().to_string(),
             head: head_label.to_string(),
             base_run_sha: String::new(),
@@ -320,21 +361,34 @@ pub fn run_select<R: GitRepo>(
 
     let mut scored: Vec<ScoredCandidate> = Vec::with_capacity(rows.len());
     for row in rows {
-        let feats = model_feature_vector(&row);
-        let score = predict_raw(booster, &feats)?;
+        let (score, cov_lines, cov_func) = match booster.meta.ranker {
+            Ranker::CovLines => (row.cov_lines as f64, row.cov_lines, row.cov_func),
+            Ranker::Model => {
+                let feats = model_feature_vector(&row);
+                (predict_raw(booster, &feats)?, row.cov_lines, row.cov_func)
+            }
+        };
         scored.push(ScoredCandidate {
             test_id: row.test.clone(),
             score,
+            cov_lines,
+            cov_func,
             dur: row.dur,
             forced: forced.get(&row.test).copied().unwrap_or(false),
         });
     }
 
-    scored.sort_by(|a, b| {
-        b.score
+    scored.sort_by(|a, b| match booster.meta.ranker {
+        Ranker::CovLines => b
+            .cov_lines
+            .cmp(&a.cov_lines)
+            .then_with(|| b.cov_func.cmp(&a.cov_func))
+            .then_with(|| a.test_id.cmp(&b.test_id)),
+        Ranker::Model => b
+            .score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.test_id.cmp(&b.test_id))
+            .then_with(|| a.test_id.cmp(&b.test_id)),
     });
 
     let n_candidates = scored.len();
@@ -458,6 +512,8 @@ pub fn run_select<R: GitRepo>(
     let payload = SelectJson {
         model_sha256: booster.meta.model_sha256.clone(),
         features_version: FEATURES_VERSION,
+        ranker: ranker_s,
+        bootstrap: bootstrap_json,
         base: base.as_str().to_string(),
         head: head_label.to_string(),
         base_run_sha,
@@ -481,6 +537,8 @@ pub fn run_select<R: GitRepo>(
 struct ScoredCandidate {
     test_id: String,
     score: f64,
+    cov_lines: i64,
+    cov_func: i64,
     dur: i64,
     forced: bool,
 }
@@ -887,6 +945,25 @@ fn path_matches_config_surface(path: &str) -> bool {
 /// Root-level files (`.pre-commit-config.yaml`, lockfiles, …) are not packages.
 /// Paths under `src/` or under a top-level dir that contains non-test `.py` files
 /// (e.g. `pkg/templates/x.html` next to `pkg/a.py`) count.
+/// Top-level dirs that are never treated as installable source packages
+/// (examples, docs benches, demos — even if they contain `.py`).
+const NON_SOURCE_TOP_LEVEL: &[&str] = &[
+    "docs",
+    "tests",
+    ".github",
+    "examples",
+    "example",
+    "docs_src",
+    "benchmarks",
+    "benchmark",
+    "tutorial",
+    "tutorials",
+    "demo",
+    "demos",
+    "samples",
+    "sample",
+];
+
 fn is_inside_source_package(path: &str, all_paths: &[String]) -> bool {
     let p = normalize_path(path);
     if !p.contains('/') {
@@ -896,8 +973,7 @@ fn is_inside_source_package(path: &str, all_paths: &[String]) -> bool {
         return true;
     }
     let top = p.split('/').next().unwrap_or("");
-    if top.is_empty() || top == "docs" || top == "tests" || top == ".github" || top.starts_with('.')
-    {
+    if top.is_empty() || top.starts_with('.') || NON_SOURCE_TOP_LEVEL.contains(&top) {
         return false;
     }
     let prefix = format!("{top}/");
@@ -1027,6 +1103,8 @@ mod tests {
         ScoredCandidate {
             test_id: id.into(),
             score,
+            cov_lines: score as i64,
+            cov_func: 0,
             dur,
             forced,
         }

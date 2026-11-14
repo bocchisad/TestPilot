@@ -1,0 +1,14 @@
+testpilot bootstrap --dry-run
+fingerprint: head=934813e4d421071a1b3db3973c02fe2721359a6e N=200 K=4 seed=42 B_policy=cold_last_max_N_20_fp_then_sample B_override=null bin=0.1.0 (b20fd3ae4fe5) schema_v=7
+priors: docs/measurements/bootstrap_time_priors.json (embedded)
+plan: |B_set|≈200  N×K=800  jobs=2  suite=click
+estimate collect_git: 2.0 min
+estimate backfill: 11.8 min (≈200 SHAs needing run)
+estimate mutate: 80.0 min (jobs=2)
+estimate dump+train: 20.0 min
+estimate total: 113.8 min
+total_s=6825.400
+resume: allowed (fingerprint matches or no state)
+last_fp_available=200 requested_limb=200 (cold: backfill last max(N,20) FP then sample)
+B_set=<omitted in artifact; see live --dry-run>
+out: docs/measurements/bootstrap-click

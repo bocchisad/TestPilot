@@ -71,6 +71,12 @@ def write_report(out_dir: Path, payload: dict[str, Any]) -> None:
         f"- useful_on_synthetic_val "
         f"({payload.get('useful_on_synthetic_val_label', 'useful_on_synthetic_val')}): "
         f"{payload.get('useful_on_synthetic_val')}",
+        f"- useful_on_synthetic_test "
+        f"({payload.get('useful_on_synthetic_test_label', 'useful_on_synthetic_test')}): "
+        f"{payload.get('useful_on_synthetic_test')}",
+        f"- ranker: `{payload.get('ranker')}`",
+        f"- bootstrap.verdict: **{(payload.get('bootstrap') or {}).get('verdict')}** "
+        f"({(payload.get('bootstrap') or {}).get('reason')})",
         f"- features_version: {payload.get('features_version')}",
         f"- schema_sha256: `{payload.get('schema_sha256')}`",
     ]
@@ -78,6 +84,8 @@ def write_report(out_dir: Path, payload: dict[str, Any]) -> None:
         lines.append(f"- note: {payload['note_real_gate']}")
     if payload.get("note"):
         lines.append(f"- note: {payload['note']}")
+    if payload.get("note_gate"):
+        lines.append(f"- note: {payload['note_gate']}")
     lines += ["", "## Diagnostics", ""]
     diag = payload.get("diagnostics") or {}
     for k, v in diag.items():
@@ -177,8 +185,13 @@ def write_report(out_dir: Path, payload: dict[str, Any]) -> None:
     lines.append(f"- test: {payload.get('paired_delta_ci_test')}")
     if payload.get("paired_delta_ci_synthetic_val_cov_lines"):
         lines.append(
-            f"- synthetic val vs cov_lines: "
+            f"- synthetic val vs cov_lines (report-only): "
             f"{payload.get('paired_delta_ci_synthetic_val_cov_lines')}"
+        )
+    if payload.get("paired_delta_ci_synthetic_test_cov_lines"):
+        lines.append(
+            f"- synthetic test vs cov_lines (gate): "
+            f"{payload.get('paired_delta_ci_synthetic_test_cov_lines')}"
         )
     lines += ["", "## Candidates", ""]
     for row in payload.get("candidates") or []:
