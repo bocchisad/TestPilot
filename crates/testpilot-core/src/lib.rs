@@ -1,3 +1,4 @@
+pub mod bootstrap;
 pub mod codec;
 pub mod collect_junit;
 pub mod error;

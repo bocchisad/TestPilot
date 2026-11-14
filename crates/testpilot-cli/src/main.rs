@@ -3,6 +3,11 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
+use testpilot_core::bootstrap::{
+    self, BootstrapInputs, ResumeDecision, decide_resume, default_priors, estimate_wall,
+    format_dry_run_report, load_priors_file, resolve_fingerprint, save_state, startup_cleanup,
+    state_path,
+};
 use testpilot_core::codec;
 use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
 use testpilot_core::features::{self, FEATURES_VERSION};
@@ -10,7 +15,7 @@ use testpilot_core::git::{GitRepo, GixRepo, collect_git, collect_git_shas};
 use testpilot_core::lgbm::load_model_dir;
 use testpilot_core::select::{self, Budget, SafeOpts, format_lines, format_table};
 use testpilot_core::stats;
-use testpilot_core::store::Store;
+use testpilot_core::store::{SCHEMA_VERSION, Store};
 
 const VERSION: &str = concat!(
     env!("CARGO_PKG_VERSION"),
@@ -41,6 +46,48 @@ struct Cli {
 enum Commands {
     /// Create .testpilot/ database and .git/info/exclude entry
     Init,
+    /// Cold-start: backfill + mutate + train + quality gate (Week 6)
+    Bootstrap {
+        /// Git repository root (default: cwd toplevel)
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Model + reports directory (default: <repo>/.testpilot/model)
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Mutate sample size of C
+        #[arg(long = "max-commits", default_value_t = 200)]
+        max_commits: u32,
+        /// Mutants per sampled commit
+        #[arg(long = "mutants-per-commit", default_value_t = 4)]
+        mutants_per_commit: u32,
+        /// Override last-N first-parent limb of backfill set (still unions sampled C)
+        #[arg(long = "backfill-commits")]
+        backfill_commits: Option<u32>,
+        /// Soft wall-clock budget for the whole bootstrap (seconds)
+        #[arg(long = "time-budget")]
+        time_budget: Option<u64>,
+        /// Mutant pytest concurrency (default 1; max 4)
+        #[arg(long, default_value_t = 1)]
+        jobs: u32,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Continue from state.json when fingerprint matches (default if state exists)
+        #[arg(long, default_value_t = true)]
+        resume: bool,
+        #[arg(long = "no-resume", default_value_t = false, action = clap::ArgAction::SetTrue)]
+        no_resume: bool,
+        /// Restart over fingerprint mismatch / dirty out
+        #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+        force: bool,
+        /// Print plan + estimates; write nothing
+        #[arg(long = "dry-run", default_value_t = false, action = clap::ArgAction::SetTrue)]
+        dry_run: bool,
+        /// Suite key for time priors (click|jinja)
+        #[arg(long, default_value = "click")]
+        suite: String,
+        #[arg(long = "train-threads", default_value_t = 1)]
+        train_threads: u32,
+    },
     #[command(subcommand)]
     Collect(CollectCmd),
     /// Feature vectors for (change, test) pairs
@@ -201,6 +248,37 @@ fn run() -> Result<()> {
 
     match cli.command {
         Commands::Init => cmd_init(cli.db.as_deref())?,
+        Commands::Bootstrap {
+            repo,
+            out,
+            max_commits,
+            mutants_per_commit,
+            backfill_commits,
+            time_budget,
+            jobs,
+            seed,
+            resume,
+            no_resume,
+            force,
+            dry_run,
+            suite,
+            train_threads,
+        } => cmd_bootstrap(BootstrapCli {
+            db: cli.db.clone(),
+            repo,
+            out,
+            max_commits,
+            mutants_per_commit,
+            backfill_commits,
+            time_budget,
+            jobs,
+            seed,
+            resume: resume && !no_resume,
+            force,
+            dry_run,
+            suite,
+            train_threads,
+        })?,
         Commands::Collect(CollectCmd::Git {
             since_sha,
             since_date,
@@ -574,6 +652,157 @@ fn git_exclude_path() -> Result<PathBuf> {
     } else {
         Ok(std::env::current_dir()?.join(path))
     }
+}
+
+struct BootstrapCli {
+    db: Option<PathBuf>,
+    repo: Option<PathBuf>,
+    out: Option<PathBuf>,
+    max_commits: u32,
+    mutants_per_commit: u32,
+    backfill_commits: Option<u32>,
+    time_budget: Option<u64>,
+    jobs: u32,
+    seed: u64,
+    resume: bool,
+    force: bool,
+    dry_run: bool,
+    suite: String,
+    train_threads: u32,
+}
+
+fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
+    if opts.jobs > 4 {
+        bail!("--jobs max is 4 (got {})", opts.jobs);
+    }
+    if opts.train_threads > 1 {
+        eprintln!(
+            "warning: --train-threads={} may make model_sha256 non-deterministic (level-a hash)",
+            opts.train_threads
+        );
+    }
+
+    let repo = match opts.repo {
+        Some(p) => {
+            let abs = if p.is_absolute() {
+                p
+            } else {
+                std::env::current_dir()?.join(p)
+            };
+            git_toplevel_at(&abs).with_context(|| format!("git toplevel at {}", abs.display()))?
+        }
+        None => git_toplevel().context("testpilot bootstrap requires a git repository")?,
+    };
+
+    let head = {
+        let out = Command::new("git")
+            .args(["-C"])
+            .arg(&repo)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .context("git rev-parse HEAD")?;
+        if !out.status.success() {
+            bail!("git rev-parse HEAD failed");
+        }
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+
+    let inputs = BootstrapInputs {
+        head_sha: head,
+        n: opts.max_commits,
+        k: opts.mutants_per_commit,
+        seed: opts.seed,
+        b_override: opts.backfill_commits,
+        bin_version: VERSION.to_string(),
+        schema_version: SCHEMA_VERSION,
+    };
+    let fp = resolve_fingerprint(&inputs);
+
+    let mut priors = default_priors();
+    let local_priors = repo.join(".testpilot/bootstrap/priors.json");
+    if local_priors.is_file() {
+        priors = load_priors_file(&local_priors).context("load local priors.json")?;
+    }
+    let est = estimate_wall(
+        opts.max_commits,
+        opts.mutants_per_commit,
+        opts.jobs,
+        &opts.suite,
+        &priors,
+    );
+    let b_hat = opts
+        .max_commits
+        .saturating_add(opts.backfill_commits.unwrap_or(20));
+
+    if opts.dry_run {
+        let resume_allowed =
+            !matches!(decide_resume(&repo, &fp, false)?, ResumeDecision::Refuse { .. });
+        print!(
+            "{}",
+            format_dry_run_report(&fp, b_hat, &est, resume_allowed)
+        );
+        if let Some(tb) = opts.time_budget {
+            println!("time-budget flag: {tb}s (not applied in dry-run)");
+        }
+        if let Some(ref out) = opts.out {
+            println!("out: {}", out.display());
+        }
+        // Explicit: no writes under --dry-run.
+        return Ok(());
+    }
+
+    // Real run (T2): cleanup + fingerprint/resume + persist state. Pipeline steps land in T3+.
+    let _cleanup = startup_cleanup(&repo).context("bootstrap startup cleanup")?;
+
+    let decision = if opts.resume {
+        decide_resume(&repo, &fp, opts.force)?
+    } else if opts.force || !state_path(&repo).exists() {
+        ResumeDecision::Fresh(bootstrap::load_or_init_state(&repo, fp.clone(), true)?)
+    } else {
+        bail!("state.json exists; pass --resume (default) or --force / --no-resume with --force");
+    };
+
+    let state = match decision {
+        ResumeDecision::Refuse { hint } => bail!("{hint}"),
+        ResumeDecision::Fresh(s) | ResumeDecision::Continue(s) => s,
+    };
+
+    // Ensure exclude + DB (never touches .gitignore).
+    let db = resolve_db_path_for(opts.db.as_deref(), &repo)?;
+    if let Some(parent) = db.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let exclude = {
+        let out = Command::new("git")
+            .args(["-C"])
+            .arg(&repo)
+            .args(["rev-parse", "--git-path", "info/exclude"])
+            .output()
+            .context("git exclude path")?;
+        if !out.status.success() {
+            bail!("cannot resolve info/exclude");
+        }
+        let rel = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let path = PathBuf::from(&rel);
+        if path.is_absolute() {
+            path
+        } else {
+            repo.join(path)
+        }
+    };
+    if let Some(parent) = exclude.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    ensure_git_exclude_at(&exclude, ".testpilot/")?;
+    let _ = Store::open(&db).context("open/create bootstrap db")?;
+
+    save_state(&repo, &state).context("write state.json")?;
+    println!(
+        "bootstrap state ready at {} (pipeline steps collect→gate land in later Week-6 tasks)",
+        state_path(&repo).display()
+    );
+    let _ = (opts.out, opts.time_budget);
+    Ok(())
 }
 
 fn cmd_init(explicit_db: Option<&Path>) -> Result<()> {
