@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::error::{Error, Result};
 
@@ -61,6 +61,8 @@ pub fn startup_cleanup(repo: &Path) -> Result<CleanupReport> {
                     .arg(repo)
                     .args(["worktree", "remove", "--force"])
                     .arg(&path)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
                     .status();
                 if path.exists() {
                     let _ = fs::remove_dir_all(&path);
@@ -94,12 +96,14 @@ pub fn startup_cleanup(repo: &Path) -> Result<CleanupReport> {
                 fs::remove_file(&path).map_err(Error::Io)?;
                 report.removed_wt_dirs += 1;
             } else if ft.is_dir() {
-                // Best-effort detach from git first.
+                // Best-effort detach from git first (silence "not a working tree").
                 let _ = Command::new("git")
                     .args(["-C"])
                     .arg(repo)
                     .args(["worktree", "remove", "--force"])
                     .arg(&path)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
                     .status();
                 fs::remove_dir_all(&path).map_err(Error::Io)?;
                 report.removed_wt_dirs += 1;

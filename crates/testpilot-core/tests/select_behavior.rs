@@ -809,11 +809,13 @@ fn no_safe_json_week4_keys_plus_safe_block_only() {
     for k in week4_keys {
         assert!(obj.contains_key(k), "missing week-4 key {k}");
     }
-    let allowed_extra = ["safe", "n_safe_added", "n_ranked"];
+    // Week-5/6 additive: safe block + ranker/bootstrap (R10); must not drop week-4 keys.
+    let allowed_extra = ["safe", "n_safe_added", "n_ranked", "ranker", "bootstrap"];
     for k in obj.keys() {
         let ok = week4_keys.contains(&k.as_str()) || allowed_extra.contains(&k.as_str());
         assert!(ok, "unexpected JSON key {k}");
     }
+    assert_eq!(obj.get("ranker").and_then(|x| x.as_str()), Some("model"));
 }
 
 #[test]

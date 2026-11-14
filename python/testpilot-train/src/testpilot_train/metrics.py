@@ -250,4 +250,5 @@ def paired_delta_ci(
 
 
 def useful_by_paired(delta: MetricPoint) -> bool:
-    return delta.n_changes > 0 and delta.ci_low > 0.0
+    """Accept when cluster-paired Δ CI lower bound is ≥ 0 (R1)."""
+    return delta.n_changes > 0 and delta.ci_low >= 0.0

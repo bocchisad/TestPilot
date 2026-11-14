@@ -107,6 +107,30 @@ def _mutant_test_stats(test_df: pl.DataFrame) -> tuple[int, int]:
     return n_changes, n_bases
 
 
+def decide_bootstrap_verdict(
+    *,
+    n_C: int,
+    n_mutants: int,
+    ci_low: float | None,
+    data_sufficient: bool,
+) -> tuple[str, str, str]:
+    """R1/R2: (verdict, ranker, reason) from synth-TEST cluster gate only.
+
+    accept ⇔ ci_low ≥ 0 ∧ data_sufficient (≥20 kill mutants ∧ ≥10 distinct C).
+    If n_C < 10 → use_baseline / insufficient_test_C.
+    """
+    _ = n_mutants  # carried for callers / report symmetry
+    if n_C < 10:
+        return "use_baseline", "cov_lines", "insufficient_test_C"
+    if not data_sufficient:
+        return "use_baseline", "cov_lines", "data_insufficient"
+    if ci_low is None:
+        return "use_baseline", "cov_lines", "no_test_signal"
+    if ci_low >= 0.0:
+        return "use_model", "model", "synth_test_ci_low_ge_0"
+    return "use_baseline", "cov_lines", "synth_test_ci_low_lt_0"
+
+
 def _baseline_keyed_for_slice(
     slice_df: pl.DataFrame, name: str
 ) -> dict[tuple[str, str], dict[str, float]]:
@@ -415,7 +439,7 @@ def train(
     else:
         useful_on_val = useful_by_paired(delta_val)
 
-    # Synthetic useful-gate vs cov_lines — always when synthetic rows exist (P2).
+    # Synthetic VAL foil vs cov_lines — report-only (not the accept gate).
     val_syn_df = (
         val_df.filter(pl.col("synthetic") == 1)
         if "synthetic" in val_df.columns
@@ -440,6 +464,32 @@ def train(
             useful_on_synthetic_val = useful_by_paired(delta_synthetic_val_cov)
         else:
             useful_on_synthetic_val = None
+
+    # R1/R2: accept gate on synthetic TEST only (cluster by C / base_change).
+    test_syn_df = (
+        test_df.filter(pl.col("synthetic") == 1)
+        if has_synthetic and "synthetic" in test_df.columns
+        else test_df.clear()
+    )
+    delta_synthetic_test_cov: MetricPoint | None = None
+    useful_on_synthetic_test: bool | None = None
+    if test_syn_df.height > 0:
+        syn_t_scores = predict_raw(fit.booster, test_syn_df, schema)
+        syn_t_keyed = _per_change_keyed(test_syn_df, syn_t_scores, "new_fail")
+        cov_t = _baseline_keyed_for_slice(test_syn_df, "cov_lines")
+        m_t, b_t = _align_per(syn_t_keyed, cov_t)
+        syn_t_keys = sorted(set(syn_t_keyed) & set(cov_t))
+        if m_t:
+            delta_synthetic_test_cov = paired_delta_ci(
+                m_t,
+                b_t,
+                "recall@10%",
+                seed=seed + 13,
+                cluster_ids=_cluster_ids_for_keys(test_syn_df, syn_t_keys),
+            )
+            useful_on_synthetic_test = useful_by_paired(delta_synthetic_test_cov)
+        else:
+            useful_on_synthetic_test = None
 
     gain = fit.booster.feature_importance(importance_type="gain")
     names = list(schema.feature_names)
@@ -630,6 +680,49 @@ def train(
             "ci95": [delta_synthetic_val_cov.ci_low, delta_synthetic_val_cov.ci_high],
             "n": delta_synthetic_val_cov.n_changes,
         }
+    payload["useful_on_synthetic_test"] = useful_on_synthetic_test
+    payload["useful_on_synthetic_test_label"] = "useful_on_synthetic_test"
+    n_mut_gate, n_C_gate = (0, 0)
+    if has_synthetic:
+        n_mut_gate, n_C_gate = _mutant_test_stats(test_df)
+    if delta_synthetic_test_cov is not None:
+        payload["paired_delta_ci_synthetic_test_cov_lines"] = {
+            "mean": delta_synthetic_test_cov.mean,
+            "ci95": [
+                delta_synthetic_test_cov.ci_low,
+                delta_synthetic_test_cov.ci_high,
+            ],
+            "n": delta_synthetic_test_cov.n_changes,
+            "n_C": n_C_gate,
+            "n_mutants": n_mut_gate,
+        }
+        verdict, ranker, reason = decide_bootstrap_verdict(
+            n_C=n_C_gate,
+            n_mutants=n_mut_gate,
+            ci_low=delta_synthetic_test_cov.ci_low,
+            data_sufficient=(status == "ok"),
+        )
+    elif has_synthetic:
+        verdict, ranker, reason = decide_bootstrap_verdict(
+            n_C=n_C_gate,
+            n_mutants=n_mut_gate,
+            ci_low=None,
+            data_sufficient=(status == "ok"),
+        )
+    else:
+        # No synthetic labels: honest baseline; booster still written for inspect.
+        verdict, ranker, reason = (
+            "use_baseline",
+            "cov_lines",
+            "no_synthetic_test",
+        )
+
+    payload["ranker"] = ranker
+    payload["bootstrap"] = {
+        "verdict": verdict,
+        "gate": "synthetic_test_vs_cov_lines_cluster_C",
+        "reason": reason,
+    }
     if useful_on_val is None and has_synthetic:
         payload["note_real_gate"] = (
             "useful_on_real_val=null: no real new_fail changes on val "
@@ -645,9 +738,15 @@ def train(
             payload["note"] = (
                 "test has <20 changes with ≥1 new_fail; metrics shown but no conclusions"
             )
+    payload["note_gate"] = (
+        f"bootstrap verdict={verdict} ranker={ranker} reason={reason} "
+        "(accept on synth TEST cluster CI only; val is report-only)"
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     save_booster(fit.booster, out_dir / "model.txt")
+    # Baseline-only is valid for select; when use_baseline we still keep model.txt
+    # for debugging, but ranker=cov_lines drives select (R10 hash = model.json).
     write_model_json(out_dir / "model.json", payload)
     write_report(out_dir, payload)
     write_reference_predictions(

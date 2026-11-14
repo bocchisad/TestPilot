@@ -1,8 +1,8 @@
-use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -689,10 +689,10 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         );
     }
 
-    let repo = match opts.repo {
+    let repo = match opts.repo.as_ref() {
         Some(p) => {
             let abs = if p.is_absolute() {
-                p
+                p.clone()
             } else {
                 std::env::current_dir()?.join(p)
             };
@@ -936,13 +936,14 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                 .map(|d| d.as_secs_f64() + remain)
                 .unwrap_or(0.0)
         });
+        let seed_mutate = opts.seed ^ 0x4D55;
         let mutate_out = match run_mutate(
             &scripts,
             &repo,
             &db,
             n,
             opts.mutants_per_commit,
-            opts.seed,
+            seed_mutate,
             opts.jobs,
             &state.mutate_completed_pairs,
             deadline_unix,
@@ -993,18 +994,202 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         println!("features_dump: {}", parquet.display());
     }
 
-    // train/gate/finalize → T4
-    for step in ["train", "gate", "finalize"] {
-        if state.steps.get(step) == Some(&StepStatus::Pending) {
-            println!("{step}: deferred to Week-6 T4");
+    // --- train (R1/R2 gate computed inside testpilot-train on synth TEST) ---
+    bootstrap_check_stop(&repo, &mut state, "train", &interrupted, deadline)?;
+    if state.steps.get("train") != Some(&StepStatus::Done) {
+        if !parquet.is_file() {
+            bail!(
+                "features dump missing at {}; cannot train",
+                parquet.display()
+            );
         }
+        let seed_train = opts.seed ^ 0x5452;
+        run_train(
+            &repo,
+            &parquet,
+            &out_dir,
+            seed_train,
+            opts.train_threads,
+            &interrupted,
+        )?;
+        state.steps.insert("train".into(), StepStatus::Done);
+        save_state(&repo, &state)?;
+        println!("train: {}", out_dir.join("model.json").display());
     }
+
+    // --- gate: surface verdict from model.json (computed at train) ---
+    bootstrap_check_stop(&repo, &mut state, "gate", &interrupted, deadline)?;
+    if state.steps.get("gate") != Some(&StepStatus::Done) {
+        let model_json = out_dir.join("model.json");
+        if !model_json.is_file() {
+            bail!("gate requires {}", model_json.display());
+        }
+        let raw = std::fs::read_to_string(&model_json).context("read model.json")?;
+        let v: serde_json::Value =
+            serde_json::from_str(&raw).context("parse model.json for gate")?;
+        let verdict = v
+            .pointer("/bootstrap/verdict")
+            .and_then(|x| x.as_str())
+            .unwrap_or("(missing)");
+        let reason = v
+            .pointer("/bootstrap/reason")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        let ranker = v.get("ranker").and_then(|x| x.as_str()).unwrap_or("model");
+        println!("gate: verdict={verdict} ranker={ranker} reason={reason}");
+        eprintln!("bootstrap.verdict={verdict} ranker={ranker}");
+        state.steps.insert("gate".into(), StepStatus::Done);
+        save_state(&repo, &state)?;
+    }
+
+    // --- finalize: bootstrap report pointing at train artifacts ---
+    bootstrap_check_stop(&repo, &mut state, "finalize", &interrupted, deadline)?;
+    if state.steps.get("finalize") != Some(&StepStatus::Done) {
+        write_bootstrap_finalize(&repo, &out_dir, &state, &opts)?;
+        state.steps.insert("finalize".into(), StepStatus::Done);
+        save_state(&repo, &state)?;
+    }
+
     state.status = None;
     save_state(&repo, &state)?;
     println!(
-        "bootstrap pipeline through dump ready at {}",
-        state_path(&repo).display()
+        "bootstrap complete at {} (model {})",
+        state_path(&repo).display(),
+        out_dir.display()
     );
+    Ok(())
+}
+
+fn write_bootstrap_finalize(
+    repo: &Path,
+    out_dir: &Path,
+    state: &bootstrap::BootstrapState,
+    opts: &BootstrapCli,
+) -> Result<()> {
+    std::fs::create_dir_all(out_dir)?;
+    let model_json = out_dir.join("model.json");
+    let train_payload: serde_json::Value = if model_json.is_file() {
+        serde_json::from_str(&std::fs::read_to_string(&model_json)?)
+            .unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+    // Sidecar only — do not clobber train's report.md / report.json.
+    let report = serde_json::json!({
+        "fingerprint": state.fingerprint,
+        "steps": state.steps,
+        "n_eligible": state.n_eligible,
+        "n_actual": state.n_actual,
+        "mutate_completed_pairs": state.mutate_completed_pairs.len(),
+        "jobs": opts.jobs,
+        "seed": opts.seed,
+        "train_threads": opts.train_threads,
+        "out": out_dir.display().to_string(),
+        "repo": repo.display().to_string(),
+        "ranker": train_payload.get("ranker"),
+        "bootstrap": train_payload.get("bootstrap"),
+        "status": train_payload.get("status"),
+        "paired_delta_ci_synthetic_test_cov_lines":
+            train_payload.get("paired_delta_ci_synthetic_test_cov_lines"),
+        "diagnostics": train_payload.get("diagnostics"),
+    });
+    let report_path = out_dir.join("bootstrap_report.json");
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report)? + "\n")?;
+    let md = format!(
+        "# TestPilot bootstrap report\n\n\
+         - out: `{}`\n\
+         - ranker: `{}`\n\
+         - verdict: **{}** ({})\n\
+         - n_eligible: {:?}\n\
+         - n_actual: {:?}\n\
+         - mutate pairs done: {}\n\
+         - jobs: {} seed: {} train_threads: {}\n\n\
+         Train metrics: `report.md` / `report.json` from testpilot-train.\n\
+         Model: `model.json` (ranker + bootstrap.verdict).\n",
+        out_dir.display(),
+        train_payload
+            .get("ranker")
+            .and_then(|x| x.as_str())
+            .unwrap_or("?"),
+        train_payload
+            .pointer("/bootstrap/verdict")
+            .and_then(|x| x.as_str())
+            .unwrap_or("?"),
+        train_payload
+            .pointer("/bootstrap/reason")
+            .and_then(|x| x.as_str())
+            .unwrap_or(""),
+        state.n_eligible,
+        state.n_actual,
+        state.mutate_completed_pairs.len(),
+        opts.jobs,
+        opts.seed,
+        opts.train_threads,
+    );
+    std::fs::write(out_dir.join("bootstrap_report.md"), md)?;
+    println!("finalize: {}", report_path.display());
+    Ok(())
+}
+
+fn train_command(parquet: &Path, out_dir: &Path, seed: u64, train_threads: u32) -> Command {
+    let mut cmd = if which_bin("testpilot-train") {
+        let mut c = Command::new("testpilot-train");
+        c.arg("train");
+        c
+    } else {
+        let mut c = Command::new("python3");
+        c.args(["-m", "testpilot_train.cli", "train"]);
+        c
+    };
+    cmd.arg("--data")
+        .arg(parquet)
+        .arg("--out")
+        .arg(out_dir)
+        .arg("--seed")
+        .arg(seed.to_string());
+    let threads = train_threads.max(1).to_string();
+    cmd.env("OMP_NUM_THREADS", &threads);
+    cmd.env("OPENBLAS_NUM_THREADS", &threads);
+    cmd.env("MKL_NUM_THREADS", &threads);
+    cmd.env("NUMEXPR_NUM_THREADS", &threads);
+    cmd
+}
+
+fn which_bin(name: &str) -> bool {
+    Command::new("sh")
+        .args(["-c", &format!("command -v {name} >/dev/null 2>&1")])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn run_train(
+    repo: &Path,
+    parquet: &Path,
+    out_dir: &Path,
+    seed: u64,
+    train_threads: u32,
+    interrupted: &AtomicBool,
+) -> Result<()> {
+    std::fs::create_dir_all(out_dir)?;
+    let mut cmd = train_command(parquet, out_dir, seed, train_threads);
+    cmd.current_dir(repo);
+    let (st, _stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
+    if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) {
+        bail!("train interrupted");
+    }
+    if !st.success() {
+        bail!(
+            "testpilot-train failed with {st}: {}",
+            String::from_utf8_lossy(&stderr)
+        );
+    }
+    if !out_dir.join("model.json").is_file() {
+        bail!(
+            "train did not write {}",
+            out_dir.join("model.json").display()
+        );
+    }
     Ok(())
 }
 
@@ -1065,32 +1250,38 @@ fn status_is_interrupt(st: &ExitStatus) -> bool {
     }
 }
 
-fn unix_now_secs() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
-        .unwrap_or(0.0)
+fn tee_pipe_to_parent(
+    mut src: impl Read + Send + 'static,
+    parent: impl Write + Send + 'static,
+    buf: Arc<Mutex<Vec<u8>>>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        let mut parent = parent;
+        let mut chunk = [0u8; 4096];
+        loop {
+            match src.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let _ = parent.write_all(&chunk[..n]);
+                    let _ = parent.flush();
+                    if let Ok(mut b) = buf.lock() {
+                        b.extend_from_slice(&chunk[..n]);
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    })
 }
 
-/// Run a child in its own process group; forward SIGINT on Ctrl-C; capture stdout to a file.
+/// Run a child in its own process group; forward SIGINT on Ctrl-C.
+/// Stdout/stderr are teed live to the parent and also captured for parsing.
 fn run_interruptible_captured(
     mut cmd: Command,
     interrupted: &AtomicBool,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
-    let stdout_path = std::env::temp_dir().join(format!(
-        "tp-bootstrap-out-{}-{}.log",
-        std::process::id(),
-        (unix_now_secs() * 1000.0) as u64
-    ));
-    let stderr_path = std::env::temp_dir().join(format!(
-        "tp-bootstrap-err-{}-{}.log",
-        std::process::id(),
-        (unix_now_secs() * 1000.0) as u64
-    ));
-    let stdout_file = File::create(&stdout_path).context("create child stdout temp")?;
-    let stderr_file = File::create(&stderr_path).context("create child stderr temp")?;
-    cmd.stdout(Stdio::from(stdout_file));
-    cmd.stderr(Stdio::from(stderr_file));
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
 
     #[cfg(unix)]
     {
@@ -1101,6 +1292,17 @@ fn run_interruptible_captured(
 
     let mut child = cmd.spawn().context("spawn bootstrap child")?;
     let pid = child.id();
+    let out_buf = Arc::new(Mutex::new(Vec::new()));
+    let err_buf = Arc::new(Mutex::new(Vec::new()));
+    let out_h = child
+        .stdout
+        .take()
+        .map(|pipe| tee_pipe_to_parent(pipe, std::io::stdout(), Arc::clone(&out_buf)));
+    let err_h = child
+        .stderr
+        .take()
+        .map(|pipe| tee_pipe_to_parent(pipe, std::io::stderr(), Arc::clone(&err_buf)));
+
     let mut sent_int = false;
     let status = loop {
         match child.try_wait().context("wait bootstrap child")? {
@@ -1125,13 +1327,14 @@ fn run_interruptible_captured(
             }
         }
     };
-
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    let _ = File::open(&stdout_path).and_then(|mut f| f.read_to_end(&mut stdout));
-    let _ = File::open(&stderr_path).and_then(|mut f| f.read_to_end(&mut stderr));
-    let _ = std::fs::remove_file(&stdout_path);
-    let _ = std::fs::remove_file(&stderr_path);
+    if let Some(h) = out_h {
+        let _ = h.join();
+    }
+    if let Some(h) = err_h {
+        let _ = h.join();
+    }
+    let stdout = out_buf.lock().map(|b| b.clone()).unwrap_or_default();
+    let stderr = err_buf.lock().map(|b| b.clone()).unwrap_or_default();
     Ok((status, stdout, stderr))
 }
 
