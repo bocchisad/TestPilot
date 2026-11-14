@@ -7,11 +7,12 @@ use std::process::Command;
 
 use tempfile::tempdir;
 use testpilot_core::bootstrap::{
-    BootstrapInputs, Fingerprint, ResumeDecision, StepStatus, decide_resume, default_priors,
-    estimate_wall, format_dry_run_report, load_or_init_state, load_state, resolve_fingerprint,
-    save_state, startup_cleanup, state_path,
+    BootstrapInputs, DbDumpFingerprint, Fingerprint, ResumeDecision, SaveFault, StepStatus,
+    decide_resume, default_priors, dump_needs_refresh, estimate_wall, first_parent_shas,
+    format_dry_run_report, load_or_init_state, load_state, resolve_fingerprint, save_state,
+    save_state_with_fault, startup_cleanup, state_path, union_b_set,
 };
-use testpilot_core::store::SCHEMA_VERSION;
+use testpilot_core::store::{SCHEMA_VERSION, Store};
 
 fn git(cwd: &Path, args: &[&str]) {
     let st = Command::new("git")
@@ -115,7 +116,7 @@ fn save_state_is_atomic_no_tmp_left_valid_json() {
     let (dir, head) = seed_repo();
     let root = dir.path();
     let fp = resolve_fingerprint(&inputs(&head, 200));
-    let state = load_or_init_state(root, fp, true).unwrap();
+    let state = load_or_init_state(root, fp.clone(), true).unwrap();
     save_state(root, &state).unwrap();
 
     let tmp = root.join(".testpilot/bootstrap/state.json.tmp");
@@ -131,6 +132,26 @@ fn save_state_is_atomic_no_tmp_left_valid_json() {
         "B_override present even when null: {raw}"
     );
     assert!(v["fingerprint"]["B_override"].is_null(), "{raw}");
+
+    // Fault between write(tmp) and rename: original state.json must stay intact.
+    let before = fs::read_to_string(state_path(root)).unwrap();
+    let mut next =
+        load_or_init_state(root, resolve_fingerprint(&inputs(&head, 160)), true).unwrap();
+    next.steps.insert("mutate".into(), StepStatus::Done);
+    let err = save_state_with_fault(root, &next, Some(SaveFault::AfterTmpWrite)).unwrap_err();
+    assert!(err.to_string().contains("injected fault"), "{err}");
+    assert_eq!(
+        fs::read_to_string(state_path(root)).unwrap(),
+        before,
+        "original state.json must survive failed rename"
+    );
+    assert!(
+        tmp.exists(),
+        "tmp left after injected fault (proves write happened before rename)"
+    );
+    let loaded = load_state(root).unwrap().unwrap();
+    assert_eq!(loaded.fingerprint.n, 200);
+    assert_ne!(loaded.steps.get("mutate"), Some(&StepStatus::Done));
 }
 
 #[test]
@@ -207,6 +228,11 @@ fn dry_run_report_lists_backfill_separately_as_unmeasured() {
     assert!(text.contains("unmeasured"), "{text}");
     assert!(text.contains("priors:"), "{text}");
     assert!(text.contains("bootstrap_time_priors.json"), "{text}");
+    assert!(
+        text.contains("B_override=null"),
+        "must print null not None: {text}"
+    );
+    assert!(!text.contains("B_override=None"), "{text}");
     let lines: Vec<_> = text.lines().collect();
     assert!(
         lines
@@ -217,25 +243,55 @@ fn dry_run_report_lists_backfill_separately_as_unmeasured() {
 }
 
 #[test]
+fn first_parent_and_union_b_set() {
+    let (dir, head) = seed_repo();
+    let root = dir.path();
+    // second commit
+    fs::write(root.join("f.txt"), "b\n").unwrap();
+    git(root, &["add", "f.txt"]);
+    git(root, &["commit", "-m", "c2"]);
+    let shas = first_parent_shas(root, 10).unwrap();
+    assert!(shas.len() >= 2);
+    assert!(shas.iter().any(|s| s == &head) || !shas.is_empty());
+    let sampled = vec!["aaaa".into()];
+    let u = union_b_set(&shas, &sampled);
+    assert!(u.contains(&"aaaa".to_string()));
+    assert_eq!(u.iter().filter(|s| *s == "aaaa").count(), 1);
+}
+
+#[test]
+fn dump_fingerprint_detects_db_change_not_mtime() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("db.sqlite");
+    let store = Store::open(&db).unwrap();
+    let a = DbDumpFingerprint::from_store(&store).unwrap();
+    assert_eq!(a.max_run_id, 0);
+    assert!(!dump_needs_refresh(true, Some(&a), &a));
+    assert!(dump_needs_refresh(false, Some(&a), &a));
+    let b = DbDumpFingerprint {
+        max_run_id: 1,
+        n_real_runs: 1,
+        n_synthetic_runs: 0,
+    };
+    assert!(dump_needs_refresh(true, Some(&a), &b));
+}
+
+#[test]
 fn estimate_respects_backfill_commits_last_fp() {
     let priors = default_priors();
     let est20 = estimate_wall(200, 4, 1, "click", &priors, 20);
     let est30 = estimate_wall(200, 4, 1, "click", &priors, 30);
     assert_eq!(est20.backfill_shas_hat, 220);
     assert_eq!(est30.backfill_shas_hat, 230);
-    let fp = resolve_fingerprint(&inputs("abc", 200));
+    let mut inp = inputs("abc", 200);
+    inp.b_override = Some(30);
+    let fp = resolve_fingerprint(&inp);
     let text = format_dry_run_report(&fp, &est30, true, "embedded");
     assert!(text.contains("|B_set|≈230"), "{text}");
     assert!(text.contains("≈230 SHAs"), "{text}");
-}
-
-#[test]
-fn dry_run_path_does_not_create_state_file() {
-    let (dir, head) = seed_repo();
-    let root = dir.path();
-    let fp = resolve_fingerprint(&inputs(&head, 200));
-    let priors = default_priors();
-    let est = estimate_wall(200, 4, 1, "click", &priors, 20);
-    let _ = format_dry_run_report(&fp, &est, false, "embedded");
-    assert!(!state_path(root).exists());
+    assert!(
+        text.contains("B_override=30"),
+        "must print number not Some(30): {text}"
+    );
+    assert!(!text.contains("Some("), "{text}");
 }

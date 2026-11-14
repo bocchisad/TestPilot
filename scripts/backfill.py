@@ -215,12 +215,46 @@ def warn_always_failing(db: Path, threshold: float = 0.9) -> list[dict]:
     return out
 
 
+def _has_reusable_real_run(db: Path, sha: str) -> bool:
+    """True if sha already has a clean real finished run with ≥1 test_results (R6 reuse)."""
+    if not db.is_file():
+        return False
+    con = sqlite3.connect(str(db))
+    try:
+        gate = _test_runs_partial_gate(con, "r")
+        row = con.execute(
+            f"""
+            SELECT 1 FROM test_runs r
+            WHERE r.sha = ? AND r.dirty = 0 AND IFNULL(r.synthetic, 0) = 0 {gate}
+              AND r.finished_at IS NOT NULL
+              AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
+            LIMIT 1
+            """,
+            (sha,),
+        ).fetchone()
+        return row is not None
+    finally:
+        con.close()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Backfill TestPilot runs; installs plugin from --plugin (local path)."
     )
     ap.add_argument("--repo", type=Path, required=True)
-    ap.add_argument("--last", type=int, required=True)
+    ap.add_argument(
+        "--last",
+        type=int,
+        default=None,
+        help="backfill the last N first-parent commits (ignored if --sha is set)",
+    )
+    ap.add_argument(
+        "--sha",
+        action="append",
+        default=[],
+        help="explicit commit SHA to backfill (repeatable). Skips SHAs that already "
+        "have a clean real (synthetic=0, partial=0) finished run with results.",
+    )
     ap.add_argument(
         "--db",
         type=Path,
@@ -259,8 +293,11 @@ def main() -> int:
     plugin = resolve_plugin(args.plugin)
     py = Path(args.python).resolve() if args.python else Path(sys.executable)
     print(f"plugin={plugin}")
-    print(f"repo={repo} db={db} last={args.last}")
+    print(f"repo={repo} db={db} last={args.last} shas={len(args.sha)}")
     print(f"python={py}")
+
+    if not args.sha and args.last is None:
+        raise SystemExit("pass --last N and/or --sha SHA")
 
     if args.dry_run:
         assert "pytest-testpilot" not in str(repo) or plugin != repo, plugin
@@ -272,12 +309,22 @@ def main() -> int:
     if not db.parent.exists():
         db.parent.mkdir(parents=True, exist_ok=True)
 
-    shas = (
-        run(["git", "rev-list", f"-n{args.last}", "HEAD"], cwd=repo)
-        .stdout.strip()
-        .splitlines()
-    )
-    shas = list(reversed(shas))
+    if args.sha:
+        # Preserve order, drop duplicates.
+        seen: set[str] = set()
+        shas: list[str] = []
+        for s in args.sha:
+            s = s.strip()
+            if s and s not in seen:
+                seen.add(s)
+                shas.append(s)
+    else:
+        shas = (
+            run(["git", "rev-list", f"-n{args.last}", "HEAD"], cwd=repo)
+            .stdout.strip()
+            .splitlines()
+        )
+        shas = list(reversed(shas))
 
     work_root = Path(tempfile.mkdtemp(prefix="tp-backfill-"))
     venv = work_root / "venv"
@@ -296,8 +343,13 @@ def main() -> int:
         # trees that raise PytestRemovedIn10Warning are handled via -W ignore below.
         run([str(pip), "install", "pytest>=8,<10", "coverage"], check=False)
 
-        ok = skip = 0
+        ok = skip = reused = 0
         for sha in shas:
+            if _has_reusable_real_run(db, sha):
+                print(f"== {sha[:12]} == reuse existing clean real run")
+                reused += 1
+                ok += 1
+                continue
             wt = work_root / f"wt-{sha[:12]}"
             print(f"== {sha[:12]} ==")
             try:
@@ -364,7 +416,7 @@ def main() -> int:
                 if wt.exists():
                     shutil.rmtree(wt, ignore_errors=True)
 
-        print(f"done ok={ok} skip={skip}")
+        print(f"done ok={ok} reused={reused} skip={skip}")
         warn_always_failing(db, threshold=args.always_fail_threshold)
         return 0 if ok else 1
     finally:

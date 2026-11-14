@@ -120,9 +120,71 @@ fn dry_run_writes_nothing_and_prints_priors_source() {
         stdout.contains("docs/measurements/bootstrap_time_priors.json"),
         "{stdout}"
     );
+    assert!(stdout.contains("B_override=null"), "{stdout}");
     assert!(
         !root.join(".testpilot").exists(),
         "dry-run must not create .testpilot/"
+    );
+    assert!(
+        !root.join(".testpilot/bootstrap/state.json").exists(),
+        "dry-run must not create state.json"
+    );
+}
+
+#[test]
+fn dry_run_uses_local_priors_json_without_touching_tree() {
+    let tmp = seed_repo();
+    let root = tmp.path();
+    let priors_dir = root.join(".testpilot/bootstrap");
+    fs::create_dir_all(&priors_dir).unwrap();
+    // Extreme backfill seconds so estimate text clearly differs from embedded (120s).
+    let custom = r#"{
+      "mutate_s_per_mutant": {"click": 1.0, "jinja": 1.0, "measured": true},
+      "backfill_s_per_commit": {"click": 9999.0, "jinja": 9999.0, "measured": true},
+      "collect_git_s": {"click": 1.0, "jinja": 1.0, "measured": true},
+      "dump_train_s": {"click": 1.0, "jinja": 1.0, "measured": true}
+    }"#;
+    let priors_path = priors_dir.join("priors.json");
+    fs::write(&priors_path, custom).unwrap();
+    let before = tree_snapshot(root);
+
+    let out = Command::new(bin())
+        .args([
+            "bootstrap",
+            "--dry-run",
+            "--repo",
+            root.to_str().unwrap(),
+            "--max-commits",
+            "10",
+            "--backfill-commits",
+            "5",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains(priors_path.to_str().unwrap())
+            || stdout.contains(".testpilot/bootstrap/priors.json"),
+        "must cite local priors path: {stdout}"
+    );
+    // 10+5=15 SHAs × 9999s ≈ large hours — and measured (no unmeasured=true on backfill).
+    assert!(
+        stdout.contains("estimate backfill:") && !stdout.contains("unmeasured=true"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(" h") || stdout.contains("min"),
+        "custom huge backfill should show as hours/min: {stdout}"
+    );
+    let after = tree_snapshot(root);
+    assert_eq!(
+        before, after,
+        "dry-run must not modify tree when priors exist"
     );
 }
 
@@ -314,8 +376,23 @@ fn no_resume_with_force_resets_steps_pending() {
     );
     let raw = fs::read_to_string(&path).unwrap();
     let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    for (k, st) in v["steps"].as_object().unwrap() {
-        assert_eq!(st.as_str(), Some("pending"), "step {k} not pending: {raw}");
+    // Fresh --force restarts markers; pipeline may then advance cleanup/init/collect
+    // and skip backfill/mutate/dump on non-Python fixture repos.
+    assert_eq!(v["steps"]["cleanup"].as_str(), Some("done"), "{raw}");
+    assert_eq!(v["steps"]["init"].as_str(), Some("done"), "{raw}");
+    for step in [
+        "backfill",
+        "mutate",
+        "features_dump",
+        "train",
+        "gate",
+        "finalize",
+    ] {
+        let st = v["steps"][step].as_str();
+        assert!(
+            st == Some("pending") || st == Some("skipped"),
+            "step {step} unexpected {st:?}: {raw}"
+        );
     }
 }
 

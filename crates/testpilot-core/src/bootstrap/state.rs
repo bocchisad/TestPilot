@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::dump_fp::DbDumpFingerprint;
 use super::fingerprint::Fingerprint;
 use crate::error::{Error, Result};
 
@@ -32,6 +33,23 @@ pub enum StepStatus {
 pub struct BootstrapState {
     pub fingerprint: Fingerprint,
     pub steps: BTreeMap<String, StepStatus>,
+    /// Overall run status (`interrupted` on Ctrl-C).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// SHAs successfully backfilled or reused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backfill_done_shas: Vec<String>,
+    /// Completed mutant pairs as `"C_sha:i"`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mutate_completed_pairs: Vec<String>,
+    /// DB fingerprint when features_dump last succeeded (R8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dump_fingerprint: Option<DbDumpFingerprint>,
+    /// Planned |B_set| and n_eligible after collect/backfill (report fields).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_eligible: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_actual: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -64,6 +82,12 @@ pub fn load_or_init_state(
     Ok(BootstrapState {
         fingerprint,
         steps: empty_steps(),
+        status: None,
+        backfill_done_shas: Vec::new(),
+        mutate_completed_pairs: Vec::new(),
+        dump_fingerprint: None,
+        n_eligible: None,
+        n_actual: None,
     })
 }
 
@@ -78,8 +102,23 @@ pub fn load_state(repo: &Path) -> Result<Option<BootstrapState>> {
     Ok(Some(state))
 }
 
+/// Injected fault for tests: fail after writing `.tmp`, before rename.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveFault {
+    AfterTmpWrite,
+}
+
 /// Atomic write: `state.json.tmp` next to the final path, then rename.
 pub fn save_state(repo: &Path, state: &BootstrapState) -> Result<()> {
+    save_state_with_fault(repo, state, None)
+}
+
+/// Same as [`save_state`], with an optional fault injection point for tests.
+pub fn save_state_with_fault(
+    repo: &Path,
+    state: &BootstrapState,
+    fault: Option<SaveFault>,
+) -> Result<()> {
     let dir = bootstrap_dir(repo);
     fs::create_dir_all(&dir)?;
     let path = state_path(repo);
@@ -87,6 +126,11 @@ pub fn save_state(repo: &Path, state: &BootstrapState) -> Result<()> {
     let raw = serde_json::to_string_pretty(state)
         .map_err(|e| Error::Other(format!("serialize state: {e}")))?;
     fs::write(&tmp, &raw)?;
+    if fault == Some(SaveFault::AfterTmpWrite) {
+        return Err(Error::Other(
+            "injected fault after state.json.tmp write (before rename)".into(),
+        ));
+    }
     fs::rename(&tmp, &path)?;
     // Best-effort: if rename somehow left a tmp (cross-fs), remove it.
     let _ = fs::remove_file(&tmp);

@@ -107,16 +107,13 @@ pub fn format_dry_run_report(
 ) -> String {
     let mut out = String::new();
     out.push_str("testpilot bootstrap --dry-run\n");
+    let b_override = match fp.b_override {
+        Some(n) => n.to_string(),
+        None => "null".to_string(),
+    };
     out.push_str(&format!(
-        "fingerprint: head={} N={} K={} seed={} B_policy={} B_override={:?} bin={} schema_v={}\n",
-        fp.head_sha,
-        fp.n,
-        fp.k,
-        fp.seed,
-        fp.b_policy,
-        fp.b_override,
-        fp.bin_version,
-        fp.schema_version
+        "fingerprint: head={} N={} K={} seed={} B_policy={} B_override={b_override} bin={} schema_v={}\n",
+        fp.head_sha, fp.n, fp.k, fp.seed, fp.b_policy, fp.bin_version, fp.schema_version
     ));
     out.push_str(&format!("priors: {priors_source}\n"));
     out.push_str(&format!(

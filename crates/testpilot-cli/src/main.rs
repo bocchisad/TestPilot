@@ -1,12 +1,15 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use testpilot_core::bootstrap::{
-    self, BootstrapInputs, EMBEDDED_PRIORS_PATH, ResumeDecision, decide_resume, default_priors,
-    estimate_wall, format_dry_run_report, load_priors_file, resolve_fingerprint, save_state,
-    startup_cleanup, state_path,
+    self, BootstrapInputs, DbDumpFingerprint, EMBEDDED_PRIORS_PATH, ResumeDecision, StepStatus,
+    decide_resume, default_priors, dump_needs_refresh, estimate_wall, first_parent_shas,
+    format_dry_run_report, load_priors_file, resolve_fingerprint, save_state,
+    shas_needing_backfill, startup_cleanup, state_path, union_b_set,
 };
 use testpilot_core::codec;
 use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
@@ -731,6 +734,10 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         )
     };
     let last_fp = opts.backfill_commits.unwrap_or(20);
+    // Hat uses requested last_fp; git may have fewer commits available.
+    let last_fp_available = first_parent_shas(&repo, last_fp)
+        .map(|v| v.len() as u32)
+        .unwrap_or(last_fp);
     let est = estimate_wall(
         opts.max_commits,
         opts.mutants_per_commit,
@@ -749,6 +756,9 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             "{}",
             format_dry_run_report(&fp, &est, resume_allowed, &priors_source)
         );
+        println!(
+            "last_fp_available={last_fp_available} requested={last_fp} (|B_set| after collect = sampled_C ∪ first-parent limb)"
+        );
         if let Some(tb) = opts.time_budget {
             println!("time-budget flag: {tb}s (not applied in dry-run)");
         }
@@ -759,7 +769,14 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         return Ok(());
     }
 
-    // Real run (T2): cleanup + fingerprint/resume + persist state. Pipeline steps land in T3+.
+    let interrupted = Arc::new(AtomicBool::new(false));
+    {
+        let flag = Arc::clone(&interrupted);
+        let _ = ctrlc::set_handler(move || {
+            flag.store(true, Ordering::SeqCst);
+        });
+    }
+
     let _cleanup = startup_cleanup(&repo).context("bootstrap startup cleanup")?;
 
     let decision = if opts.resume {
@@ -770,10 +787,11 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         bail!("state.json exists; pass --resume (default) or --force / --no-resume with --force");
     };
 
-    let state = match decision {
+    let mut state = match decision {
         ResumeDecision::Refuse { hint } => bail!("{hint}"),
         ResumeDecision::Fresh(s) | ResumeDecision::Continue(s) => s,
     };
+    state.steps.insert("cleanup".into(), StepStatus::Done);
 
     // Ensure exclude + DB (never touches .gitignore).
     let db = resolve_db_path_for(opts.db.as_deref(), &repo)?;
@@ -802,14 +820,267 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     ensure_git_exclude_at(&exclude, ".testpilot/")?;
-    let _ = Store::open(&db).context("open/create bootstrap db")?;
+    let mut store = Store::open(&db).context("open/create bootstrap db")?;
+    state.steps.insert("init".into(), StepStatus::Done);
+    save_state(&repo, &state)?;
 
-    save_state(&repo, &state).context("write state.json")?;
+    let check_intr = |state: &mut bootstrap::BootstrapState, step: &str| -> Result<()> {
+        if interrupted.load(Ordering::SeqCst) {
+            state.status = Some("interrupted".into());
+            state.steps.insert(step.into(), StepStatus::Interrupted);
+            save_state(&repo, state)?;
+            bail!("bootstrap interrupted (Ctrl-C); state.status=interrupted");
+        }
+        Ok(())
+    };
+
+    // --- collect_git ---
+    check_intr(&mut state, "collect_git")?;
+    if state.steps.get("collect_git") != Some(&StepStatus::Done) {
+        let grepo = GixRepo::open(&repo).context("open git repo for collect")?;
+        let stats =
+            collect_git(&grepo, &mut store, None, None, None, 5000).context("collect git")?;
+        println!(
+            "collect_git: inserted={} skipped={} oversized={}",
+            stats.inserted, stats.skipped, stats.oversized
+        );
+        state.steps.insert("collect_git".into(), StepStatus::Done);
+        save_state(&repo, &state)?;
+    }
+
+    let has_py = repo.join("pyproject.toml").is_file() || repo.join("setup.py").is_file();
+    let out_dir = opts
+        .out
+        .clone()
+        .unwrap_or_else(|| repo.join(".testpilot/model"));
+    let parquet = out_dir.join("pairs.parquet");
+    let scripts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
+
+    if !has_py {
+        println!(
+            "no pyproject.toml/setup.py in {}; skipping backfill/mutate/dump (init+collect only)",
+            repo.display()
+        );
+        for step in [
+            "backfill",
+            "mutate",
+            "features_dump",
+            "train",
+            "gate",
+            "finalize",
+        ] {
+            state
+                .steps
+                .entry(step.into())
+                .and_modify(|s| {
+                    if *s == StepStatus::Pending {
+                        *s = StepStatus::Skipped;
+                    }
+                })
+                .or_insert(StepStatus::Skipped);
+        }
+        save_state(&repo, &state)?;
+        println!("bootstrap state ready at {}", state_path(&repo).display());
+        let _ = opts.time_budget;
+        return Ok(());
+    }
+
+    // --- backfill (R6): last_fp first, then sampled C gaps ---
+    check_intr(&mut state, "backfill")?;
+    if state.steps.get("backfill") != Some(&StepStatus::Done) {
+        let fp_limb = first_parent_shas(&repo, last_fp)?;
+        // Seed limb so mutate sampling has clean runs.
+        run_backfill_shas(&scripts, &repo, &db, &fp_limb, None)?;
+        state.backfill_done_shas.extend(fp_limb.iter().cloned());
+
+        let sample = sample_commits_py(&scripts, &db, opts.max_commits, opts.seed)?;
+        state.n_eligible = Some(sample.n_eligible);
+        state.n_actual = Some(sample.sampled.len() as u32);
+        println!(
+            "sample: n_eligible={} n_actual={}",
+            sample.n_eligible,
+            sample.sampled.len()
+        );
+        let b_set = union_b_set(&fp_limb, &sample.sampled);
+        let need = shas_needing_backfill(&store, &b_set)?;
+        if !need.is_empty() {
+            run_backfill_shas(&scripts, &repo, &db, &need, None)?;
+        }
+        for s in &b_set {
+            if !state.backfill_done_shas.iter().any(|x| x == s) {
+                state.backfill_done_shas.push(s.clone());
+            }
+        }
+        state.steps.insert("backfill".into(), StepStatus::Done);
+        save_state(&repo, &state)?;
+    }
+
+    // --- mutate ---
+    check_intr(&mut state, "mutate")?;
+    if state.steps.get("mutate") != Some(&StepStatus::Done) {
+        let n = state.n_actual.unwrap_or(opts.max_commits).max(1);
+        run_mutate(
+            &scripts,
+            &repo,
+            &db,
+            n,
+            opts.mutants_per_commit,
+            opts.seed,
+            opts.jobs,
+            None,
+        )?;
+        state.steps.insert("mutate".into(), StepStatus::Done);
+        save_state(&repo, &state)?;
+    }
+
+    // --- features dump (R8 fingerprint) ---
+    check_intr(&mut state, "features_dump")?;
+    let cur_fp = DbDumpFingerprint::from_store(&store)?;
+    let need_dump = dump_needs_refresh(parquet.is_file(), state.dump_fingerprint.as_ref(), &cur_fp);
+    if state.steps.get("features_dump") != Some(&StepStatus::Done) || need_dump {
+        std::fs::create_dir_all(&out_dir)?;
+        let grepo = GixRepo::open(&repo)?;
+        let repo_name = repo
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("repo")
+            .to_string();
+        features::dump_parquet_ex(&grepo, &store, &repo_name, &parquet, Some(&grepo))
+            .context("features dump --include-mutants")?;
+        state.dump_fingerprint = Some(cur_fp);
+        state.steps.insert("features_dump".into(), StepStatus::Done);
+        save_state(&repo, &state)?;
+        println!("features_dump: {}", parquet.display());
+    }
+
+    // train/gate/finalize → T4
+    for step in ["train", "gate", "finalize"] {
+        if state.steps.get(step) == Some(&StepStatus::Pending) {
+            println!("{step}: deferred to Week-6 T4");
+        }
+    }
+    save_state(&repo, &state)?;
     println!(
-        "bootstrap state ready at {} (pipeline steps collect→gate land in later Week-6 tasks)",
+        "bootstrap pipeline through dump ready at {}",
         state_path(&repo).display()
     );
-    let _ = (opts.out, opts.time_budget);
+    let _ = opts.time_budget;
+    Ok(())
+}
+
+fn bundled_scripts(scripts: &Path) -> Result<PathBuf> {
+    let p = scripts
+        .canonicalize()
+        .with_context(|| format!("scripts dir {}", scripts.display()))?;
+    Ok(p)
+}
+
+struct SampleOut {
+    n_eligible: u32,
+    sampled: Vec<String>,
+}
+
+fn sample_commits_py(scripts: &Path, db: &Path, n: u32, seed: u64) -> Result<SampleOut> {
+    let scripts = bundled_scripts(scripts)?;
+    let code = format!(
+        r#"
+import json, sys
+sys.path.insert(0, {scripts:?})
+from mutate.sample_commits import sample_commits
+from pathlib import Path
+r = sample_commits(Path({db:?}), {n}, {seed})
+print(json.dumps({{"n_eligible": r.n_eligible_C, "sampled": [e.sha for e in r.sampled]}}))
+"#
+    );
+    let out = Command::new("python3")
+        .args(["-c", &code])
+        .output()
+        .context("sample_commits python")?;
+    if !out.status.success() {
+        bail!(
+            "sample_commits failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let v: serde_json::Value =
+        serde_json::from_slice(&out.stdout).context("parse sample_commits JSON")?;
+    let n_eligible = v["n_eligible"].as_u64().unwrap_or(0) as u32;
+    let sampled = v["sampled"]
+        .as_array()
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+        .collect();
+    Ok(SampleOut {
+        n_eligible,
+        sampled,
+    })
+}
+
+fn run_backfill_shas(
+    scripts: &Path,
+    repo: &Path,
+    db: &Path,
+    shas: &[String],
+    python: Option<&Path>,
+) -> Result<()> {
+    if shas.is_empty() {
+        return Ok(());
+    }
+    let scripts = bundled_scripts(scripts)?;
+    let backfill = scripts.join("backfill.py");
+    let mut cmd = Command::new("python3");
+    cmd.arg(&backfill)
+        .arg("--repo")
+        .arg(repo)
+        .arg("--db")
+        .arg(db);
+    for s in shas {
+        cmd.arg("--sha").arg(s);
+    }
+    if let Some(py) = python {
+        cmd.arg("--python").arg(py);
+    }
+    let st = cmd.status().context("run backfill.py")?;
+    if !st.success() {
+        bail!("backfill.py failed with {st}");
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_mutate(
+    scripts: &Path,
+    repo: &Path,
+    db: &Path,
+    n: u32,
+    k: u32,
+    seed: u64,
+    _jobs: u32,
+    python: Option<&Path>,
+) -> Result<()> {
+    let scripts = bundled_scripts(scripts)?;
+    let script = scripts.join("mutate_bootstrap.py");
+    let mut cmd = Command::new("python3");
+    cmd.arg(&script)
+        .arg("--repo")
+        .arg(repo)
+        .arg("--db")
+        .arg(db)
+        .arg("--commits")
+        .arg(n.to_string())
+        .arg("--mutants-per-commit")
+        .arg(k.to_string())
+        .arg("--seed")
+        .arg(seed.to_string())
+        .arg("--json");
+    if let Some(py) = python {
+        cmd.arg("--python").arg(py);
+    }
+    let st = cmd.status().context("run mutate_bootstrap.py")?;
+    if !st.success() {
+        bail!("mutate_bootstrap.py failed with {st}");
+    }
     Ok(())
 }
 
