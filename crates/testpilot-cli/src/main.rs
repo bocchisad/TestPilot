@@ -738,9 +738,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         )
     };
     // Cold limb: max(N, 20), or explicit --backfill-commits override.
-    let limb_n = opts
-        .backfill_commits
-        .unwrap_or(opts.max_commits.max(20));
+    let limb_n = opts.backfill_commits.unwrap_or(opts.max_commits.max(20));
     // Hat uses requested limb; git may have fewer commits available.
     let last_fp_available = first_parent_shas(&repo, limb_n)
         .map(|v| v.len() as u32)

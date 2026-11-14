@@ -519,7 +519,11 @@ fn mutate_skips_with_no_eligible_c_when_resample_empty() {
     fs::create_dir_all(root.join("pkg")).unwrap();
     fs::write(root.join("pkg/__init__.py"), "x = 1\n").unwrap();
     fs::create_dir_all(root.join("tests")).unwrap();
-    fs::write(root.join("tests/test_x.py"), "def test_ok():\n    assert True\n").unwrap();
+    fs::write(
+        root.join("tests/test_x.py"),
+        "def test_ok():\n    assert True\n",
+    )
+    .unwrap();
     git(root, &["add", "."]);
     git(root, &["commit", "-m", "root"]);
     for i in 0..3 {
@@ -557,10 +561,9 @@ fn mutate_skips_with_no_eligible_c_when_resample_empty() {
         stdout.contains("no_eligible_C") || stdout.contains("mutate: skipped"),
         "{stdout}"
     );
-    let report: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(out_dir.join("bootstrap_report.json")).unwrap(),
-    )
-    .unwrap();
+    let report: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out_dir.join("bootstrap_report.json")).unwrap())
+            .unwrap();
     assert_eq!(
         report["mutate_skip_reason"].as_str(),
         Some("no_eligible_C"),
