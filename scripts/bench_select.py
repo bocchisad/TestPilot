@@ -50,6 +50,7 @@ def main() -> int:
         str(args.budget_frac),
         "--format",
         "lines",
+        "--no-safe",
     ]
 
     for i in range(args.warmup):

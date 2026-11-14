@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{Error, Result};
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 pub const SCHEMA_SQL: &str = include_str!("../schema.sql");
 
 /// Additive migration from collection schema v2 → features cache v3.
@@ -41,6 +41,30 @@ CREATE TABLE feature_history_snapshot (
 const MIGRATE_5_TO_6_ADD: &str = r#"
 ALTER TABLE test_runs ADD COLUMN synthetic INTEGER NOT NULL DEFAULT 0
   CHECK (synthetic IN (0,1));
+"#;
+
+/// v6 → v7: partial runs + selection table.
+const MIGRATE_6_TO_7_PARTIAL: &str = r#"
+ALTER TABLE test_runs ADD COLUMN partial INTEGER NOT NULL DEFAULT 0
+  CHECK (partial IN (0,1));
+"#;
+
+const MIGRATE_6_TO_7_SELECTION: &str = r#"
+CREATE TABLE IF NOT EXISTS test_run_selection (
+  run_id      INTEGER NOT NULL REFERENCES test_runs(id),
+  test_pk     INTEGER NOT NULL REFERENCES tests(id),
+  selected    INTEGER NOT NULL CHECK (selected IN (0,1)),
+  reason      TEXT NOT NULL,
+  score       REAL,
+  rank        INTEGER,
+  budget_kind TEXT,
+  budget_value REAL,
+  model_sha256 TEXT,
+  safe_enabled INTEGER NOT NULL DEFAULT 0 CHECK (safe_enabled IN (0,1)),
+  PRIMARY KEY (run_id, test_pk)
+);
+CREATE INDEX IF NOT EXISTS idx_test_run_selection_run
+  ON test_run_selection(run_id);
 "#;
 
 fn schema_version_error(found: i64, expected: i64) -> Error {
@@ -83,6 +107,8 @@ pub struct TestRunRow {
     pub meta: Option<String>,
     /// Mutant bootstrap run (1) must not feed real history/coverage/show paths.
     pub synthetic: bool,
+    /// Select subset run (1) must not feed base_run / dump / recent_fail history.
+    pub partial: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -151,7 +177,7 @@ impl Store {
                 return Ok(());
             }
             // Additive upgrades only; v1 still requires delete.
-            if (2..=5).contains(&v) && SCHEMA_VERSION == 6 {
+            if (2..=6).contains(&v) && SCHEMA_VERSION == 7 {
                 let tx = self.conn.unchecked_transaction()?;
                 if v == 2 {
                     tx.execute_batch(MIGRATE_2_TO_3)?;
@@ -171,6 +197,17 @@ impl Store {
                     if has_syn == 0 {
                         tx.execute_batch(MIGRATE_5_TO_6_ADD)?;
                     }
+                }
+                if v <= 6 {
+                    let has_partial: i64 = tx.query_row(
+                        "SELECT COUNT(*) FROM pragma_table_info('test_runs') WHERE name='partial'",
+                        [],
+                        |r| r.get(0),
+                    )?;
+                    if has_partial == 0 {
+                        tx.execute_batch(MIGRATE_6_TO_7_PARTIAL)?;
+                    }
+                    tx.execute_batch(MIGRATE_6_TO_7_SELECTION)?;
                 }
                 tx.execute(
                     "UPDATE schema_version SET version = ?1",
@@ -334,8 +371,9 @@ impl Store {
     pub fn insert_test_run_on(conn: &Connection, run: &TestRunRow) -> Result<Option<i64>> {
         let result = conn.execute(
             "INSERT INTO test_runs(
-                sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta, synthetic
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                sha, source, started_at, finished_at, dirty, diff_hash, input_hash, meta,
+                synthetic, partial
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 run.sha,
                 run.source,
@@ -345,7 +383,8 @@ impl Store {
                 run.diff_hash,
                 run.input_hash,
                 run.meta,
-                run.synthetic as i64
+                run.synthetic as i64,
+                run.partial as i64
             ],
         );
         match result {
@@ -449,12 +488,13 @@ impl Store {
     }
 
     /// Newest pytest run for `sha` that has at least one coverage row (N5).
-    /// Excludes synthetic (mutant) runs.
+    /// Excludes synthetic (mutant) and partial (select) runs.
     pub fn latest_pytest_run_with_coverage_for_sha(&self, sha: &str) -> Result<Option<i64>> {
         self.conn
             .query_row(
                 "SELECT r.id FROM test_runs r
-                 WHERE r.sha = ?1 AND r.source = 'pytest' AND r.synthetic = 0
+                 WHERE r.sha = ?1 AND r.source = 'pytest'
+                   AND r.synthetic = 0 AND r.partial = 0
                    AND EXISTS (SELECT 1 FROM test_coverage c WHERE c.run_id = r.id)
                  ORDER BY r.id DESC LIMIT 1",
                 params![sha],
@@ -581,12 +621,13 @@ impl Store {
         Ok(out)
     }
 
-    /// Last clean **non-synthetic** run on `sha` that has ≥1 test_results row.
+    /// Last clean **non-synthetic, non-partial** finished run on `sha` with ≥1 test_results.
     pub fn last_clean_run_with_results(&self, sha: &str) -> Result<Option<i64>> {
         self.conn
             .query_row(
                 "SELECT r.id FROM test_runs r
-                 WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0
+                 WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0 AND r.partial = 0
+                   AND r.finished_at IS NOT NULL
                    AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
                  ORDER BY r.id DESC LIMIT 1",
                 params![sha],
@@ -596,11 +637,12 @@ impl Store {
             .map_err(Into::into)
     }
 
-    /// Other clean **non-synthetic** runs on `sha` (excluding `primary_id`).
+    /// Other clean **non-synthetic, non-partial** finished runs on `sha` (excluding `primary_id`).
     pub fn other_clean_runs(&self, sha: &str, primary_id: i64) -> Result<Vec<i64>> {
         let mut stmt = self.conn.prepare(
             "SELECT r.id FROM test_runs r
-             WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0 AND r.id != ?2
+             WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0 AND r.partial = 0
+               AND r.finished_at IS NOT NULL AND r.id != ?2
                AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
              ORDER BY r.id ASC",
         )?;
@@ -612,12 +654,13 @@ impl Store {
         Ok(out)
     }
 
-    /// Last clean **non-synthetic** run with ≥1 coverage row on `sha`.
+    /// Last clean **non-synthetic, non-partial** finished run with ≥1 coverage row on `sha`.
     pub fn last_clean_run_with_coverage(&self, sha: &str) -> Result<Option<i64>> {
         self.conn
             .query_row(
                 "SELECT r.id FROM test_runs r
-                 WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0
+                 WHERE r.sha = ?1 AND r.dirty = 0 AND r.synthetic = 0 AND r.partial = 0
+                   AND r.finished_at IS NOT NULL
                    AND EXISTS (SELECT 1 FROM test_coverage c WHERE c.run_id = r.id)
                  ORDER BY r.id DESC LIMIT 1",
                 params![sha],
@@ -660,6 +703,43 @@ impl Store {
                 attempts: r.get(5)?,
             })
         })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Newest finished real (non-synthetic, non-partial) runs on `ancestry_shas`, up to `limit`.
+    pub fn recent_finished_runs_on_shas(
+        &self,
+        ancestry_shas: &[String],
+        limit: usize,
+    ) -> Result<Vec<i64>> {
+        if ancestry_shas.is_empty() || limit == 0 {
+            return Ok(vec![]);
+        }
+        let placeholders = std::iter::repeat("?")
+            .take(ancestry_shas.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT r.id FROM test_runs r
+             WHERE r.sha IN ({placeholders})
+               AND r.synthetic = 0 AND r.partial = 0
+               AND r.finished_at IS NOT NULL
+             ORDER BY r.finished_at DESC, r.id DESC
+             LIMIT ?"
+        );
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = ancestry_shas
+            .iter()
+            .map(|s| Box::new(s.clone()) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        params.push(Box::new(limit as i64));
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(param_refs.as_slice(), |r| r.get(0))?;
         let mut out = Vec::new();
         for row in rows {
             out.push(row?);
@@ -736,6 +816,7 @@ mod tests {
             input_hash: Some("real".into()),
             meta: None,
             synthetic: false,
+            partial: false,
         };
         let syn = TestRunRow {
             sha: "abc".into(),
@@ -747,6 +828,7 @@ mod tests {
             input_hash: Some("syn".into()),
             meta: None,
             synthetic: true,
+            partial: false,
         };
         let results = vec![TestResultRow {
             test_id: "t::a".into(),
@@ -863,7 +945,7 @@ mod tests {
                 err,
                 Error::SchemaOutdated {
                     found: 1,
-                    expected: 6
+                    expected: 7
                 }
             ),
             "{err}"
@@ -873,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_v2_upgrades_in_place_to_v6() {
+    fn schema_v2_upgrades_in_place_to_v7() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("v2.sqlite");
         {
@@ -902,7 +984,7 @@ mod tests {
             .conn
             .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 6);
+        assert_eq!(v, 7);
         let n: i64 = store
             .conn
             .query_row(
@@ -930,10 +1012,19 @@ mod tests {
             )
             .unwrap();
         assert!(cols.contains("payload"), "{cols}");
+        let has_sel: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='test_run_selection'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_sel, 1);
     }
 
     #[test]
-    fn schema_v4_upgrades_in_place_to_v6() {
+    fn schema_v4_upgrades_in_place_to_v7() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("v4.sqlite");
         {
@@ -966,7 +1057,7 @@ mod tests {
             .conn
             .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 6);
+        assert_eq!(v, 7);
         let cols: String = store
             .conn
             .query_row(
@@ -986,10 +1077,19 @@ mod tests {
             )
             .unwrap();
         assert_eq!(has_syn, 1);
+        let has_partial: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('test_runs') WHERE name='partial'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_partial, 1);
     }
 
     #[test]
-    fn schema_v5_upgrades_in_place_to_v6() {
+    fn schema_v5_upgrades_in_place_to_v7() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("v5.sqlite");
         {
@@ -1021,7 +1121,121 @@ mod tests {
             .conn
             .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 6);
+        assert_eq!(v, 7);
+    }
+
+    #[test]
+    fn schema_v6_upgrades_in_place_to_v7() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v6.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+                 INSERT INTO schema_version(version) VALUES (6);
+                 CREATE TABLE test_runs (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   sha TEXT NOT NULL,
+                   source TEXT NOT NULL,
+                   started_at INTEGER NOT NULL,
+                   finished_at INTEGER,
+                   dirty INTEGER NOT NULL DEFAULT 0,
+                   diff_hash TEXT,
+                   input_hash TEXT,
+                   meta TEXT,
+                   synthetic INTEGER NOT NULL DEFAULT 0
+                 );
+                 CREATE TABLE tests (
+                   id INTEGER PRIMARY KEY,
+                   test_id TEXT NOT NULL UNIQUE
+                 );",
+            )
+            .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let v: i64 = store
+            .conn
+            .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 7);
+        let has_partial: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('test_runs') WHERE name='partial'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_partial, 1);
+        let has_sel: i64 = store
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='test_run_selection'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_sel, 1);
+    }
+
+    #[test]
+    fn partial_runs_excluded_from_clean_queries() {
+        let mut store = Store::open_in_memory().unwrap();
+        let full = TestRunRow {
+            sha: "abc".into(),
+            source: "junit".into(),
+            started_at: 1,
+            finished_at: Some(2),
+            dirty: false,
+            diff_hash: None,
+            input_hash: Some("full".into()),
+            meta: None,
+            synthetic: false,
+            partial: false,
+        };
+        let partial = TestRunRow {
+            sha: "abc".into(),
+            source: "junit".into(),
+            started_at: 3,
+            finished_at: Some(4),
+            dirty: false,
+            diff_hash: None,
+            input_hash: Some("part".into()),
+            meta: None,
+            synthetic: false,
+            partial: true,
+        };
+        let results = vec![TestResultRow {
+            test_id: "t::a".into(),
+            outcome: "pass".into(),
+            duration_ms: 1,
+            message: None,
+            flaky: false,
+            attempts: 1,
+        }];
+        let cov = vec![CoverageRow {
+            test_id: "t::a".into(),
+            path: "x.py".into(),
+            lines: vec![0x01],
+        }];
+        let full_id = store
+            .insert_run_atomic(&full, &results, &cov, false)
+            .unwrap()
+            .unwrap();
+        let part_id = store
+            .insert_run_atomic(&partial, &results, &cov, false)
+            .unwrap()
+            .unwrap();
+        assert!(part_id > full_id);
+        assert_eq!(
+            store.last_clean_run_with_results("abc").unwrap(),
+            Some(full_id)
+        );
+        assert_eq!(
+            store.last_clean_run_with_coverage("abc").unwrap(),
+            Some(full_id)
+        );
+        assert!(store.other_clean_runs("abc", full_id).unwrap().is_empty());
     }
 
     #[test]
@@ -1056,6 +1270,7 @@ mod tests {
             input_hash: None,
             meta: None,
             synthetic: false,
+            partial: false,
         };
         let results = vec![
             TestResultRow {

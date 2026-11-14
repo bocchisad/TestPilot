@@ -24,6 +24,13 @@ from pathlib import Path
 
 DEFAULT_PLUGIN = Path(__file__).resolve().parents[1] / "python" / "pytest-testpilot"
 
+
+def _test_runs_partial_gate(con: sqlite3.Connection, alias: str = "u") -> str:
+    cols = {row[1] for row in con.execute("PRAGMA table_info(test_runs)")}
+    if "partial" in cols:
+        return f"AND IFNULL({alias}.partial, 0) = 0"
+    return ""
+
 # Test-only extras / groups. Do NOT install "dev" by default — on projects like
 # pallets/click that pulls tox/uv/ruff and dominates per-commit wall time.
 _EXTRA_CANDIDATES = ("test", "tests", "testing")
@@ -147,8 +154,9 @@ def warn_always_failing(db: Path, threshold: float = 0.9) -> list[dict]:
         return []
     con = sqlite3.connect(str(db))
     con.row_factory = sqlite3.Row
+    gate = _test_runs_partial_gate(con, "u")
     rows = con.execute(
-        """
+        f"""
         SELECT t.test_id AS test_id,
                COUNT(*) AS n_appear,
                SUM(CASE WHEN r.outcome IN ('fail','error') THEN 1 ELSE 0 END) AS n_fail,
@@ -157,7 +165,7 @@ def warn_always_failing(db: Path, threshold: float = 0.9) -> list[dict]:
         FROM test_results r
         JOIN tests t ON t.id = r.test_pk
         JOIN test_runs u ON u.id = r.run_id
-        WHERE u.source = 'pytest' AND IFNULL(u.synthetic, 0) = 0
+        WHERE u.source = 'pytest' AND IFNULL(u.synthetic, 0) = 0 {gate}
         GROUP BY t.test_id
         HAVING fail_rate >= ?
         ORDER BY fail_rate DESC, test_id

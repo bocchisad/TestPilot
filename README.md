@@ -1,6 +1,6 @@
 # TestPilot
 
-Offline **predictive test selection** toolkit. This repository currently ships the **data-collection** layer only (no ML / ranking yet): git history, JUnit/pytest outcomes, and per-test line coverage in a local SQLite database.
+Offline **predictive test selection** toolkit: git/JUnit/pytest collection, change features, LightGBM ranking, safe-mode select, and a pytest plugin + GitHub Action for CI.
 
 ## Quickstart
 
@@ -79,21 +79,41 @@ testpilot select \
 
 Exactly one budget: `--budget-frac F` (0&lt;F≤1), `--max-tests N` (N≥1), or `--time-budget SECONDS`. Formats: `lines` (default), `table`, `json`. Use `--worktree` or `--head WORKTREE` for dirty trees (time features use **HEAD** author time, not wall clock).
 
-**Limitations:** models trained on mutation bootstrap may have near-constant history features (`t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag`); if `useful_on_val` is null the CLI warns that the model was validated on synthetic data only. Candidates are pytest nodeids (as in dump/train); parametrized ids from the base run are kept, but newly discovered defs are emitted bare (no param expansion — one bare id may expand to N collected nodeids). **Scanner change (PR #6):** `scan_python` now handles `#` comments, triple-quoted strings in paren continuations, and nested `@` correctly — change/import features that depend on def spans differ from earlier builds. **Retrain** models trained before this fix: re-run `features dump --include-mutants` + `testpilot-train` (no need to regenerate mutants). Design: [`docs/specs/2026-11-13-testpilot-select-design.md`](docs/specs/2026-11-13-testpilot-select-design.md). Latency: `scripts/bench_select.py`. Local scan vs collect check: `scripts/check_scan_collect_coverage.py`.
+**Limitations:** models trained on mutation bootstrap may have near-constant history features (`t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag`); if `useful_on_val` is null the CLI warns that the model was validated on synthetic data only. Candidates are pytest nodeids (as in dump/train); parametrized ids from the base run are kept, but newly discovered defs are emitted bare (no param expansion — one bare id may expand to N collected nodeids). **Scanner change (PR #6):** `scan_python` now handles `#` comments, triple-quoted strings in paren continuations, and nested `@` correctly — change/import features that depend on def spans differ from earlier builds. **Retrain** models trained before this fix: re-run `features dump --include-mutants` + `testpilot-train` (no need to regenerate mutants). Design: [`docs/specs/2026-11-13-testpilot-select-design.md`](docs/specs/2026-11-13-testpilot-select-design.md). Latency: `scripts/bench_select.py` (pass **`--no-safe`** for Week-4 parity). Local scan vs collect check: `scripts/check_scan_collect_coverage.py`.
+
+## Safe mode + plugin select + Action (week 5)
+
+Safe guardrails live in Rust `select` (**on by default**). JSON always includes `safe.enabled`. Use `--no-safe` / `--testpilot-no-safe` for research / Week-4 parity. Design: [`docs/specs/2026-11-14-testpilot-safe-mode-ci-design.md`](docs/specs/2026-11-14-testpilot-safe-mode-ci-design.md).
+
+```bash
+# CLI (safe on by default)
+testpilot select --model "$MODEL" --base HEAD~1 --head HEAD --budget-frac 0.1 --format json
+testpilot select ... --no-safe   # Week-4 ranking only
+
+# Pytest: select + record (fail-open if binary/snapshot/model missing)
+pytest --testpilot --testpilot-select --testpilot-model "$MODEL" --testpilot-budget-frac 0.1
+# Without a local index/snapshot, select always fail-opens unless --testpilot-auto-index
+pytest ... --testpilot-auto-index          # default off
+pytest ... --testpilot-select-timeout 10   # default 10s
+pytest ... --testpilot-shadow              # run all; record would-select
+```
+
+Composite Action: [`.github/actions/testpilot/`](.github/actions/testpilot/) — example workflow [`docs/examples/testpilot-ci.yml`](docs/examples/testpilot-ci.yml). On **push to main**: full pytest → `collect git` → `features dump` → save DB cache under `testpilot-db-<repo>-${{ github.sha }}-${{ github.run_attempt }}`. On **PR**: restore cache + `--testpilot-select` (no save). Model is not part of the DB cache.
 
 ## Database schema
 
-Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/schema.sql) (`SCHEMA_VERSION = 6`). A synced copy ships inside the pytest plugin; `python scripts/sync_schema.py --check` enforces equality in CI.
+Source of truth: [`crates/testpilot-core/schema.sql`](crates/testpilot-core/schema.sql) (`SCHEMA_VERSION = 7`). A synced copy ships inside the pytest plugin; `python scripts/sync_schema.py --check` enforces equality in CI.
 
 | Table | Role |
 |-------|------|
 | `commits` | Commit metadata; `oversized=1` means the diff exceeded `--max-files-per-commit` and **no** `file_changes` were stored |
 | `commit_parents` | Parent SHAs (`parent_idx=0` is first parent / merge base for diffs) |
 | `file_changes` | Per-commit path changes (`A/M/D/R`), line counts, `is_binary` |
-| `test_runs` | One row per pytest/JUnit ingest; `dirty` + `diff_hash` for unclean trees; `input_hash` for JUnit dedup; `synthetic=1` for mutant bootstrap (excluded from real history/coverage/show) |
+| `test_runs` | One row per pytest/JUnit ingest; `dirty` + `diff_hash` for unclean trees; `input_hash` for JUnit dedup; `synthetic=1` for mutant bootstrap; `partial=1` for successful select subsets (excluded from base_run / dump / recent_fail) |
 | `tests` | Dictionary of unique `test_id` strings (`id` referenced elsewhere) |
-| `test_results` | Outcomes (`pass/fail/error/skip`), duration, `flaky`, `attempts` (via `test_pk`) |
+| `test_results` | Outcomes (`pass/fail/error/skip`), duration, `flaky`, `attempts` (via `test_pk`); deselected tests are **not** written |
 | `test_coverage` | Per `(run_id, test_pk, path)` coverage blob (`WITHOUT ROWID`) |
+| `test_run_selection` | Per-run select/shadow decisions (`selected`, `reason`, score/rank/budget/model/safe) |
 
 Coverage blob format: leading version byte `0x01`, then delta-encoded unsigned varints of sorted unique line numbers. Empty coverage is exactly `[0x01]`.
 
@@ -110,6 +130,7 @@ Dirty runs (`dirty=1`, including untracked files) are recorded now; training sho
 | `testpilot stats [--json]` | Summary + top slow / failing tests |
 | `testpilot debug coverage --run-id/--sha --test-id` | Decode coverage blobs |
 | `testpilot features dump\|show\|schema` | Leak-free (change, test) feature vectors / Parquet / schema lockfile |
+| `testpilot select` | Budgeted ranking (`--safe` default on; `--no-safe` for Week-4) |
 | `testpilot-train train\|evaluate\|baselines` | Offline LightGBM ranking on feature parquet |
 
 ## Development
@@ -123,6 +144,7 @@ ruff check python/pytest-testpilot
 pytest python/pytest-testpilot
 python scripts/sync_schema.py --check
 bash tests/e2e/test_sample_project.sh
+bash tests/e2e/test_safe_e2e.sh
 ```
 
 ## License

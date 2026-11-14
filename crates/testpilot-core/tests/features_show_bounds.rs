@@ -114,6 +114,7 @@ fn seed_run(store: &mut Store, i: usize) {
         input_hash: None,
         meta: None,
         synthetic: false,
+        partial: false,
     };
     let results = vec![TestResultRow {
         test_id: "tests/test_a.py::test_alpha".into(),

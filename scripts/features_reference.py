@@ -19,6 +19,13 @@ MAX_IMP = 6
 STOP = {"test", "tests", "src", "py", "init"}
 
 
+def _test_runs_partial_gate(conn: sqlite3.Connection, alias: str = "r") -> str:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(test_runs)")}
+    if "partial" in cols:
+        return f"AND IFNULL({alias}.partial,0)=0"
+    return ""
+
+
 def git(cwd: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
 
@@ -402,8 +409,9 @@ def main() -> int:
     repo_name = repo.name
 
     def last_clean_with_results(sha: str) -> int | None:
+        gate = _test_runs_partial_gate(conn, "r")
         r = conn.execute(
-            "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 "
+            f"SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 {gate} "
             "AND EXISTS(SELECT 1 FROM test_results tr WHERE tr.run_id=r.id) "
             "ORDER BY r.id DESC LIMIT 1",
             (sha,),
@@ -411,10 +419,11 @@ def main() -> int:
         return int(r[0]) if r else None
 
     def other_clean(sha: str, primary: int) -> list[int]:
+        gate = _test_runs_partial_gate(conn, "r")
         return [
             int(x[0])
             for x in conn.execute(
-                "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 AND r.id!=? "
+                f"SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 {gate} AND r.id!=? "
                 "AND EXISTS(SELECT 1 FROM test_results tr WHERE tr.run_id=r.id) ORDER BY r.id",
                 (sha, primary),
             )
@@ -440,8 +449,9 @@ def main() -> int:
         return by
 
     def last_cov_run(sha: str) -> int | None:
+        gate = _test_runs_partial_gate(conn, "r")
         r = conn.execute(
-            "SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 "
+            f"SELECT r.id FROM test_runs r WHERE r.sha=? AND r.dirty=0 AND r.synthetic=0 {gate} "
             "AND EXISTS(SELECT 1 FROM test_coverage c WHERE c.run_id=r.id) "
             "ORDER BY r.id DESC LIMIT 1",
             (sha,),

@@ -14,6 +14,22 @@ import pytest
 
 from pytest_testpilot.codec import encode_lines
 from pytest_testpilot.gitinfo import collect_gitinfo, git_toplevel
+from pytest_testpilot.select import (
+    SELECT_TIMEOUT_DEFAULT,
+    SelectPlan,
+    apply_order,
+    bare_test_id,
+    build_select_cmd,
+    compute_shadow_meta,
+    format_select_summary_line,
+    invoke_select_json,
+    plan_selection,
+    resolve_base,
+    resolve_testpilot_bin,
+    run_auto_index,
+    selection_rows_for_db,
+    validate_budget_options,
+)
 from pytest_testpilot.store import Store, StoreError
 
 try:
@@ -43,9 +59,89 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="Make TestPilot errors fail the session (non-zero exit after the summary)",
     )
+    group.addoption(
+        "--testpilot-select",
+        action="store_true",
+        default=False,
+        help="Run testpilot select before tests (fail-open on errors)",
+    )
+    group.addoption(
+        "--testpilot-budget-frac",
+        action="store",
+        default=None,
+        type=float,
+        metavar="F",
+        help="Select budget as fraction of candidates (requires --testpilot-select)",
+    )
+    group.addoption(
+        "--testpilot-max-tests",
+        action="store",
+        default=None,
+        type=int,
+        metavar="N",
+        help="Select budget: maximum number of tests",
+    )
+    group.addoption(
+        "--testpilot-time-budget",
+        action="store",
+        default=None,
+        type=float,
+        metavar="S",
+        help="Select time budget in seconds (ranked picks only)",
+    )
+    group.addoption(
+        "--testpilot-base",
+        action="store",
+        default=None,
+        metavar="REV",
+        help="Base revision for select (default: merge-base or HEAD~1)",
+    )
+    group.addoption(
+        "--testpilot-model",
+        action="store",
+        default=None,
+        metavar="DIR",
+        help="LightGBM model directory for select",
+    )
+    group.addoption(
+        "--testpilot-no-safe",
+        action="store_true",
+        default=False,
+        help="Pass --no-safe to testpilot select",
+    )
+    group.addoption(
+        "--testpilot-order",
+        action="store_true",
+        default=False,
+        help="Reorder kept tests by select rank",
+    )
+    group.addoption(
+        "--testpilot-shadow",
+        action="store_true",
+        default=False,
+        help="Run all tests but record would-be selection",
+    )
+    group.addoption(
+        "--testpilot-auto-index",
+        action="store_true",
+        default=False,
+        help="Before select: run collect git + features dump (default off)",
+    )
+    group.addoption(
+        "--testpilot-select-timeout",
+        action="store",
+        default=SELECT_TIMEOUT_DEFAULT,
+        type=float,
+        metavar="SECONDS",
+        help="Timeout for testpilot select subprocess (default 10)",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
+    if config.getoption("--testpilot"):
+        validate_budget_options(config)
+    elif config.getoption("--testpilot-select") or config.getoption("--testpilot-shadow"):
+        raise pytest.UsageError("--testpilot-select/--testpilot-shadow require --testpilot")
     if not config.getoption("--testpilot"):
         return
     worker = getattr(config, "workerinput", None) is not None
@@ -84,6 +180,8 @@ class TestPilotPlugin:
     _await_pytest_cov: bool = False
     _store_open_failed: bool = False
     _nodeid_norm_cache: dict[str, str] = field(default_factory=dict)
+    select_plan: SelectPlan | None = None
+    _all_collected_items: list[pytest.Item] = field(default_factory=list)
 
     def _db_path(self) -> Path:
         explicit = self.config.getoption("--testpilot-db")
@@ -91,12 +189,112 @@ class TestPilotPlugin:
             return Path(explicit)
         return self.repo_root / ".testpilot" / "db.sqlite"
 
+    def pytest_collection_modifyitems(
+        self, session: pytest.Session, config: pytest.Config, items: list[pytest.Item]
+    ) -> None:
+        if self.worker or not (
+            config.getoption("--testpilot-select") or config.getoption("--testpilot-shadow")
+        ):
+            return
+        self._all_collected_items = list(items)
+        self.select_plan = self._run_select_modifyitems(session, items)
+
+    def _run_select_modifyitems(
+        self, session: pytest.Session, items: list[pytest.Item]
+    ) -> SelectPlan:
+        if not self.repo_root_str:
+            self.repo_root = self._resolve_repo_root(session)
+            self.repo_root_str = str(self.repo_root)
+        shadow = self.config.getoption("--testpilot-shadow")
+        order = self.config.getoption("--testpilot-order")
+        plan = SelectPlan(shadow=shadow, order=order)
+
+        bin_path = resolve_testpilot_bin()
+        if bin_path is None:
+            plan.plugin_error = "no_bin"
+            plan.kept = list(items)
+            self.errors.append("testpilot select: no testpilot binary (fail-open)")
+            return plan
+
+        model_opt = self.config.getoption("--testpilot-model")
+        if not model_opt:
+            plan.plugin_error = "model"
+            plan.kept = list(items)
+            return plan
+        model = Path(model_opt)
+        if not model.is_dir():
+            plan.plugin_error = "model"
+            plan.kept = list(items)
+            return plan
+
+        try:
+            base = resolve_base(self.repo_root, self.config.getoption("--testpilot-base"))
+        except Exception:
+            plan.plugin_error = "exit"
+            plan.kept = list(items)
+            return plan
+        plan.base = base
+
+        db_path = self._db_path()
+        if self.config.getoption("--testpilot-auto-index"):
+            err = run_auto_index(bin_path, self.repo_root, db_path)
+            if err:
+                plan.plugin_error = err
+                plan.kept = list(items)
+                return plan
+
+        cmd = build_select_cmd(
+            bin_path,
+            db_path=db_path,
+            base_sha=base.sha,
+            model=model,
+            budget_frac=self.config.getoption("--testpilot-budget-frac"),
+            max_tests=self.config.getoption("--testpilot-max-tests"),
+            time_budget=self.config.getoption("--testpilot-time-budget"),
+            no_safe=self.config.getoption("--testpilot-no-safe"),
+            worktree=True,
+        )
+        timeout = float(self.config.getoption("--testpilot-select-timeout"))
+        payload, perr = invoke_select_json(cmd, self.repo_root, timeout)
+        if perr or payload is None:
+            plan.plugin_error = perr or "json"
+            plan.kept = list(items)
+            self.errors.append(f"testpilot select: fail-open ({plan.plugin_error})")
+            return plan
+
+        plan = plan_selection(
+            items,
+            payload,
+            shadow=shadow,
+            order=order,
+            test_id_fn=self._test_id,
+        )
+        plan.base = base
+        apply_order(plan, self._test_id)
+
+        if shadow:
+            pass
+        elif plan.deselected:
+            session.config.hook.pytest_deselected(items=plan.deselected)
+            items[:] = list(plan.kept)
+        elif order and not plan.fallback_all:
+            items[:] = list(plan.kept)
+
+        return plan
+
+    def _resolve_repo_root(self, session: pytest.Session) -> Path:
+        """Prefer cwd's git toplevel so nested pytest rootdir discovery cannot
+        steal a parent monorepo (e.g. temp fixture under TestPilot checkout)."""
+        for start in (Path.cwd(), Path(session.config.rootpath)):
+            try:
+                return git_toplevel(start)
+            except Exception:
+                continue
+        return Path(session.config.rootpath).resolve()
+
     def pytest_sessionstart(self, session: pytest.Session) -> None:
         self.started_at = time.time()
-        try:
-            self.repo_root = git_toplevel(Path(session.config.rootpath))
-        except Exception:
-            self.repo_root = Path(session.config.rootpath).resolve()
+        self.repo_root = self._resolve_repo_root(session)
         self.repo_root_str = str(self.repo_root)
         try:
             # B6: xdist controller must NOT create Coverage
@@ -372,9 +570,28 @@ class TestPilotPlugin:
         self, terminalreporter: Any, exitstatus: int, config: pytest.Config
     ) -> None:
         for err in self.errors:
-            terminalreporter.write_line(f"testpilot: {err}", red=True)
+            if not err.startswith("testpilot select:"):
+                terminalreporter.write_line(f"testpilot: {err}", red=True)
         if self.coverage_disabled_reason:
             terminalreporter.write_line(f"testpilot: {self.coverage_disabled_reason}", yellow=True)
+        plan = self.select_plan
+        if plan is not None:
+            line = format_select_summary_line(plan)
+            if plan.plugin_error:
+                terminalreporter.write_line(line, yellow=True)
+            else:
+                terminalreporter.write_line(line)
+            if plan.shadow:
+                sh = plan.summary
+                ratio = sh.get("shadow_caught_fail")
+                ratio_s = (
+                    f"{ratio:.4f}" if isinstance(ratio, (int, float)) else str(ratio)
+                )
+                terminalreporter.write_line(
+                    f"testpilot shadow: would_select={sh.get('n_selected_ids')} "
+                    f"collected={sh.get('n_collected_items')} "
+                    f"shadow_caught_fail={ratio_s}",
+                )
 
     def _worker_finish(self) -> None:
         coverage_rows = getattr(self, "_coverage_snapshot", None) or self._collect_coverage_rows()
@@ -466,6 +683,49 @@ class TestPilotPlugin:
                 self._handle_error(exc)
                 return
         finished = int(time.time())
+        meta_obj: dict[str, Any] | None = None
+        partial = False
+        plan = self.select_plan
+        if plan is not None:
+            meta_obj = {"select": plan.summary}
+            if plan.base:
+                meta_obj["base"] = {"sha": plan.base.sha, "label": plan.base.label}
+            if plan.plugin_error:
+                meta_obj["plugin_error"] = plan.plugin_error
+            if plan.shadow and plan.payload:
+                would = {
+                    bare_test_id(r["test_id"])
+                    for r in (plan.payload.get("tests") or [])
+                    if isinstance(r.get("test_id"), str)
+                }
+                for r in plan.payload.get("tests") or []:
+                    tid = r.get("test_id")
+                    if isinstance(tid, str):
+                        would.add(tid)
+                # fallback_all means the suite would have run every candidate;
+                # for shadow metrics treat kept/collected as would-select.
+                if plan.fallback_all:
+                    for item in self._all_collected_items:
+                        tid = self._test_id(item)
+                        would.add(tid)
+                        would.add(bare_test_id(tid))
+                shadow_meta = compute_shadow_meta(
+                    self._db_path(),
+                    plan.base.sha if plan.base else info.sha,
+                    results,
+                    would,
+                )
+                meta_obj.update(shadow_meta)
+                plan.summary.update(shadow_meta)
+            if (
+                not plan.shadow
+                and not plan.fallback_all
+                and not plan.plugin_error
+                and plan.ok
+            ):
+                partial = True
+        meta_json = json.dumps(meta_obj) if meta_obj else None
+
         run_id = self.store.insert_run(
             sha=info.sha,
             source="pytest",
@@ -474,10 +734,23 @@ class TestPilotPlugin:
             dirty=info.dirty,
             diff_hash=info.diff_hash,
             input_hash=None,
-            meta=None,
+            meta=meta_json,
             results=results,
             coverage=coverage_rows,
+            partial=partial,
         )
+        if plan is not None and not plan.plugin_error and self._all_collected_items:
+            rows = selection_rows_for_db(plan, self._all_collected_items)
+            if rows:
+                first = rows[0]
+                self.store.insert_selection(
+                    run_id,
+                    rows,
+                    budget_kind=first.get("budget_kind"),
+                    budget_value=first.get("budget_value"),
+                    model_sha256=first.get("model_sha256"),
+                    safe_enabled=bool(first.get("safe_enabled")),
+                )
         self.wrote_run = True
         collect_ms = (time.perf_counter() - t0) * 1000
         session_s = time.time() - self.started_at

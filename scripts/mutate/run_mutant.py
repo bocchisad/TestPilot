@@ -12,6 +12,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from mutate.dbutil import test_runs_partial_gate
+
 
 @dataclass
 class MutantRunResult:
@@ -161,10 +163,11 @@ def run_test_count(db: Path, sha: str, *, synthetic: bool) -> int:
         return 0
     syn = 1 if synthetic else 0
     con = sqlite3.connect(str(db))
+    gate = test_runs_partial_gate(con, "r")
     row = con.execute(
-        """
+        f"""
         SELECT r.id FROM test_runs r
-        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=?
+        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=? {gate}
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
         ORDER BY r.id DESC LIMIT 1
         """,
@@ -261,10 +264,11 @@ def run_fail_set(
         return set()
     syn = 1 if synthetic else 0
     con = sqlite3.connect(str(db))
+    gate = test_runs_partial_gate(con, "r")
     row = con.execute(
-        """
+        f"""
         SELECT r.id FROM test_runs r
-        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=?
+        WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=? {gate}
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
         ORDER BY r.id DESC LIMIT 1
         """,

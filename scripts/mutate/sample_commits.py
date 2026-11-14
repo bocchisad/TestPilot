@@ -7,6 +7,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from mutate.dbutil import test_runs_partial_gate
 from mutate.hunks import is_source_py
 
 
@@ -24,10 +25,11 @@ class SampleResult:
 
 
 def _has_clean_nonsynthetic_run(con: sqlite3.Connection, sha: str) -> bool:
+    gate = test_runs_partial_gate(con, "r")
     row = con.execute(
-        """
+        f"""
         SELECT 1 FROM test_runs r
-        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0
+        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 {gate}
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         LIMIT 1
         """,
@@ -51,11 +53,12 @@ def _has_source_py_change(con: sqlite3.Connection, sha: str) -> bool:
 
 
 def _duration_sec(con: sqlite3.Connection, sha: str) -> float | None:
+    gate = test_runs_partial_gate(con, "r")
     row = con.execute(
-        """
+        f"""
         SELECT r.finished_at, r.started_at
         FROM test_runs r
-        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0
+        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 {gate}
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         ORDER BY r.id DESC
         LIMIT 1
@@ -68,9 +71,9 @@ def _duration_sec(con: sqlite3.Connection, sha: str) -> float | None:
     if finished_at is not None and started_at is not None and finished_at >= started_at:
         return float(finished_at - started_at)
     run_id_row = con.execute(
-        """
+        f"""
         SELECT r.id FROM test_runs r
-        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0
+        WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 {gate}
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         ORDER BY r.id DESC
         LIMIT 1
