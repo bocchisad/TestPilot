@@ -11,8 +11,8 @@ use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use testpilot_core::bootstrap::{
     self, BootstrapInputs, DbDumpFingerprint, EMBEDDED_PRIORS_PATH, ResumeDecision, StepStatus,
-    decide_resume, default_priors, dump_needs_refresh, estimate_wall, first_parent_shas,
-    format_dry_run_report, load_priors_file, resolve_fingerprint, save_state,
+    build_b_set, decide_resume, default_priors, dump_needs_refresh, estimate_wall,
+    first_parent_shas, format_dry_run_report, load_priors_file, resolve_fingerprint, save_state,
     shas_needing_backfill, startup_cleanup, state_path, union_b_set,
 };
 use testpilot_core::codec;
@@ -763,6 +763,26 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         println!(
             "last_fp_available={last_fp_available} requested={last_fp} (|B_set| after collect = sampled_C ∪ first-parent limb)"
         );
+        // Same B_set rule as live: FP ∪ sampled_C with sampled filtered for first-parent.
+        let fp_limb = first_parent_shas(&repo, last_fp).unwrap_or_default();
+        let db_path = opts
+            .db
+            .clone()
+            .unwrap_or_else(|| repo.join(".testpilot/db.sqlite"));
+        let sampled = if db_path.is_file() {
+            let scripts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
+            sample_commits_py_repo(&scripts, &db_path, opts.max_commits, opts.seed, Some(&repo))
+                .map(|s| s.sampled)
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
+        let b_set = build_b_set(&repo, &fp_limb, &sampled)
+            .unwrap_or_else(|_| union_b_set(&fp_limb, &sampled));
+        println!(
+            "B_set={}",
+            serde_json::to_string(&b_set).unwrap_or_else(|_| "[]".into())
+        );
         if let Some(tb) = opts.time_budget {
             println!("time-budget flag: {tb}s (not applied in dry-run)");
         }
@@ -896,7 +916,8 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         }
         state.backfill_done_shas.extend(fp_limb.iter().cloned());
 
-        let sample = sample_commits_py(&scripts, &db, opts.max_commits, opts.seed)?;
+        let sample =
+            sample_commits_py_repo(&scripts, &db, opts.max_commits, opts.seed, Some(&repo))?;
         state.n_eligible = Some(sample.n_eligible);
         state.n_actual = Some(sample.sampled.len() as u32);
         println!(
@@ -904,7 +925,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             sample.n_eligible,
             sample.sampled.len()
         );
-        let b_set = union_b_set(&fp_limb, &sample.sampled);
+        let b_set = build_b_set(&repo, &fp_limb, &sample.sampled)?;
         let need = shas_needing_backfill(&store, &b_set)?;
         if !need.is_empty() {
             match run_backfill_shas(&scripts, &repo, &db, &need, None, &interrupted) {
@@ -1045,8 +1066,9 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     // --- finalize: bootstrap report pointing at train artifacts ---
     bootstrap_check_stop(&repo, &mut state, "finalize", &interrupted, deadline)?;
     if state.steps.get("finalize") != Some(&StepStatus::Done) {
-        write_bootstrap_finalize(&repo, &out_dir, &state, &opts)?;
+        // Mark done before serializing so bootstrap_report.json shows finalize=done.
         state.steps.insert("finalize".into(), StepStatus::Done);
+        write_bootstrap_finalize(&repo, &out_dir, &state, &opts)?;
         save_state(&repo, &state)?;
     }
 
@@ -1504,15 +1526,25 @@ struct SampleOut {
     sampled: Vec<String>,
 }
 
-fn sample_commits_py(scripts: &Path, db: &Path, n: u32, seed: u64) -> Result<SampleOut> {
+fn sample_commits_py_repo(
+    scripts: &Path,
+    db: &Path,
+    n: u32,
+    seed: u64,
+    repo: Option<&Path>,
+) -> Result<SampleOut> {
     let scripts = bundled_scripts(scripts)?;
+    let repo_arg = match repo {
+        Some(p) => format!("Path({p:?})"),
+        None => "None".to_string(),
+    };
     let code = format!(
         r#"
 import json, sys
 sys.path.insert(0, {scripts:?})
 from mutate.sample_commits import sample_commits
 from pathlib import Path
-r = sample_commits(Path({db:?}), {n}, {seed})
+r = sample_commits(Path({db:?}), {n}, {seed}, repo={repo_arg})
 print(json.dumps({{"n_eligible": r.n_eligible_C, "sampled": [e.sha for e in r.sampled]}}))
 "#
     );

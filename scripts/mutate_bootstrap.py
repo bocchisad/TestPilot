@@ -139,6 +139,36 @@ def _append_pair(pairs_out: Path | None, pair: str, m_sha: str) -> None:
             os.fsync(f.fileno())
 
 
+_PAUSE_ENV = "TESTPILOT_TEST_PAUSE_AFTER_PAIRS"
+_PAUSE_MARKER_NAME = "TESTPILOT_PAUSE_AFTER_PAIRS"
+
+
+def _pause_marker_path(repo: Path) -> Path:
+    return repo / ".testpilot" / "bootstrap" / _PAUSE_MARKER_NAME
+
+
+def maybe_test_pause_after_pairs(repo: Path, n_completed: int) -> None:
+    """Test-only: after N completed pairs, write a marker and sleep until removed/SIGINT.
+
+    No-op unless ``TESTPILOT_TEST_PAUSE_AFTER_PAIRS`` is set to a positive int.
+    """
+    raw = os.environ.get(_PAUSE_ENV)
+    if raw is None or raw.strip() == "":
+        return
+    try:
+        n = int(raw)
+    except ValueError:
+        return
+    if n <= 0 or n_completed < n:
+        return
+    marker = _pause_marker_path(repo)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(f"paused after {n_completed} pairs\n", encoding="utf-8")
+    # Sleep until marker deleted (tests) or process interrupted.
+    while marker.is_file() and not _STOP.is_set() and not _HARD_STOP.is_set():
+        time.sleep(0.05)
+
+
 def run_bootstrap(
     repo: Path,
     db: Path,
@@ -158,7 +188,7 @@ def run_bootstrap(
 ) -> BootstrapStats:
     stats = BootstrapStats()
     done = set(completed_pairs or ())
-    sample = sample_commits(db, commits_n, seed)
+    sample = sample_commits(db, commits_n, seed, repo=repo)
     stats.n_eligible_C = sample.n_eligible_C
     stats.n_commits_sampled = len(sample.sampled)
 
@@ -272,7 +302,9 @@ def run_bootstrap(
                 with stats_lock:
                     if key not in stats.completed_pairs:
                         stats.completed_pairs.append(key)
+                    n_done = len(stats.completed_pairs)
                 _append_pair(pairs_out, key, m_sha)
+                maybe_test_pause_after_pairs(repo, n_done)
                 return
 
             result = run_mutant(
@@ -313,7 +345,9 @@ def run_bootstrap(
                     stats.n_equivalent += 1
                 if key not in stats.completed_pairs:
                     stats.completed_pairs.append(key)
+                n_done = len(stats.completed_pairs)
             _append_pair(pairs_out, key, m_sha)
+            maybe_test_pause_after_pairs(repo, n_done)
 
         if jobs <= 1:
             for task in tasks:

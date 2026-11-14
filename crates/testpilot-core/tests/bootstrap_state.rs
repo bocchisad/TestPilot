@@ -8,9 +8,10 @@ use std::process::Command;
 use tempfile::tempdir;
 use testpilot_core::bootstrap::{
     BootstrapInputs, DbDumpFingerprint, Fingerprint, ResumeDecision, SaveFault, StepStatus,
-    decide_resume, default_priors, dump_needs_refresh, estimate_wall, first_parent_shas,
-    format_dry_run_report, load_or_init_state, load_state, resolve_fingerprint, save_state,
-    save_state_with_fault, startup_cleanup, state_path, union_b_set,
+    build_b_set, decide_resume, default_priors, dump_needs_refresh, estimate_wall,
+    filter_with_first_parent, first_parent_shas, format_dry_run_report, load_or_init_state,
+    load_state, resolve_fingerprint, save_state, save_state_with_fault, sha_has_first_parent,
+    startup_cleanup, state_path, union_b_set,
 };
 use testpilot_core::store::{SCHEMA_VERSION, Store};
 
@@ -257,6 +258,43 @@ fn first_parent_and_union_b_set() {
     let u = union_b_set(&shas, &sampled);
     assert!(u.contains(&"aaaa".to_string()));
     assert_eq!(u.iter().filter(|s| *s == "aaaa").count(), 1);
+}
+
+#[test]
+fn dry_run_b_set_matches_live_with_root() {
+    // Fixture includes root (no first-parent). Sampled C that includes root must
+    // be filtered the same for dry-run and live B_set construction.
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-b", "main"]);
+    git(root, &["config", "user.email", "t@example.com"]);
+    git(root, &["config", "user.name", "t"]);
+    fs::write(root.join("f.txt"), "a\n").unwrap();
+    git(root, &["add", "f.txt"]);
+    git(root, &["commit", "-m", "root"]);
+    let root_sha = git_out(root, &["rev-parse", "HEAD"]);
+    fs::write(root.join("f.txt"), "b\n").unwrap();
+    git(root, &["add", "f.txt"]);
+    git(root, &["commit", "-m", "c1"]);
+    let c1 = git_out(root, &["rev-parse", "HEAD"]);
+    fs::write(root.join("f.txt"), "c\n").unwrap();
+    git(root, &["add", "f.txt"]);
+    git(root, &["commit", "-m", "c2"]);
+    let c2 = git_out(root, &["rev-parse", "HEAD"]);
+
+    assert!(!sha_has_first_parent(root, &root_sha).unwrap());
+    assert!(sha_has_first_parent(root, &c1).unwrap());
+
+    let fp_limb = first_parent_shas(root, 20).unwrap();
+    // Pretend sampler returned root + children (before filter).
+    let sampled_raw = vec![root_sha.clone(), c1.clone(), c2.clone()];
+    let dry = build_b_set(root, &fp_limb, &sampled_raw).unwrap();
+    let live = build_b_set(root, &fp_limb, &sampled_raw).unwrap();
+    assert_eq!(dry, live, "dry-run B_set must equal live B_set");
+    // Root may appear via FP limb, but filter drops it from sampled-only path.
+    let filtered = filter_with_first_parent(root, &sampled_raw).unwrap();
+    assert!(!filtered.iter().any(|s| s == &root_sha));
+    assert!(filtered.iter().any(|s| s == &c1));
 }
 
 #[test]
