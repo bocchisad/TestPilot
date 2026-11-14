@@ -1,26 +1,32 @@
 {
-  "note": "Default dry-run hats for testpilot bootstrap. Mutate seconds/mutant from W3 §5.1; backfill is unmeasured placeholder until T6.",
+  "note": "Default dry-run hats for testpilot bootstrap (T6 N=20 calibration rates from mell). Click mutate still W3 §5.1 — not remeasured. Do not invent numbers.",
   "source_scale": "docs/measurements/mut2-80x5-click-jinja.json",
   "mutate_s_per_mutant": {
     "click": 12.0,
-    "jinja": 8.0,
+    "jinja": 2.906,
+    "attrs": 8.343,
     "measured": true,
-    "citation": "docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md §5.1"
+    "n_samples": 4,
+    "confidence": "low",
+    "citation": "click: docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md §5.1; jinja/attrs: mell N=20 (4 mutants on one C each), confidence=low"
   },
   "backfill_s_per_commit": {
-    "click": 120.0,
-    "jinja": 72.0,
-    "measured": false,
-    "note": "Placeholder only (~1.5–3 min click). Likely dominant wall cost; dry-run must print backfill on its own line with unmeasured=true. Replace after T6."
+    "click": 3.527,
+    "jinja": 5.959,
+    "attrs": 17.139,
+    "measured": true,
+    "note": "mell N=20 rates. attrs: after --ignore=tests/test_mypy.yml; rate still includes ~84 persistently red tests (pytest_rc=1). Clean-run eligibility does not require pytest_rc=0."
   },
   "collect_git_s": {
     "click": 120.0,
     "jinja": 90.0,
+    "attrs": 90.0,
     "measured": false
   },
   "dump_train_s": {
     "click": 1200.0,
     "jinja": 600.0,
+    "attrs": 600.0,
     "measured": false
   }
 }

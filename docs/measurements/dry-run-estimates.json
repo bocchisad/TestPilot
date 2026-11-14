@@ -1,12 +1,11 @@
 {
-  "click": 32520.0,
-  "jinja": 19730.0,
-  "attrs": 19730.0,
-  "estimated_total_s": 104500.0,
-  "estimated_total_h": 29.03,
+  "click": 6825.4,
+  "jinja": 3044.2,
+  "attrs": 7455.0,
+  "estimated_total_s": 24150.0,
+  "estimated_total_h": 6.71,
   "max_est_s": 14400,
-  "abort_reason": "estimated_total_gt_4h",
-  "note": "Priors still use unmeasured backfill placeholders; real wall may differ. Full runs blocked pending mell approval.",
+  "note": "After T6 cold limb=max(N,20) + mell N=20 rates. 3×full + 2nd click still >4h at N=200 (click mutate still W3 12s/mutant placeholder). Full 200×4 not started — mell recalibrates N=20.",
   "pins": {
     "click": {
       "tag": "8.1.8",

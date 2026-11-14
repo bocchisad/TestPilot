@@ -205,15 +205,16 @@ fn startup_cleanup_symlink_wt_unlinks_only_leaves_target() {
 }
 
 #[test]
-fn dry_run_report_lists_backfill_separately_as_unmeasured() {
+fn dry_run_report_lists_backfill_on_own_line() {
     let priors = default_priors();
-    let est = estimate_wall(200, 4, 2, "click", &priors, 20);
+    // Cold limb hat = max(N,20) = 200 (not N+20).
+    let est = estimate_wall(200, 4, 2, "click", &priors, 200);
     let fp = Fingerprint {
         head_sha: "abc".into(),
         n: 200,
         k: 4,
         seed: 42,
-        b_policy: "sampled_C_union_last_20_fp".into(),
+        b_policy: "cold_last_max_N_20_fp_then_sample".into(),
         b_override: None,
         bin_version: "0.1.0 (x)".into(),
         schema_version: SCHEMA_VERSION,
@@ -226,7 +227,7 @@ fn dry_run_report_lists_backfill_separately_as_unmeasured() {
         "docs/measurements/bootstrap_time_priors.json (embedded)",
     );
     assert!(text.contains("backfill"), "{text}");
-    assert!(text.contains("unmeasured"), "{text}");
+    assert!(text.contains("|B_set|≈200"), "{text}");
     assert!(text.contains("priors:"), "{text}");
     assert!(text.contains("bootstrap_time_priors.json"), "{text}");
     assert!(
@@ -234,6 +235,8 @@ fn dry_run_report_lists_backfill_separately_as_unmeasured() {
         "must print null not None: {text}"
     );
     assert!(!text.contains("B_override=None"), "{text}");
+    // T6 priors mark backfill measured — no unmeasured=true on that line.
+    assert!(!text.contains("unmeasured=true"), "{text}");
     let lines: Vec<_> = text.lines().collect();
     assert!(
         lines
@@ -340,6 +343,7 @@ fn step_timings_sum_across_resume_and_pending_steps() {
         n_backfill_reused: None,
         n_mutants_attempted: None,
         n_timeout: None,
+        mutate_skip_reason: None,
     };
     add_step_timing(&mut state, "mutate", 1.5);
     add_step_timing(&mut state, "mutate", 2.5);
@@ -416,18 +420,19 @@ fn dump_fingerprint_detects_db_change_not_mtime() {
 }
 
 #[test]
-fn estimate_respects_backfill_commits_last_fp() {
+fn estimate_respects_cold_limb_not_n_plus_fp() {
     let priors = default_priors();
-    let est20 = estimate_wall(200, 4, 1, "click", &priors, 20);
+    // Cold default limb = max(N,20); override replaces limb (not N+override).
+    let est_default = estimate_wall(200, 4, 1, "click", &priors, 200);
     let est30 = estimate_wall(200, 4, 1, "click", &priors, 30);
-    assert_eq!(est20.backfill_shas_hat, 220);
-    assert_eq!(est30.backfill_shas_hat, 230);
+    assert_eq!(est_default.backfill_shas_hat, 200);
+    assert_eq!(est30.backfill_shas_hat, 30);
     let mut inp = inputs("abc", 200);
     inp.b_override = Some(30);
     let fp = resolve_fingerprint(&inp);
     let text = format_dry_run_report(&fp, &est30, true, "embedded");
-    assert!(text.contains("|B_set|≈230"), "{text}");
-    assert!(text.contains("≈230 SHAs"), "{text}");
+    assert!(text.contains("|B_set|≈30"), "{text}");
+    assert!(text.contains("≈30 SHAs"), "{text}");
     assert!(
         text.contains("B_override=30"),
         "must print number not Some(30): {text}"

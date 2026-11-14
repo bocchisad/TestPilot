@@ -34,7 +34,7 @@ Must work **offline**, on a **weak machine**, and **resume** after Ctrl-C.
 | Determinism (R3) | Two-level — see §5.2; **no** promise that two full bootstraps share `model_sha256` |
 | Resume fingerprint (R4) | `state.json` stores input fingerprint; mismatch → refuse resume, hint `--force` |
 | Clean tree (R5) | `init` appends `.testpilot/` to `.git/info/exclude` only |
-| Backfill set (R6) | Default `B = sampled_C ∪ last 20 first-parent commits`; reuse existing real run for C |
+| Backfill set (R6) | Cold: last `max(N,20)` FP then sample; warm: `sampled_C ∪` that limb; reuse clean real C runs |
 | Dump done (R8) | Fingerprint DB (`max(run_id)`, counts real/synthetic), not mtime |
 | Startup cleanup (R9) | `git worktree prune` + delete stale `.testpilot/bootstrap/wt-*` |
 | Selection model hash (R10) | When `ranker=cov_lines`, `test_run_selection.model_sha256 = sha256(model.json)` |
@@ -112,7 +112,7 @@ On first start, write:
     "N": 200,
     "K": 4,
     "seed": 42,
-    "B_policy": "sampled_C_union_last_20_fp",
+    "B_policy": "cold_last_max_N_20_fp_then_sample",
     "B_override": null,
     "bin_version": "0.1.0 (<gitsha>)",
     "schema_version": 7,
@@ -148,15 +148,20 @@ State file: `<repo>/.testpilot/bootstrap/state.json`.
 
 ### 2.5 Backfill set (R6)
 
-Default planned SHA set:
+**Cold-start (no reusable clean runs):** backfill the last **`max(N, 20)`** first-parent commits from HEAD first, then `sample_commits(N, seed)` from the DB so eligible C come only from that freshly backfilled history. Dry-run hats use the same limb size (`n_new ≈ max(N,20)` on a clean tree), not a blind `N+20`.
+
+**Justification (T6):** sampling before any real runs yields `n_eligible≈0` / `n_actual≤1`, so `--max-commits` never drove mutate width. Cold limb = `max(N,20)` makes N control backfill width while keeping a floor of 20 FP SHAs for tiny N. This **deviates** from the earlier “sample ∪ last 20 then backfill gaps” order; resume/warm DBs still reuse clean runs and may union additional sampled C if missing.
+
+**Warm / resume (reusable runs present):**
 
 ```text
-B_set = sample_commits(N, seed)   ∪   last 20 first-parent commits from HEAD
+B_set = sample_commits(N, seed)   ∪   last L first-parent commits from HEAD
 ```
 
-- If C already has a clean real pytest/junit run (`synthetic=0`, `partial=0`, `finished_at` set) → **reuse**; do not re-run.  
-- `--backfill-commits B` **overrides** the default policy (exact semantics: attempt at most B first-parent SHAs **plus** still ensure sampled C are covered if missing — document in CLI help as “override cap/policy; sampled C always satisfied via reuse-or-run”).  
-  **Locked interpretation:** `--backfill-commits B` replaces the “last 20” limb with “last B first-parent”, and still unions sampled C.
+where `L = --backfill-commits` if set, else `max(N, 20)`.
+
+- If C already has a clean real pytest/junit run (`synthetic=0`, `partial=0`, `finished_at` set, ≥1 `test_results`) → **reuse**; do not re-run. Exit code 1 (some failing tests) still counts as a finished clean run for eligibility.  
+- `--backfill-commits B` replaces the limb length with B (still unions sampled C when needed).
 
 ### 2.6 `--dry-run`
 
@@ -231,7 +236,7 @@ Linear scale from **80×5 = 400** mutants:
 | Step | Prior (click) | Prior (jinja) | Derivation |
 |------|---------------|---------------|------------|
 | collect git | 1–3 min | 1–2 min | order-of-magnitude |
-| backfill (\|B_set\|≈N+20) | **unmeasured** placeholder ~1.5–3 min/commit × SHAs needing run | **unmeasured** ~0.8–2 min/commit | dry-run prints **backfill on its own line** with `unmeasured=true` until T6 fills real `t_backfill_s_per_commit` |
+| backfill (cold \|limb\|≈max(N,20)) | measured rates in `bootstrap_time_priors.json` (T6) | same file (click/jinja/attrs) | dry-run hats use limb size, not N+20; see §2.5 |
 | mutate 400 @ jobs=1 | 400×12 s ≈ **1.3 h** | 400×8 s ≈ **0.9 h** | §5.1 × 80×5 |
 | mutate 800 @ jobs=1 | **~2.7 h** | **~1.8 h** | ×2 vs 400 |
 | mutate 800 @ jobs=2 | **~1.4 h** | **~1.0 h** | /jobs (DB queue overhead ignored in hat) |

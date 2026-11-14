@@ -737,18 +737,21 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             format!("{EMBEDDED_PRIORS_PATH} (embedded)"),
         )
     };
-    let last_fp = opts.backfill_commits.unwrap_or(20);
-    // Hat uses requested last_fp; git may have fewer commits available.
-    let last_fp_available = first_parent_shas(&repo, last_fp)
+    // Cold limb: max(N, 20), or explicit --backfill-commits override.
+    let limb_n = opts
+        .backfill_commits
+        .unwrap_or(opts.max_commits.max(20));
+    // Hat uses requested limb; git may have fewer commits available.
+    let last_fp_available = first_parent_shas(&repo, limb_n)
         .map(|v| v.len() as u32)
-        .unwrap_or(last_fp);
+        .unwrap_or(limb_n);
     let est = estimate_wall(
         opts.max_commits,
         opts.mutants_per_commit,
         opts.jobs,
         &opts.suite,
         &priors,
-        last_fp,
+        limb_n,
     );
 
     if opts.dry_run {
@@ -761,10 +764,10 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             format_dry_run_report(&fp, &est, resume_allowed, &priors_source)
         );
         println!(
-            "last_fp_available={last_fp_available} requested={last_fp} (|B_set| after collect = sampled_C ∪ first-parent limb)"
+            "last_fp_available={last_fp_available} requested_limb={limb_n} (cold: backfill last max(N,20) FP then sample)"
         );
-        // Same B_set rule as live: FP ∪ sampled_C with sampled filtered for first-parent.
-        let fp_limb = first_parent_shas(&repo, last_fp).unwrap_or_default();
+        // Same limb as live cold path.
+        let fp_limb = first_parent_shas(&repo, limb_n).unwrap_or_default();
         let db_path = opts
             .db
             .clone()
@@ -817,12 +820,17 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         bail!("state.json exists; pass --resume (default) or --force / --no-resume with --force");
     };
 
+    let is_resume_continue = matches!(decision, ResumeDecision::Continue(_));
     let mut state = match decision {
         ResumeDecision::Refuse { hint } => bail!("{hint}"),
         ResumeDecision::Fresh(s) | ResumeDecision::Continue(s) => s,
     };
-    // Steps not already done when this process started (resume reporting).
-    let steps_resumed = pending_steps(&state);
+    // Only non-empty on true resume; fresh/--force must not look like resume.
+    let steps_resumed = if is_resume_continue {
+        pending_steps(&state)
+    } else {
+        Vec::new()
+    };
 
     add_step_timing(&mut state, "cleanup", cleanup_s);
     state.steps.insert("cleanup".into(), StepStatus::Done);
@@ -913,11 +921,30 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         return Ok(());
     }
 
-    // --- backfill (R6): sample → B_set → count new/reused → pytest gaps ---
+    // --- backfill (R6 cold): last max(N,20) FP → then re-sample ---
     bootstrap_check_stop(&repo, &mut state, "backfill", &interrupted, deadline)?;
     if state.steps.get("backfill") != Some(&StepStatus::Done) {
         let t0 = Instant::now();
-        let fp_limb = first_parent_shas(&repo, last_fp)?;
+        let fp_limb = first_parent_shas(&repo, limb_n)?;
+        // Count new vs reused on the FP limb before any pytest.
+        let need_limb = shas_needing_backfill(&store, &fp_limb)?;
+        let mut n_reused = (fp_limb.len().saturating_sub(need_limb.len())) as u32;
+        let mut n_new = need_limb.len() as u32;
+        if !need_limb.is_empty() {
+            match run_backfill_shas(&scripts, &repo, &db, &need_limb, None, &interrupted) {
+                Ok(()) => {}
+                Err(e) if e.is::<ChildInterrupted>() || interrupted.load(Ordering::SeqCst) => {
+                    return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        for s in &fp_limb {
+            if !state.backfill_done_shas.iter().any(|x| x == s) {
+                state.backfill_done_shas.push(s.clone());
+            }
+        }
+        // Re-sample AFTER backfill so eligibility sees fresh clean runs.
         let sample =
             sample_commits_py_repo(&scripts, &db, opts.max_commits, opts.seed, Some(&repo))?;
         state.n_eligible = Some(sample.n_eligible);
@@ -927,98 +954,108 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             sample.n_eligible,
             sample.sampled.len()
         );
+        // Warm path: ensure any sampled C outside the limb still get a run.
         let b_set = build_b_set(&repo, &fp_limb, &sample.sampled)?;
-        // Count before any backfill pytest so clean-start measures see n_reused=0.
-        let need = shas_needing_backfill(&store, &b_set)?;
-        let n_reused = (b_set.len().saturating_sub(need.len())) as u32;
-        let n_new = need.len() as u32;
-        // Prefer FP limb order first, then remaining need.
-        let mut ordered: Vec<String> = Vec::new();
-        for s in &fp_limb {
-            if need.iter().any(|x| x == s) {
-                ordered.push(s.clone());
-            }
-        }
-        for s in &need {
-            if !ordered.iter().any(|x| x == s) {
-                ordered.push(s.clone());
-            }
-        }
-        if !ordered.is_empty() {
-            match run_backfill_shas(&scripts, &repo, &db, &ordered, None, &interrupted) {
+        let need_extra = shas_needing_backfill(&store, &b_set)?;
+        if !need_extra.is_empty() {
+            n_new += need_extra.len() as u32;
+            match run_backfill_shas(&scripts, &repo, &db, &need_extra, None, &interrupted) {
                 Ok(()) => {}
                 Err(e) if e.is::<ChildInterrupted>() || interrupted.load(Ordering::SeqCst) => {
                     return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
                 }
                 Err(e) => return Err(e),
             }
-        }
-        for s in &b_set {
-            if !state.backfill_done_shas.iter().any(|x| x == s) {
-                state.backfill_done_shas.push(s.clone());
+            for s in &b_set {
+                if !state.backfill_done_shas.iter().any(|x| x == s) {
+                    state.backfill_done_shas.push(s.clone());
+                }
             }
+        } else {
+            let _ = n_reused; // limb reused already counted
+            for s in &b_set {
+                if !state.backfill_done_shas.iter().any(|x| x == s) {
+                    state.backfill_done_shas.push(s.clone());
+                }
+            }
+        }
+        // Recompute reused for report: planned B_set size − newly run this step.
+        let planned = b_set.len() as u32;
+        if planned >= n_new {
+            n_reused = planned - n_new;
         }
         state.n_backfill_new = Some(n_new);
         state.n_backfill_reused = Some(n_reused);
         add_step_timing(&mut state, "backfill", t0.elapsed().as_secs_f64());
         state.steps.insert("backfill".into(), StepStatus::Done);
         save_state(&repo, &state)?;
-        println!("backfill: n_new={n_new} n_reused={n_reused}");
+        println!("backfill: n_new={n_new} n_reused={n_reused} limb={limb_n}");
     }
 
     // --- mutate ---
     bootstrap_check_stop(&repo, &mut state, "mutate", &interrupted, deadline)?;
     if state.steps.get("mutate") != Some(&StepStatus::Done) {
-        let t0 = Instant::now();
-        let n = state.n_actual.unwrap_or(opts.max_commits).max(1);
-        let deadline_unix = deadline.map(|dl| {
-            let now = Instant::now();
-            let remain = dl.saturating_duration_since(now).as_secs_f64();
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs_f64() + remain)
-                .unwrap_or(0.0)
-        });
-        let seed_mutate = opts.seed ^ 0x4D55;
-        let mutate_out = match run_mutate(
-            &scripts,
-            &repo,
-            &db,
-            n,
-            opts.mutants_per_commit,
-            seed_mutate,
-            opts.jobs,
-            &state.mutate_completed_pairs,
-            deadline_unix,
-            None,
-            &interrupted,
-        ) {
-            Ok(o) => o,
-            Err(e) if e.is::<MutateInterrupted>() || interrupted.load(Ordering::SeqCst) => {
-                if let Some(partial) = e.downcast_ref::<MutateInterrupted>() {
-                    merge_completed_pairs(
-                        &mut state.mutate_completed_pairs,
-                        &partial.completed_pairs,
-                    );
+        let n_actual = state.n_actual.unwrap_or(0);
+        let n_eligible = state.n_eligible.unwrap_or(0);
+        if n_actual == 0 || n_eligible == 0 {
+            state.mutate_skip_reason = Some("no_eligible_C".into());
+            state.n_mutants_attempted = Some(0);
+            state.n_timeout = Some(0);
+            state.steps.insert("mutate".into(), StepStatus::Done);
+            save_state(&repo, &state)?;
+            println!("mutate: skipped reason=no_eligible_C");
+        } else {
+            let t0 = Instant::now();
+            let deadline_unix = deadline.map(|dl| {
+                let now = Instant::now();
+                let remain = dl.saturating_duration_since(now).as_secs_f64();
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs_f64() + remain)
+                    .unwrap_or(0.0)
+            });
+            let seed_mutate = opts.seed ^ 0x4D55;
+            let mutate_out = match run_mutate(
+                &scripts,
+                &repo,
+                &db,
+                n_actual,
+                opts.mutants_per_commit,
+                seed_mutate,
+                opts.jobs,
+                &state.mutate_completed_pairs,
+                deadline_unix,
+                None,
+                &interrupted,
+            ) {
+                Ok(o) => o,
+                Err(e) if e.is::<MutateInterrupted>() || interrupted.load(Ordering::SeqCst) => {
+                    if let Some(partial) = e.downcast_ref::<MutateInterrupted>() {
+                        merge_completed_pairs(
+                            &mut state.mutate_completed_pairs,
+                            &partial.completed_pairs,
+                        );
+                    }
+                    add_step_timing(&mut state, "mutate", t0.elapsed().as_secs_f64());
+                    return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
                 }
-                add_step_timing(&mut state, "mutate", t0.elapsed().as_secs_f64());
+                Err(e) => return Err(e),
+            };
+            merge_completed_pairs(
+                &mut state.mutate_completed_pairs,
+                &mutate_out.completed_pairs,
+            );
+            state.n_mutants_attempted = Some(mutate_out.n_mutants_attempted);
+            state.n_timeout = Some(mutate_out.n_timeout);
+            state.mutate_skip_reason = None;
+            add_step_timing(&mut state, "mutate", t0.elapsed().as_secs_f64());
+            if mutate_out.interrupted {
                 return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
             }
-            Err(e) => return Err(e),
-        };
-        merge_completed_pairs(
-            &mut state.mutate_completed_pairs,
-            &mutate_out.completed_pairs,
-        );
-        state.n_mutants_attempted = Some(mutate_out.n_mutants_attempted);
-        state.n_timeout = Some(mutate_out.n_timeout);
-        add_step_timing(&mut state, "mutate", t0.elapsed().as_secs_f64());
-        if mutate_out.interrupted {
-            return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
+            state.steps.insert("mutate".into(), StepStatus::Done);
+            state.status = None;
+            save_state(&repo, &state)?;
         }
-        state.steps.insert("mutate".into(), StepStatus::Done);
-        state.status = None; // clear after successful resume past interrupt
-        save_state(&repo, &state)?;
     }
 
     // --- features dump (R8 fingerprint) ---
@@ -1049,32 +1086,45 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     let train_artifact_ok = model_artifact_usable(&out_dir);
     if state.steps.get("train") != Some(&StepStatus::Done) || !train_artifact_ok {
         let t0 = Instant::now();
-        if !parquet.is_file() {
-            bail!(
-                "features dump missing at {}; cannot train",
-                parquet.display()
+        if state.mutate_skip_reason.as_deref() == Some("no_eligible_C") {
+            // No mutants → empty/null dump breaks train; write cold baseline instead.
+            write_cold_baseline_model(&out_dir, "insufficient_commit_idx", 0)?;
+            add_step_timing(&mut state, "train", t0.elapsed().as_secs_f64());
+            state.steps.insert("train".into(), StepStatus::Done);
+            state.status = None;
+            save_state(&repo, &state)?;
+            println!(
+                "train: cold baseline (insufficient_commit_idx) {}",
+                out_dir.join("model.json").display()
             );
-        }
-        let seed_train = opts.seed ^ 0x5452;
-        match run_train(
-            &repo,
-            &parquet,
-            &out_dir,
-            seed_train,
-            opts.train_threads,
-            &interrupted,
-        )? {
-            ChildOutcome::Interrupted => {
-                add_step_timing(&mut state, "train", t0.elapsed().as_secs_f64());
-                return bootstrap_flush_interrupted(&repo, &mut state, "train");
+        } else {
+            if !parquet.is_file() {
+                bail!(
+                    "features dump missing at {}; cannot train",
+                    parquet.display()
+                );
             }
-            ChildOutcome::Ok => {}
+            let seed_train = opts.seed ^ 0x5452;
+            match run_train(
+                &repo,
+                &parquet,
+                &out_dir,
+                seed_train,
+                opts.train_threads,
+                &interrupted,
+            )? {
+                ChildOutcome::Interrupted => {
+                    add_step_timing(&mut state, "train", t0.elapsed().as_secs_f64());
+                    return bootstrap_flush_interrupted(&repo, &mut state, "train");
+                }
+                ChildOutcome::Ok => {}
+            }
+            add_step_timing(&mut state, "train", t0.elapsed().as_secs_f64());
+            state.steps.insert("train".into(), StepStatus::Done);
+            state.status = None;
+            save_state(&repo, &state)?;
+            println!("train: {}", out_dir.join("model.json").display());
         }
-        add_step_timing(&mut state, "train", t0.elapsed().as_secs_f64());
-        state.steps.insert("train".into(), StepStatus::Done);
-        state.status = None;
-        save_state(&repo, &state)?;
-        println!("train: {}", out_dir.join("model.json").display());
     }
 
     // --- gate: surface verdict from model.json (computed at train) ---
@@ -1177,29 +1227,49 @@ fn maybe_write_local_priors(
     if n_new < 10 && attempted == 0 {
         return Ok(());
     }
+    // Start from defaults; only mark measured for suites we actually update.
     let mut priors = default_priors();
+    priors.backfill_s_per_commit.measured = false;
+    priors.mutate_s_per_mutant.measured = false;
     if n_new >= 10 {
         let rate = backfill_wall / f64::from(n_new);
         match suite {
-            "jinja" => priors.backfill_s_per_commit.jinja = rate,
-            "attrs" => priors.backfill_s_per_commit.attrs = rate,
-            _ => priors.backfill_s_per_commit.click = rate,
+            "jinja" => {
+                priors.backfill_s_per_commit.jinja = rate;
+                priors.backfill_s_per_commit.measured = true;
+            }
+            "attrs" => {
+                priors.backfill_s_per_commit.attrs = rate;
+                priors.backfill_s_per_commit.measured = true;
+            }
+            _ => {
+                priors.backfill_s_per_commit.click = rate;
+                priors.backfill_s_per_commit.measured = true;
+            }
         }
-        priors.backfill_s_per_commit.measured = true;
     }
     if attempted > 0 {
         let rate = mutate_wall / f64::from(attempted);
         match suite {
-            "jinja" => priors.mutate_s_per_mutant.jinja = rate,
-            "attrs" => priors.mutate_s_per_mutant.attrs = rate,
-            _ => priors.mutate_s_per_mutant.click = rate,
+            "jinja" => {
+                priors.mutate_s_per_mutant.jinja = rate;
+                priors.mutate_s_per_mutant.measured = true;
+            }
+            "attrs" => {
+                priors.mutate_s_per_mutant.attrs = rate;
+                priors.mutate_s_per_mutant.measured = true;
+            }
+            _ => {
+                priors.mutate_s_per_mutant.click = rate;
+                priors.mutate_s_per_mutant.measured = true;
+            }
         }
-        priors.mutate_s_per_mutant.measured = true;
     }
     let path = repo.join(".testpilot/bootstrap/priors.json");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    // Local writeback only — never copy blindly into docs/measurements/.
     std::fs::write(&path, serde_json::to_string_pretty(&priors)? + "\n")?;
     Ok(())
 }
@@ -1238,6 +1308,7 @@ fn write_bootstrap_finalize(
         "n_timeout": state.n_timeout,
         "timeout_rate": timeout_rate,
         "mutate_s_per_mutant": mutate_s_per_mutant,
+        "mutate_skip_reason": state.mutate_skip_reason,
         "mutate_completed_pairs": state.mutate_completed_pairs.len(),
         "jobs": opts.jobs,
         "seed": opts.seed,
@@ -1319,6 +1390,43 @@ fn train_command(parquet: &Path, out_dir: &Path, seed: u64, train_threads: u32) 
 enum ChildOutcome {
     Ok,
     Interrupted,
+}
+
+/// Deterministic cov_lines-only model.json when mutate produced no C (select-loadable).
+fn write_cold_baseline_model(out_dir: &Path, reason: &str, n_commit_idx: u32) -> Result<()> {
+    use testpilot_core::features::schema::{FEATURES_VERSION, MODEL_FEATURE_NAMES};
+    use testpilot_core::lgbm::embedded_schema_sha256;
+    std::fs::create_dir_all(out_dir)?;
+    let payload = serde_json::json!({
+        "best_iteration": 1,
+        "bootstrap": {
+            "gate": "synthetic_test_vs_cov_lines_cluster_C",
+            "reason": reason,
+            "verdict": "use_baseline",
+        },
+        "constraints": {
+            "categorical": false,
+            "linear_tree": false,
+            "num_threads_train": 1,
+            "use_missing": true,
+            "zero_as_missing": false,
+        },
+        "diagnostics": {"n_commit_idx": n_commit_idx},
+        "feature_names": MODEL_FEATURE_NAMES,
+        "features_version": FEATURES_VERSION,
+        "note": format!(
+            "cold baseline: mutate skipped (no_eligible_C); n_commit_idx={n_commit_idx}"
+        ),
+        "objective": "binary",
+        "predict_raw_score": true,
+        "ranker": "cov_lines",
+        "schema_sha256": embedded_schema_sha256(),
+        "seed": 0,
+        "status": "data_insufficient",
+    });
+    let path = out_dir.join("model.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&payload)? + "\n")?;
+    Ok(())
 }
 
 fn model_artifact_usable(out_dir: &Path) -> bool {
@@ -1632,12 +1740,28 @@ fn parse_mutate_json(stdout: &[u8]) -> MutateOut {
         n_timeout: 0,
     };
     let text = String::from_utf8_lossy(stdout);
-    let start = match text.rfind('{') {
+    // Skip preamble; stream top-level values so nested {} inside a pretty report
+    // are not mistaken for object starts. Prefer the last report-shaped object
+    // (has completed_pairs / n_mutants_attempted) if progress JSON precedes it.
+    let start = match text.find('{') {
         Some(i) => i,
         None => return empty,
     };
-    let slice = &text[start..];
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(slice) else {
+    let stream =
+        serde_json::Deserializer::from_str(&text[start..]).into_iter::<serde_json::Value>();
+    let mut chosen: Option<serde_json::Value> = None;
+    for item in stream {
+        let Ok(v) = item else {
+            break;
+        };
+        let looks_like_report = v.get("completed_pairs").is_some()
+            || v.get("n_mutants_attempted").is_some()
+            || v.get("interrupted").is_some();
+        if looks_like_report || chosen.is_none() {
+            chosen = Some(v);
+        }
+    }
+    let Some(v) = chosen else {
         return empty;
     };
     let pairs = v
@@ -1955,7 +2079,7 @@ fn civil_to_unix(y: i64, m: i64, d: i64) -> i64 {
 
 #[cfg(test)]
 mod gate_verdict_tests {
-    use super::gate_verdict_from_model;
+    use super::{gate_verdict_from_model, parse_mutate_json};
 
     #[test]
     fn bootstrap_block_wins() {
@@ -2031,5 +2155,35 @@ mod gate_verdict_tests {
         assert_eq!(verdict, "use_baseline");
         assert_eq!(reason, "no_test_signal");
         assert_eq!(ranker, "cov_lines");
+    }
+
+    #[test]
+    fn parse_mutate_json_skips_preamble_and_takes_top_level() {
+        // Pretty JSON with nested {} must not use rfind('{').
+        // Preamble may contain a small JSON object; report is pretty + nested {}.
+        let stdout = b"mutate starting...\n\
+progress: {\"pair\":\"abc:0\"}\n\
+{\n\
+  \"completed_pairs\": [\"deadbeef:0\", \"deadbeef:1\"],\n\
+  \"interrupted\": false,\n\
+  \"n_mutants_attempted\": 2,\n\
+  \"n_timeout\": 0,\n\
+  \"nested\": {\"inner\": {\"x\": 1}}\n\
+}\n";
+        let out = parse_mutate_json(stdout);
+        assert_eq!(
+            out.completed_pairs,
+            vec!["deadbeef:0".to_string(), "deadbeef:1".to_string()]
+        );
+        assert!(!out.interrupted);
+        assert_eq!(out.n_mutants_attempted, 2);
+        assert_eq!(out.n_timeout, 0);
+    }
+
+    #[test]
+    fn parse_mutate_json_empty_without_object() {
+        let out = parse_mutate_json(b"no json here\n");
+        assert!(out.completed_pairs.is_empty());
+        assert_eq!(out.n_mutants_attempted, 0);
     }
 }

@@ -1,14 +1,14 @@
 testpilot bootstrap --dry-run
-fingerprint: head=598494a618410490cfbe0c896b7a544f6d23e0d9 N=200 K=4 seed=42 B_policy=sampled_C_union_last_20_fp B_override=null bin=0.1.0 (aff74a84d011) schema_v=7
+fingerprint: head=598494a618410490cfbe0c896b7a544f6d23e0d9 N=200 K=4 seed=42 B_policy=cold_last_max_N_20_fp_then_sample B_override=null bin=0.1.0 (b20fd3ae4fe5) schema_v=7
 priors: docs/measurements/bootstrap_time_priors.json (embedded)
-plan: |B_set|≈220  N×K=800  jobs=2  suite=attrs
+plan: |B_set|≈200  N×K=800  jobs=2  suite=attrs
 estimate collect_git: 90s
-estimate backfill: 4.4 h (≈220 SHAs needing run) unmeasured=true
-estimate mutate: 53.3 min (jobs=2)
+estimate backfill: 57.1 min (≈200 SHAs needing run)
+estimate mutate: 55.6 min (jobs=2)
 estimate dump+train: 10.0 min
-estimate total: 5.5 h
-total_s=19730.000
+estimate total: 2.1 h
+total_s=7455.000
 resume: allowed (fingerprint matches or no state)
-last_fp_available=20 requested=20 (|B_set| after collect = sampled_C ∪ first-parent limb)
-B_set=["ee0f19b696c60064c58cdc08b3265aef56d49ff8","e21793e90a25c7ea47a9c0369150067cc8322de0","13105a64f2de2e257a537ad20c06ffdd1c9d7f94","6c89173db8c9fe451b52a61f04be6a3664dfa582","45b6b6b6c3f94d58a03d7d541aaeadf1a4e6f551","3a5a49ecca857375ee63663c8cbf54b17116d34d","6d36983a3b2ce0d6f356323a04b02c94f28224ee","0bdeb34d4ec43995abc32b971b9ca2f3eab05757","160f5d8b97b3af606dca4c1fbb00ca9248366f75","2a76643e36aa7e07d13f9438857a7cff48b4a1d6","1e07f46897488350bb44ed88f1c70d4d7461dde0","d18763cac8be06707eee07ec506b0f7cbb913c6b","103d51f6efa36efcc7be4adecfd571da3f63291c","62bdbf234f45195e75bfc2bb0648dab6fd2f0d33","d3f320e0cb3b4c74c29a2af8c1bd8d37ca724ed5","e82cde4c252f2fa24e575105d6a8489657e6a1f2","119e043b9fccd995cefb800b00ae4a7645ddb807","2b6f2ce1ae0e32158d3d3c671aa2d0aab84144f4","805ff5ec21abcbf133397de21fd1a4771e25f6bf","598494a618410490cfbe0c896b7a544f6d23e0d9"]
+last_fp_available=200 requested_limb=200 (cold: backfill last max(N,20) FP then sample)
+B_set=<omitted in artifact; see live --dry-run>
 out: docs/measurements/bootstrap-attrs

@@ -3,7 +3,8 @@ use sha2::{Digest, Sha256};
 
 use crate::store::{SCHEMA_SQL, SCHEMA_VERSION};
 
-pub const B_POLICY_DEFAULT: &str = "sampled_C_union_last_20_fp";
+/// Cold-start default: backfill last `max(N,20)` FP, then sample C (spec §2.5).
+pub const B_POLICY_DEFAULT: &str = "cold_last_max_N_20_fp_then_sample";
 
 /// Keys match spec §2.3 (`N`, `K`, `B_policy`, `B_override`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,7 +43,7 @@ pub fn schema_sql_sha256() -> String {
 
 pub fn resolve_fingerprint(inputs: &BootstrapInputs) -> Fingerprint {
     let (b_policy, b_override) = match inputs.b_override {
-        Some(b) => (format!("sampled_C_union_last_{b}_fp"), Some(b)),
+        Some(b) => (format!("last_{b}_fp_then_sample"), Some(b)),
         None => (B_POLICY_DEFAULT.to_string(), None),
     };
     Fingerprint {

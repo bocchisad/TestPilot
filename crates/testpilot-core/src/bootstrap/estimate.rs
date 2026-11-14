@@ -36,7 +36,7 @@ pub struct TimeEstimate {
     pub collect_git_s: f64,
     pub backfill_s: f64,
     pub backfill_unmeasured: bool,
-    /// Hat for `|B_set|` ≈ N + last_fp (same value used in plan + backfill lines).
+    /// Hat for cold-start SHAs needing run ≈ `limb_n` (`max(N,20)` or `--backfill-commits`).
     pub backfill_shas_hat: u32,
     pub mutate_s: f64,
     pub mutate_jobs: u32,
@@ -69,17 +69,18 @@ fn suite_pick(s: &SuiteSeconds, suite: &str) -> f64 {
 }
 
 /// Rough wall-clock estimate.
-/// `|B_set|` hat ≈ `N + last_fp` where `last_fp` is 20 by default or `--backfill-commits`.
+/// Cold-start hat: `limb_n = max(N, 20)` (or `--backfill-commits`) SHAs needing run — not N+20.
 pub fn estimate_wall(
     n: u32,
     k: u32,
     jobs: u32,
     suite: &str,
     priors: &BootstrapPriors,
-    last_fp: u32,
+    limb_n: u32,
 ) -> TimeEstimate {
     let jobs = jobs.max(1);
-    let b_hat = n.saturating_add(last_fp);
+    // Clean-start n_new ≈ FP limb length (caller passes max(N,20) or override).
+    let b_hat = limb_n.max(1);
     let collect = suite_pick(&priors.collect_git_s, suite);
     let backfill_per = suite_pick(&priors.backfill_s_per_commit, suite);
     let backfill = backfill_per * f64::from(b_hat);

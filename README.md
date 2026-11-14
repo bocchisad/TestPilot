@@ -65,7 +65,12 @@ cargo build -p testpilot-cli --release
 
 `model.json` carries `ranker` (`model` or `cov_lines`) and `bootstrap.verdict` / `reason`. Sidecar `bootstrap_report.json` has step timings and mutate/backfill counters. `.testpilot/` is added to `.git/info/exclude` (not `.gitignore`) so the tree stays clean.
 
-If the gate returns `use_baseline` (e.g. `insufficient_commit_idx` when synth TEST has too few distinct C), select uses the `cov_lines` ranker from the same artifact — no `model.txt` required. After more history or a larger N, re-run with `--force`.
+Gate `use_baseline` reasons (select uses `cov_lines` from the same artifact — no `model.txt` required):
+
+- `insufficient_commit_idx` — unique `commit_idx` &lt; 10; chrono_split never starts (cold path before the quality gate).
+- `insufficient_test_C` — split ran, but synth TEST has `n_C` &lt; 10 (not a different “data insufficient” label for the cold path).
+
+After more history or a larger N, re-run with `--force`.
 
 **n_C widths** (why 200×4): see [`docs/measurements/mut2-80x5-click-jinja.json`](docs/measurements/mut2-80x5-click-jinja.json). **Measured step times / timeout rates / LORO:** [`docs/measurements/`](docs/measurements/) (do not invent numbers — open the JSON files). Dry-run hats: [`docs/measurements/bootstrap_time_priors.json`](docs/measurements/bootstrap_time_priors.json).
 

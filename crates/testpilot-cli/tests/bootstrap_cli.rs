@@ -115,7 +115,7 @@ fn dry_run_writes_nothing_and_prints_priors_source() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("backfill"), "{stdout}");
-    assert!(stdout.contains("unmeasured"), "{stdout}");
+    assert!(stdout.contains("|B_set|≈200"), "{stdout}");
     assert!(
         stdout.contains("docs/measurements/bootstrap_time_priors.json"),
         "{stdout}"
@@ -172,7 +172,11 @@ fn dry_run_uses_local_priors_json_without_touching_tree() {
             || stdout.contains(".testpilot/bootstrap/priors.json"),
         "must cite local priors path: {stdout}"
     );
-    // 10+5=15 SHAs × 9999s ≈ large hours — and measured (no unmeasured=true on backfill).
+    // --backfill-commits 5 → limb=5 × 9999s ≈ large hours; measured (no unmeasured=true).
+    assert!(
+        stdout.contains("|B_set|≈5") || stdout.contains("≈5 SHAs"),
+        "{stdout}"
+    );
     assert!(
         stdout.contains("estimate backfill:") && !stdout.contains("unmeasured=true"),
         "{stdout}"
@@ -207,9 +211,10 @@ fn dry_run_backfill_commits_consistent_b_set() {
         .unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("|B_set|≈230"), "{stdout}");
-    assert!(stdout.contains("≈230 SHAs"), "{stdout}");
-    assert!(!stdout.contains("≈220 SHAs"), "{stdout}");
+    // Cold path: --backfill-commits overrides limb (not N+30).
+    assert!(stdout.contains("|B_set|≈30"), "{stdout}");
+    assert!(stdout.contains("≈30 SHAs"), "{stdout}");
+    assert!(!stdout.contains("≈230 SHAs"), "{stdout}");
 }
 
 #[test]
@@ -494,6 +499,79 @@ fn init_exclude_only_idempotent_not_gitignore_clean_status() {
         porcelain.is_empty(),
         "git status must be clean after DB under .testpilot/: {porcelain}"
     );
+}
+
+#[test]
+fn mutate_skips_with_no_eligible_c_when_resample_empty() {
+    // Root commit adds .py (not eligible — no first-parent). Later commits are
+    // README-only → after backfill + re-sample, n_eligible=0 → mutate done with
+    // reason=no_eligible_C (not an error, not max(1)).
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    git(root, &["init", "-b", "main"]);
+    git(root, &["config", "user.email", "t@e.com"]);
+    git(root, &["config", "user.name", "T"]);
+    fs::write(
+        root.join("pyproject.toml"),
+        "[project]\nname='t'\nversion='0'\n[tool.pytest.ini_options]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("pkg")).unwrap();
+    fs::write(root.join("pkg/__init__.py"), "x = 1\n").unwrap();
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(root.join("tests/test_x.py"), "def test_ok():\n    assert True\n").unwrap();
+    git(root, &["add", "."]);
+    git(root, &["commit", "-m", "root"]);
+    for i in 0..3 {
+        fs::write(root.join("README.md"), format!("n={i}\n")).unwrap();
+        git(root, &["add", "README.md"]);
+        git(root, &["commit", "-m", &format!("docs {i}")]);
+    }
+
+    let out_dir = root.join("model-out");
+    let out = Command::new(bin())
+        .args([
+            "bootstrap",
+            "--repo",
+            root.to_str().unwrap(),
+            "--out",
+            out_dir.to_str().unwrap(),
+            "--max-commits",
+            "2",
+            "--backfill-commits",
+            "3",
+            "--mutants-per-commit",
+            "1",
+            "--force",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("no_eligible_C") || stdout.contains("mutate: skipped"),
+        "{stdout}"
+    );
+    let report: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(out_dir.join("bootstrap_report.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        report["mutate_skip_reason"].as_str(),
+        Some("no_eligible_C"),
+        "{report}"
+    );
+    assert_eq!(report["n_actual"].as_u64().unwrap_or(99), 0, "{report}");
+    let state: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join(".testpilot/bootstrap/state.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["steps"]["mutate"], "done", "{state}");
 }
 
 #[test]

@@ -63,6 +63,9 @@ pub struct BootstrapState {
     pub n_mutants_attempted: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_timeout: Option<u32>,
+    /// Set when mutate is skipped (e.g. `no_eligible_C`); step still marked done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mutate_skip_reason: Option<String>,
 }
 
 /// Add `secs` into `state.step_timings_s[step]` (resume-safe sum).
@@ -125,6 +128,7 @@ pub fn load_or_init_state(
         n_backfill_reused: None,
         n_mutants_attempted: None,
         n_timeout: None,
+        mutate_skip_reason: None,
     })
 }
 

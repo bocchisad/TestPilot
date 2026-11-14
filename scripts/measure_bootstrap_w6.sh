@@ -22,12 +22,16 @@ JOBS=2
 SEED=42
 MAX_EST_S=14400  # 4h for 3×full + 2nd click level-b
 
+# Portable wall timing (bash builtin; avoid GNU/BSD /usr/bin/time differences).
+TIMEFORMAT='%R'
+
 ensure_repo() {
   local name="$1" url="$2" sha="$3"
   local dest=".cache/repos/$name"
   mkdir -p .cache/repos
   if [[ ! -d "$dest/.git" ]]; then
-    git clone --filter=blob:none "$url" "$dest"
+    # Full clone — blob:none partial clones break historical pytest checkouts.
+    git clone "$url" "$dest"
   fi
   git -C "$dest" fetch --tags --force origin
   git -C "$dest" checkout --force "$sha"
@@ -40,12 +44,10 @@ ensure_repo() {
 }
 
 parse_dry_total() {
-  # Sum rough total from dry-run lines that look like total_s=...
   local log="$1"
   if grep -E '^total_s=' "$log" >/dev/null 2>&1; then
     grep -E '^total_s=' "$log" | tail -1 | cut -d= -f2
   else
-    # Fallback: parse "total ≈ Xs" style if format differs
     python3 - "$log" <<'PY'
 import re, sys
 text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
@@ -67,6 +69,11 @@ echo "=== env fingerprint ==="
     echo "cpu=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo unknown)"
   else
     echo "cpu=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | xargs || echo unknown)"
+  fi
+  if ! command -v less >/dev/null 2>&1; then
+    echo "WARN: less not on PATH — click pager tests fail every commit (persistent, not new_fail)" >&2
+  else
+    echo "less=$(command -v less)"
   fi
 } | tee docs/measurements/env-host.txt
 python3 -m pip freeze > docs/measurements/env-pip-freeze.txt
@@ -117,10 +124,16 @@ run_one() {
   local R="$1" OUT="$2"
   rm -rf ".cache/repos/$R/.testpilot"
   mkdir -p "$OUT"
-  /usr/bin/time -p "$BIN" bootstrap --repo ".cache/repos/$R" --out "$OUT" \
-    --max-commits "$N" --mutants-per-commit "$K" --jobs "$JOBS" --seed "$SEED" \
-    --suite "$R" --force --train-threads 1 \
-    2>&1 | tee "$OUT/measure.log"
+  # attrs: exclude mypy suite (matches mell N=20 calibration that produced 17.139 s/commit).
+  local -a env_extra=()
+  if [[ "$R" == attrs ]]; then
+    env_extra+=(env PYTEST_ADDOPTS="--ignore=tests/test_mypy.yml")
+  fi
+  {
+    "${env_extra[@]}" time "$BIN" bootstrap --repo ".cache/repos/$R" --out "$OUT" \
+      --max-commits "$N" --mutants-per-commit "$K" --jobs "$JOBS" --seed "$SEED" \
+      --suite "$R" --force --train-threads 1
+  } 2>&1 | tee "$OUT/measure.log"
   python3 - <<PY
 import json
 from pathlib import Path
