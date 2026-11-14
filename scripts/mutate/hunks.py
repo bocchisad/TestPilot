@@ -86,16 +86,39 @@ def show_blob(repo: Path, rev: str, path: str) -> str | None:
         return None
 
 
+_NON_SOURCE_TOP = frozenset(
+    {
+        "tests",
+        "test",
+        "docs",
+        "doc",
+        "documentation",
+        "examples",
+        "example",
+        "benchmarks",
+        "benchmark",
+        "tutorial",
+        "tutorials",
+        "demo",
+        "demos",
+        "samples",
+        "sample",
+        "docs_src",
+        ".github",
+    }
+)
+
+
 def is_source_py(path: str) -> bool:
+    """True for project source `.py` (not tests/docs/examples/…)."""
     norm = path.replace("\\", "/")
     if not norm.endswith(".py"):
         return False
-    parts = norm.split("/")
-    if parts and parts[0] == "tests":
+    parts = [p for p in norm.split("/") if p and p != "."]
+    if not parts:
+        return False
+    if parts[0] in _NON_SOURCE_TOP or parts[0].startswith("."):
         return False
     if any(p == "tests" for p in parts):
-        return False
-    base = parts[-1]
-    if base.startswith("test_") and parts[-2:] == ["tests", base]:
         return False
     return True

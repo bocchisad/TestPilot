@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import shutil
 import sqlite3
 import subprocess
@@ -21,6 +22,13 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
+
+_STOP = False
+
+
+def _handle_stop(_signum: int, _frame: object) -> None:
+    global _STOP
+    _STOP = True
 
 DEFAULT_PLUGIN = Path(__file__).resolve().parents[1] / "python" / "pytest-testpilot"
 
@@ -288,6 +296,9 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    signal.signal(signal.SIGINT, _handle_stop)
+    signal.signal(signal.SIGTERM, _handle_stop)
+
     repo = args.repo.resolve()
     db = args.db.resolve()
     plugin = resolve_plugin(args.plugin)
@@ -320,13 +331,19 @@ def main() -> int:
                 shas.append(s)
     else:
         shas = (
-            run(["git", "rev-list", f"-n{args.last}", "HEAD"], cwd=repo)
+            run(
+                ["git", "rev-list", "--first-parent", f"-n{args.last}", "HEAD"],
+                cwd=repo,
+            )
             .stdout.strip()
             .splitlines()
         )
         shas = list(reversed(shas))
 
-    work_root = Path(tempfile.mkdtemp(prefix="tp-backfill-"))
+    # Prefer repo-local bootstrap wt dir so startup cleanup can find orphans.
+    boot_wt = repo / ".testpilot" / "bootstrap"
+    boot_wt.mkdir(parents=True, exist_ok=True)
+    work_root = Path(tempfile.mkdtemp(prefix="wt-backfill-", dir=str(boot_wt)))
     venv = work_root / "venv"
     print(f"work_root={work_root} venv={venv} commits={len(shas)}")
 
@@ -344,7 +361,11 @@ def main() -> int:
         run([str(pip), "install", "pytest>=8,<10", "coverage"], check=False)
 
         ok = skip = reused = 0
+        interrupted = False
         for sha in shas:
+            if _STOP:
+                interrupted = True
+                break
             if _has_reusable_real_run(db, sha):
                 print(f"== {sha[:12]} == reuse existing clean real run")
                 reused += 1
@@ -415,8 +436,14 @@ def main() -> int:
                 )
                 if wt.exists():
                     shutil.rmtree(wt, ignore_errors=True)
+            if _STOP:
+                interrupted = True
+                break
 
         print(f"done ok={ok} reused={reused} skip={skip}")
+        if interrupted or _STOP:
+            print("interrupted=1", flush=True)
+            return 130
         warn_always_failing(db, threshold=args.always_fail_threshold)
         return 0 if ok else 1
     finally:
@@ -424,4 +451,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None

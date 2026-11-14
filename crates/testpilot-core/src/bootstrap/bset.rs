@@ -15,7 +15,7 @@ pub fn first_parent_shas(repo: &Path, n: u32) -> Result<Vec<String>> {
     let out = Command::new("git")
         .args(["-C"])
         .arg(repo)
-        .args(["rev-list", &format!("-n{n}"), "HEAD"])
+        .args(["rev-list", "--first-parent", &format!("-n{n}"), "HEAD"])
         .output()
         .map_err(Error::Io)?;
     if !out.status.success() {

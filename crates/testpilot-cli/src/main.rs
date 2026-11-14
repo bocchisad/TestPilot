@@ -1,7 +1,11 @@
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -777,6 +781,10 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         });
     }
 
+    let deadline = opts
+        .time_budget
+        .map(|secs| Instant::now() + Duration::from_secs(secs));
+
     let _cleanup = startup_cleanup(&repo).context("bootstrap startup cleanup")?;
 
     let decision = if opts.resume {
@@ -824,18 +832,8 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     state.steps.insert("init".into(), StepStatus::Done);
     save_state(&repo, &state)?;
 
-    let check_intr = |state: &mut bootstrap::BootstrapState, step: &str| -> Result<()> {
-        if interrupted.load(Ordering::SeqCst) {
-            state.status = Some("interrupted".into());
-            state.steps.insert(step.into(), StepStatus::Interrupted);
-            save_state(&repo, state)?;
-            bail!("bootstrap interrupted (Ctrl-C); state.status=interrupted");
-        }
-        Ok(())
-    };
-
     // --- collect_git ---
-    check_intr(&mut state, "collect_git")?;
+    bootstrap_check_stop(&repo, &mut state, "collect_git", &interrupted, deadline)?;
     if state.steps.get("collect_git") != Some(&StepStatus::Done) {
         let grepo = GixRepo::open(&repo).context("open git repo for collect")?;
         let stats =
@@ -879,18 +877,23 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                 })
                 .or_insert(StepStatus::Skipped);
         }
+        state.status = None;
         save_state(&repo, &state)?;
         println!("bootstrap state ready at {}", state_path(&repo).display());
-        let _ = opts.time_budget;
         return Ok(());
     }
 
     // --- backfill (R6): last_fp first, then sampled C gaps ---
-    check_intr(&mut state, "backfill")?;
+    bootstrap_check_stop(&repo, &mut state, "backfill", &interrupted, deadline)?;
     if state.steps.get("backfill") != Some(&StepStatus::Done) {
         let fp_limb = first_parent_shas(&repo, last_fp)?;
-        // Seed limb so mutate sampling has clean runs.
-        run_backfill_shas(&scripts, &repo, &db, &fp_limb, None)?;
+        match run_backfill_shas(&scripts, &repo, &db, &fp_limb, None, &interrupted) {
+            Ok(()) => {}
+            Err(e) if is_interrupt_err(&e) => {
+                return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
+            }
+            Err(e) => return Err(e),
+        }
         state.backfill_done_shas.extend(fp_limb.iter().cloned());
 
         let sample = sample_commits_py(&scripts, &db, opts.max_commits, opts.seed)?;
@@ -904,7 +907,13 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         let b_set = union_b_set(&fp_limb, &sample.sampled);
         let need = shas_needing_backfill(&store, &b_set)?;
         if !need.is_empty() {
-            run_backfill_shas(&scripts, &repo, &db, &need, None)?;
+            match run_backfill_shas(&scripts, &repo, &db, &need, None, &interrupted) {
+                Ok(()) => {}
+                Err(e) if is_interrupt_err(&e) => {
+                    return bootstrap_flush_interrupted(&repo, &mut state, "backfill");
+                }
+                Err(e) => return Err(e),
+            }
         }
         for s in &b_set {
             if !state.backfill_done_shas.iter().any(|x| x == s) {
@@ -916,10 +925,18 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     }
 
     // --- mutate ---
-    check_intr(&mut state, "mutate")?;
+    bootstrap_check_stop(&repo, &mut state, "mutate", &interrupted, deadline)?;
     if state.steps.get("mutate") != Some(&StepStatus::Done) {
         let n = state.n_actual.unwrap_or(opts.max_commits).max(1);
-        run_mutate(
+        let deadline_unix = deadline.map(|dl| {
+            let now = Instant::now();
+            let remain = dl.saturating_duration_since(now).as_secs_f64();
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() + remain)
+                .unwrap_or(0.0)
+        });
+        let mutate_out = match run_mutate(
             &scripts,
             &repo,
             &db,
@@ -927,14 +944,37 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             opts.mutants_per_commit,
             opts.seed,
             opts.jobs,
+            &state.mutate_completed_pairs,
+            deadline_unix,
             None,
-        )?;
+            &interrupted,
+        ) {
+            Ok(o) => o,
+            Err(e) if is_interrupt_err(&e) => {
+                if let Some(partial) = e.downcast_ref::<MutateInterrupted>() {
+                    merge_completed_pairs(
+                        &mut state.mutate_completed_pairs,
+                        &partial.completed_pairs,
+                    );
+                }
+                return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
+            }
+            Err(e) => return Err(e),
+        };
+        merge_completed_pairs(
+            &mut state.mutate_completed_pairs,
+            &mutate_out.completed_pairs,
+        );
+        if mutate_out.interrupted {
+            return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
+        }
         state.steps.insert("mutate".into(), StepStatus::Done);
+        state.status = None; // clear after successful resume past interrupt
         save_state(&repo, &state)?;
     }
 
     // --- features dump (R8 fingerprint) ---
-    check_intr(&mut state, "features_dump")?;
+    bootstrap_check_stop(&repo, &mut state, "features_dump", &interrupted, deadline)?;
     let cur_fp = DbDumpFingerprint::from_store(&store)?;
     let need_dump = dump_needs_refresh(parquet.is_file(), state.dump_fingerprint.as_ref(), &cur_fp);
     if state.steps.get("features_dump") != Some(&StepStatus::Done) || need_dump {
@@ -959,13 +999,190 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             println!("{step}: deferred to Week-6 T4");
         }
     }
+    state.status = None;
     save_state(&repo, &state)?;
     println!(
         "bootstrap pipeline through dump ready at {}",
         state_path(&repo).display()
     );
-    let _ = opts.time_budget;
     Ok(())
+}
+
+fn is_interrupt_err(e: &anyhow::Error) -> bool {
+    e.to_string().contains("interrupted")
+}
+
+fn bootstrap_flush_interrupted(
+    repo: &Path,
+    state: &mut bootstrap::BootstrapState,
+    step: &str,
+) -> Result<()> {
+    state.status = Some("interrupted".into());
+    state.steps.insert(step.into(), StepStatus::Interrupted);
+    save_state(repo, state)?;
+    let _ = startup_cleanup(repo);
+    bail!("bootstrap interrupted; state.status=interrupted");
+}
+
+fn bootstrap_check_stop(
+    repo: &Path,
+    state: &mut bootstrap::BootstrapState,
+    step: &str,
+    interrupted: &AtomicBool,
+    deadline: Option<Instant>,
+) -> Result<()> {
+    if interrupted.load(Ordering::SeqCst) {
+        return bootstrap_flush_interrupted(repo, state, step);
+    }
+    if let Some(dl) = deadline {
+        if Instant::now() >= dl {
+            return bootstrap_flush_interrupted(repo, state, step);
+        }
+    }
+    Ok(())
+}
+
+fn merge_completed_pairs(dst: &mut Vec<String>, src: &[String]) {
+    for p in src {
+        if !dst.iter().any(|x| x == p) {
+            dst.push(p.clone());
+        }
+    }
+}
+
+fn status_is_interrupt(st: &ExitStatus) -> bool {
+    if st.code() == Some(130) {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        matches!(st.signal(), Some(2) | Some(15))
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+fn unix_now_secs() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+/// Run a child in its own process group; forward SIGINT on Ctrl-C; capture stdout to a file.
+fn run_interruptible_captured(
+    mut cmd: Command,
+    interrupted: &AtomicBool,
+) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    let stdout_path = std::env::temp_dir().join(format!(
+        "tp-bootstrap-out-{}-{}.log",
+        std::process::id(),
+        (unix_now_secs() * 1000.0) as u64
+    ));
+    let stderr_path = std::env::temp_dir().join(format!(
+        "tp-bootstrap-err-{}-{}.log",
+        std::process::id(),
+        (unix_now_secs() * 1000.0) as u64
+    ));
+    let stdout_file = File::create(&stdout_path).context("create child stdout temp")?;
+    let stderr_file = File::create(&stderr_path).context("create child stderr temp")?;
+    cmd.stdout(Stdio::from(stdout_file));
+    cmd.stderr(Stdio::from(stderr_file));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Own process group so we can forward SIGINT to the whole tree.
+        cmd.process_group(0);
+    }
+
+    let mut child = cmd.spawn().context("spawn bootstrap child")?;
+    let pid = child.id();
+    let mut sent_int = false;
+    let status = loop {
+        match child.try_wait().context("wait bootstrap child")? {
+            Some(st) => break st,
+            None => {
+                if interrupted.load(Ordering::SeqCst) && !sent_int {
+                    sent_int = true;
+                    let _ = Command::new("kill")
+                        .args(["-INT", &format!("-{pid}")])
+                        .status();
+                }
+                if interrupted.load(Ordering::SeqCst) && sent_int {
+                    // Grace then escalate.
+                    thread::sleep(Duration::from_millis(200));
+                    if child.try_wait()?.is_none() {
+                        let _ = Command::new("kill")
+                            .args(["-KILL", &format!("-{pid}")])
+                            .status();
+                    }
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
+    };
+
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let _ = File::open(&stdout_path).and_then(|mut f| f.read_to_end(&mut stdout));
+    let _ = File::open(&stderr_path).and_then(|mut f| f.read_to_end(&mut stderr));
+    let _ = std::fs::remove_file(&stdout_path);
+    let _ = std::fs::remove_file(&stderr_path);
+    Ok((status, stdout, stderr))
+}
+
+#[derive(Debug)]
+struct MutateInterrupted {
+    completed_pairs: Vec<String>,
+}
+
+impl std::fmt::Display for MutateInterrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "mutate interrupted ({} pairs flushed)",
+            self.completed_pairs.len()
+        )
+    }
+}
+
+impl std::error::Error for MutateInterrupted {}
+
+struct MutateOut {
+    completed_pairs: Vec<String>,
+    interrupted: bool,
+}
+
+fn parse_mutate_json(stdout: &[u8]) -> (Vec<String>, bool) {
+    let text = String::from_utf8_lossy(stdout);
+    let start = match text.find('{') {
+        Some(i) => i,
+        None => return (vec![], false),
+    };
+    // Prefer last JSON object (script may print noise before --json).
+    let start = text.rfind('{').unwrap_or(start);
+    let slice = &text[start..];
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(slice) else {
+        return (vec![], false);
+    };
+    let pairs = v
+        .get("completed_pairs")
+        .and_then(|x| x.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let interrupted = v
+        .get("interrupted")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+    (pairs, interrupted)
 }
 
 fn bundled_scripts(scripts: &Path) -> Result<PathBuf> {
@@ -1023,6 +1240,7 @@ fn run_backfill_shas(
     db: &Path,
     shas: &[String],
     python: Option<&Path>,
+    interrupted: &AtomicBool,
 ) -> Result<()> {
     if shas.is_empty() {
         return Ok(());
@@ -1041,9 +1259,15 @@ fn run_backfill_shas(
     if let Some(py) = python {
         cmd.arg("--python").arg(py);
     }
-    let st = cmd.status().context("run backfill.py")?;
+    let (st, _stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
+    if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) {
+        bail!("backfill.py interrupted");
+    }
     if !st.success() {
-        bail!("backfill.py failed with {st}");
+        bail!(
+            "backfill.py failed with {st}: {}",
+            String::from_utf8_lossy(&stderr)
+        );
     }
     Ok(())
 }
@@ -1056,11 +1280,24 @@ fn run_mutate(
     n: u32,
     k: u32,
     seed: u64,
-    _jobs: u32,
+    jobs: u32,
+    completed_pairs: &[String],
+    deadline_unix: Option<f64>,
     python: Option<&Path>,
-) -> Result<()> {
+    interrupted: &AtomicBool,
+) -> Result<MutateOut> {
     let scripts = bundled_scripts(scripts)?;
     let script = scripts.join("mutate_bootstrap.py");
+    let pairs_path = repo.join(".testpilot/bootstrap/mutate_completed_pairs.json");
+    if let Some(parent) = pairs_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(
+        &pairs_path,
+        serde_json::to_vec(completed_pairs).unwrap_or_else(|_| b"[]".to_vec()),
+    )?;
+    let pairs_out = repo.join(".testpilot/bootstrap/mutate_pairs.jsonl");
+
     let mut cmd = Command::new("python3");
     cmd.arg(&script)
         .arg("--repo")
@@ -1073,15 +1310,52 @@ fn run_mutate(
         .arg(k.to_string())
         .arg("--seed")
         .arg(seed.to_string())
+        .arg("--jobs")
+        .arg(jobs.clamp(1, 4).to_string())
+        .arg("--completed-pairs")
+        .arg(&pairs_path)
+        .arg("--pairs-out")
+        .arg(&pairs_out)
         .arg("--json");
+    if let Some(dl) = deadline_unix {
+        cmd.arg("--deadline-unix").arg(dl.to_string());
+    }
     if let Some(py) = python {
         cmd.arg("--python").arg(py);
     }
-    let st = cmd.status().context("run mutate_bootstrap.py")?;
-    if !st.success() {
-        bail!("mutate_bootstrap.py failed with {st}");
+    let (st, stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
+    let (pairs, json_intr) = parse_mutate_json(&stdout);
+    // Also harvest pairs-out JSONL in case stdout was truncated.
+    let mut all_pairs = pairs;
+    if pairs_out.is_file() {
+        if let Ok(text) = std::fs::read_to_string(&pairs_out) {
+            for line in text.lines() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                    if let Some(p) = v.get("pair").and_then(|x| x.as_str()) {
+                        if !all_pairs.iter().any(|x| x == p) {
+                            all_pairs.push(p.to_string());
+                        }
+                    }
+                }
+            }
+        }
     }
-    Ok(())
+    if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) || json_intr {
+        return Err(MutateInterrupted {
+            completed_pairs: all_pairs,
+        }
+        .into());
+    }
+    if !st.success() {
+        bail!(
+            "mutate_bootstrap.py failed with {st}: {}",
+            String::from_utf8_lossy(&stderr)
+        );
+    }
+    Ok(MutateOut {
+        completed_pairs: all_pairs,
+        interrupted: json_intr,
+    })
 }
 
 fn cmd_init(explicit_db: Option<&Path>) -> Result<()> {

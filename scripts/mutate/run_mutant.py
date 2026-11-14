@@ -8,11 +8,41 @@ import shutil
 import signal
 import sqlite3
 import subprocess
+import threading
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from mutate.dbutil import test_runs_partial_gate
+
+# Process groups of in-flight pytest sessions (for SIGINT fan-out).
+_ACTIVE_PGIDS: set[int] = set()
+_ACTIVE_LOCK = threading.Lock()
+
+
+def register_pytest_pgid(pgid: int | None) -> None:
+    if pgid is None:
+        return
+    with _ACTIVE_LOCK:
+        _ACTIVE_PGIDS.add(pgid)
+
+
+def unregister_pytest_pgid(pgid: int | None) -> None:
+    if pgid is None:
+        return
+    with _ACTIVE_LOCK:
+        _ACTIVE_PGIDS.discard(pgid)
+
+
+def kill_active_pytest_groups(sig: int = signal.SIGINT) -> None:
+    """Forward signal to every registered pytest process group."""
+    with _ACTIVE_LOCK:
+        pgids = list(_ACTIVE_PGIDS)
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 @dataclass
@@ -223,24 +253,28 @@ def _run_pytest_group(
         pgid = os.getpgid(proc.pid)
     except ProcessLookupError:
         pgid = None
+    register_pytest_pgid(pgid)
     try:
-        out, _ = proc.communicate(timeout=timeout_sec)
-        tail = (out or "")[-4000:]
-        return proc.returncode if proc.returncode is not None else 1, False, tail, pgid
-    except subprocess.TimeoutExpired:
         try:
-            if pgid is not None:
-                os.killpg(pgid, signal.SIGKILL)
-            else:
-                proc.kill()
-        except ProcessLookupError:
-            proc.kill()
-        try:
-            out, _ = proc.communicate(timeout=5)
+            out, _ = proc.communicate(timeout=timeout_sec)
             tail = (out or "")[-4000:]
+            return proc.returncode if proc.returncode is not None else 1, False, tail, pgid
         except subprocess.TimeoutExpired:
-            proc.kill()
-        return 124, True, tail, pgid
+            try:
+                if pgid is not None:
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    proc.kill()
+            except ProcessLookupError:
+                proc.kill()
+            try:
+                out, _ = proc.communicate(timeout=5)
+                tail = (out or "")[-4000:]
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            return 124, True, tail, pgid
+    finally:
+        unregister_pytest_pgid(pgid)
 
 
 def _pgid_alive(pgid: int | None) -> bool:
@@ -302,13 +336,34 @@ def new_fail_count(fails_m: set[str], fails_c: set[str]) -> int:
     return len(fails_m - fails_c)
 
 
+def synthetic_run_exists(db: Path, sha: str) -> bool:
+    """True if a synthetic finished run with results already exists for sha."""
+    if not db.is_file():
+        return False
+    con = sqlite3.connect(str(db))
+    try:
+        gate = test_runs_partial_gate(con, "r")
+        row = con.execute(
+            f"""
+            SELECT 1 FROM test_runs r
+            WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=1 {gate}
+              AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
+            LIMIT 1
+            """,
+            (sha,),
+        ).fetchone()
+        return row is not None
+    finally:
+        con.close()
+
+
 def collect_junit_synthetic(
     repo: Path,
     db: Path,
     sha: str,
     junit_glob: str,
     *,
-    force: bool = True,
+    force: bool = False,
     cwd: Path | None = None,
 ) -> tuple[bool, str]:
     testpilot = os.environ.get("TESTPILOT_BIN", "testpilot")
@@ -349,9 +404,28 @@ def run_mutant(
     pip_bin: Path | None = None,
     install_project_cb: object | None = None,
     mutant_index: int | None = None,
+    db_lock: object | None = None,
 ) -> MutantRunResult:
     """Checkout M in a worktree, pytest+junit (no coverage), optional flaky rerun."""
+    from contextlib import nullcontext
+
     from mutate.git_mutant import delete_mutant_ref
+
+    lock = db_lock if db_lock is not None else nullcontext()
+
+    # Already ingested (resume): do not re-pytest / re-insert.
+    with lock:
+        if synthetic_run_exists(db, mutant_sha):
+            fails_c = parent_fail_set(db, parent_sha)
+            fails_m = run_fail_set(db, mutant_sha, synthetic=True)
+            n_new = new_fail_count(fails_m, fails_c)
+            return MutantRunResult(
+                ok=True,
+                collect_ok=True,
+                collect_note="reuse existing synthetic run",
+                n_new_fail=n_new,
+                killed=n_new >= 1,
+            )
 
     timeout_sec = default_timeout_sec(duration_sec, timeout_override)
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -428,7 +502,8 @@ def run_mutant(
 
         failed = _failed_from_junit(junit1)
         all_tests = _all_tests_from_junit(junit1)
-        n_parent = run_test_count(db, parent_sha, synthetic=False)
+        with lock:
+            n_parent = run_test_count(db, parent_sha, synthetic=False)
         if n_parent > 0 and len(all_tests) * 2 < n_parent:
             collection_error = True
 
@@ -474,23 +549,29 @@ def run_mutant(
             _merge_junit_with_flaky(
                 junit1, junit2 if junit2.is_file() else None, flaky, junit_merged
             )
-            collect_ok, collect_msg = collect_junit_synthetic(
-                repo,
-                db,
-                mutant_sha,
-                str(junit_merged),
-                force=True,
-                cwd=repo,
-            )
+            with lock:
+                # Never --force: resume must not duplicate synthetic runs.
+                if synthetic_run_exists(db, mutant_sha):
+                    collect_ok, collect_msg = True, "reuse existing synthetic run"
+                else:
+                    collect_ok, collect_msg = collect_junit_synthetic(
+                        repo,
+                        db,
+                        mutant_sha,
+                        str(junit_merged),
+                        force=False,
+                        cwd=repo,
+                    )
         else:
             collect_ok, collect_msg = False, "no junit produced"
 
         # Kill = ≥1 new_fail vs C using DB IDs (same normalize path as Rust collect).
         # Collection-error mutants are never kills (phantom module-level cases).
-        fails_c = parent_fail_set(db, parent_sha)
-        fails_m = (
-            run_fail_set(db, mutant_sha, synthetic=True) if collect_ok else set()
-        )
+        with lock:
+            fails_c = parent_fail_set(db, parent_sha)
+            fails_m = (
+                run_fail_set(db, mutant_sha, synthetic=True) if collect_ok else set()
+            )
         n_new_fail = 0 if collection_error else new_fail_count(fails_m, fails_c)
 
         n_failed = len(failed)

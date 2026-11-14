@@ -260,6 +260,54 @@ fn first_parent_and_union_b_set() {
 }
 
 #[test]
+fn first_parent_shas_skips_side_branch_after_merge() {
+    // Topology: main: A-B-M(merge); side: A-S; merge M parents = (B, S).
+    // Without --first-parent, rev-list -n4 from M can include S; with the flag, S is out.
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    git(root, &["init", "-b", "main"]);
+    git(root, &["config", "user.email", "t@example.com"]);
+    git(root, &["config", "user.name", "t"]);
+    fs::write(root.join("f.txt"), "a\n").unwrap();
+    git(root, &["add", "f.txt"]);
+    git(root, &["commit", "-m", "A"]);
+    let a = git_out(root, &["rev-parse", "HEAD"]);
+
+    fs::write(root.join("f.txt"), "b\n").unwrap();
+    git(root, &["add", "f.txt"]);
+    git(root, &["commit", "-m", "B"]);
+    let b = git_out(root, &["rev-parse", "HEAD"]);
+
+    git(root, &["checkout", "-b", "side", &a]);
+    fs::write(root.join("side.txt"), "s\n").unwrap();
+    git(root, &["add", "side.txt"]);
+    git(root, &["commit", "-m", "S"]);
+    let s = git_out(root, &["rev-parse", "HEAD"]);
+
+    git(root, &["checkout", "main"]);
+    git(root, &["merge", "--no-ff", "-m", "M", "side"]);
+    let m = git_out(root, &["rev-parse", "HEAD"]);
+
+    let without = git_out(root, &["rev-list", "-n4", "HEAD"]);
+    let without_set: Vec<&str> = without.lines().collect();
+    assert!(
+        without_set
+            .iter()
+            .any(|x| x.starts_with(&s[..12]) || *x == s.as_str()),
+        "control: plain rev-list should see side tip {s}: {without}"
+    );
+
+    let fp = first_parent_shas(root, 4).unwrap();
+    assert!(fp.iter().any(|x| x == &m), "HEAD merge missing: {fp:?}");
+    assert!(fp.iter().any(|x| x == &b), "first-parent B missing: {fp:?}");
+    assert!(
+        !fp.iter().any(|x| x == &s),
+        "side-only commit must not appear in first-parent limb: {fp:?}"
+    );
+    assert!(fp.iter().any(|x| x == &a) || fp.len() >= 2);
+}
+
+#[test]
 fn dump_fingerprint_detects_db_change_not_mtime() {
     let dir = tempdir().unwrap();
     let db = dir.path().join("db.sqlite");
