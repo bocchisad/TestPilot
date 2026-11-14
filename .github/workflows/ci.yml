@@ -181,7 +181,11 @@ jobs:
           pip install -e 'python/pytest-testpilot[dev]'
           pip install -e 'python/testpilot-train[dev]'
       - name: Bootstrap e2e (≤120s)
-        run: chmod +x tests/e2e/test_bootstrap_e2e.sh && bash tests/e2e/test_bootstrap_e2e.sh
+        timeout-minutes: 4
+        run: |
+          chmod +x tests/e2e/test_bootstrap_e2e.sh
+          # Hard wall so a hung SIGINT wait cannot burn the runner.
+          timeout 150 bash tests/e2e/test_bootstrap_e2e.sh
 
   features-oracle:
     runs-on: ubuntu-latest

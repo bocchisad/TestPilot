@@ -204,6 +204,8 @@ echo "=== case 1: full bootstrap tiny N/K (gold) ==="
 WORKDIR="$(mktemp -d)"
 MODEL1="$WORKDIR/model"
 seed_repo "$WORKDIR/repo" 6
+# Clone BEFORE gold bootstrap so case2 shares identical commit SHAs.
+cp -a "$WORKDIR/repo" "$WORKDIR/repo_intr"
 cd "$WORKDIR/repo"
 "$BIN" bootstrap --repo "$WORKDIR/repo" --out "$MODEL1" \
   --max-commits "$N" --mutants-per-commit "$K" --jobs 1 --seed "$SEED" --force \
@@ -219,7 +221,7 @@ echo "gold=$GOLD_JSON"
 import json
 g = json.loads('''$GOLD_JSON''')
 assert len(g["m_shas"]) > 0, g
-print("gold mutants", len(g["m_shas"]))
+print("gold mutants", len(g["m_shas"]), "labels", g["labels"])
 PY
 # Select must load the artifact.
 BASE=$(git rev-parse HEAD~1)
@@ -236,59 +238,37 @@ PY
 echo "case1 ok"
 
 echo "=== case 2: interrupt mutate + --resume vs gold (same seed clone) ==="
-WORKDIR2="$(mktemp -d)"
-seed_repo "$WORKDIR2/repo" 6
-# Identical commit SHAs → identical mutant SHAs (gold vs interrupt+resume).
-cp -a "$WORKDIR2/repo" "$WORKDIR2/repo_gold"
-MODEL_GOLD="$WORKDIR2/model_gold"
-cd "$WORKDIR2/repo_gold"
-"$BIN" bootstrap --repo "$WORKDIR2/repo_gold" --out "$MODEL_GOLD" \
-  --max-commits "$N" --mutants-per-commit "$K" --jobs 1 --seed "$SEED" --force \
-  --train-threads 1 2>&1 | tee "$WORKDIR2/boot2-gold.log"
-assert_mutate_happened "$WORKDIR2/repo_gold" "$WORKDIR2/boot2-gold.log"
-GOLD2_JSON=$(collect_mutant_gold "$WORKDIR2/repo_gold")
-echo "gold2=$GOLD2_JSON"
-"$PYTHON" - <<PY
-import json
-g = json.loads('''$GOLD2_JSON''')
-assert len(g["m_shas"]) > 0, g
-assert any(v == "kill" for v in g["labels"].values()) or any(
-    v == "survive" for v in g["labels"].values()
-), g
-print("gold2 mutants", len(g["m_shas"]), "labels", g["labels"])
-PY
-
-MODEL2="$WORKDIR2/model"
-cd "$WORKDIR2/repo"
-MARKER="$WORKDIR2/repo/.testpilot/bootstrap/TESTPILOT_PAUSE_AFTER_PAIRS"
+MODEL2="$WORKDIR/model_intr"
+cd "$WORKDIR/repo_intr"
+MARKER="$WORKDIR/repo_intr/.testpilot/bootstrap/TESTPILOT_PAUSE_AFTER_PAIRS"
 rm -f "$MARKER"
 export TESTPILOT_TEST_PAUSE_AFTER_PAIRS=1
-"$BIN" bootstrap --repo "$WORKDIR2/repo" --out "$MODEL2" \
+"$BIN" bootstrap --repo "$WORKDIR/repo_intr" --out "$MODEL2" \
   --max-commits "$N" --mutants-per-commit "$K" --jobs 1 --seed "$SEED" --force \
-  --train-threads 1 >"$WORKDIR2/boot2.log" 2>&1 &
+  --train-threads 1 >"$WORKDIR/boot2.log" 2>&1 &
 BPID=$!
 # Wait for pause marker (mutate completed ≥1 pair and is sleeping).
-for _ in $(seq 1 600); do
+for _ in $(seq 1 480); do
   if [[ -f "$MARKER" ]]; then
     break
   fi
   if ! kill -0 "$BPID" 2>/dev/null; then
     echo "bootstrap exited before pause marker" >&2
-    cat "$WORKDIR2/boot2.log" >&2 || true
+    cat "$WORKDIR/boot2.log" >&2 || true
     exit 1
   fi
   sleep 0.25
 done
 if [[ ! -f "$MARKER" ]]; then
   echo "pause marker never appeared" >&2
-  kill -INT "$BPID" 2>/dev/null || true
+  kill -KILL "$BPID" 2>/dev/null || true
   wait "$BPID" || true
   exit 1
 fi
 # Require 1 ≤ completed_pairs < total before SIGINT.
 "$PYTHON" - <<PY
 from pathlib import Path
-pairs_path = Path("$WORKDIR2/repo/.testpilot/bootstrap/mutate_pairs.jsonl")
+pairs_path = Path("$WORKDIR/repo_intr/.testpilot/bootstrap/mutate_pairs.jsonl")
 n = 0
 if pairs_path.is_file():
     n = sum(1 for line in pairs_path.read_text().splitlines() if line.strip())
@@ -297,27 +277,48 @@ assert n >= 1, f"completed_pairs before SIGINT={n}"
 assert n < total, f"completed_pairs={n} not < total={total} (need room to resume)"
 print("pre-SIGINT pairs", n, "total", total)
 PY
-kill -INT "$BPID" || true
+# SIGINT while paused; never block forever on wait (CI hang guard).
+kill -INT "$BPID" 2>/dev/null || true
+for _ in $(seq 1 40); do
+  if ! kill -0 "$BPID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.25
+done
+# Unblock pause sleep if signal path stalled, then escalate.
+rm -f "$MARKER"
+kill -INT "$BPID" 2>/dev/null || true
+for _ in $(seq 1 20); do
+  if ! kill -0 "$BPID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.25
+done
+if kill -0 "$BPID" 2>/dev/null; then
+  echo "bootstrap hung after SIGINT; sending KILL" >&2
+  kill -KILL "$BPID" 2>/dev/null || true
+  kill -KILL "-$BPID" 2>/dev/null || true
+fi
 wait "$BPID" || true
 unset TESTPILOT_TEST_PAUSE_AFTER_PAIRS
 rm -f "$MARKER"
 "$PYTHON" - <<PY
 import json
 from pathlib import Path
-st = json.loads(Path("$WORKDIR2/repo/.testpilot/bootstrap/state.json").read_text())
+st = json.loads(Path("$WORKDIR/repo_intr/.testpilot/bootstrap/state.json").read_text())
 assert st.get("status") == "interrupted", st
 assert st.get("steps", {}).get("mutate") == "interrupted", st.get("steps")
 print("interrupted ok")
 PY
-"$BIN" bootstrap --repo "$WORKDIR2/repo" --out "$MODEL2" \
+"$BIN" bootstrap --repo "$WORKDIR/repo_intr" --out "$MODEL2" \
   --max-commits "$N" --mutants-per-commit "$K" --jobs 1 --seed "$SEED" --resume \
-  --train-threads 1 2>&1 | tee "$WORKDIR2/boot2-resume.log"
-grep -q "bootstrap complete" "$WORKDIR2/boot2-resume.log"
+  --train-threads 1 2>&1 | tee "$WORKDIR/boot2-resume.log"
+grep -q "bootstrap complete" "$WORKDIR/boot2-resume.log"
 assert_report_schema "$MODEL2"
-RESUME_JSON=$(collect_mutant_gold "$WORKDIR2/repo")
+RESUME_JSON=$(collect_mutant_gold "$WORKDIR/repo_intr")
 "$PYTHON" - <<PY
 import json
-gold = json.loads('''$GOLD2_JSON''')
+gold = json.loads('''$GOLD_JSON''')
 got = json.loads('''$RESUME_JSON''')
 assert set(got["m_shas"]) == set(gold["m_shas"]), (got["m_shas"], gold["m_shas"])
 assert got["labels"] == gold["labels"], (got["labels"], gold["labels"])
