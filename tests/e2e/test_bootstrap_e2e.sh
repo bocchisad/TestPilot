@@ -98,8 +98,8 @@ cd "$WORKDIR/repo"
   --max-commits 2 --mutants-per-commit 1 --jobs 1 --seed 11 --force \
   --train-threads 1 2>&1 | tee "$WORKDIR/boot1.log"
 test -f "$MODEL1/model.json"
-rg -q "bootstrap complete" "$WORKDIR/boot1.log"
-rg -q "gate: verdict=" "$WORKDIR/boot1.log"
+grep -q "bootstrap complete" "$WORKDIR/boot1.log"
+grep -q "gate: verdict=" "$WORKDIR/boot1.log"
 assert_report_schema "$MODEL1"
 # Select must load the artifact (cold or thin gate → usually cov_lines).
 BASE=$(git rev-parse HEAD~1)
@@ -126,7 +126,7 @@ cd "$WORKDIR2/repo"
 BPID=$!
 # Interrupt once features_dump or train starts (covers train interrupt path).
 for _ in $(seq 1 180); do
-  if rg -q "features_dump:|train:|mutate" "$WORKDIR2/boot2.log" 2>/dev/null; then
+  if grep -Eq "features_dump:|train:|mutate" "$WORKDIR2/boot2.log" 2>/dev/null; then
     kill -INT "$BPID" || true
     break
   fi
@@ -159,7 +159,7 @@ fi
 "$BIN" bootstrap --repo "$WORKDIR2/repo" --out "$MODEL2" \
   --max-commits 2 --mutants-per-commit 1 --jobs 1 --seed 22 --resume \
   --train-threads 1 2>&1 | tee "$WORKDIR2/boot2-resume.log"
-rg -q "bootstrap complete" "$WORKDIR2/boot2-resume.log"
+grep -q "bootstrap complete" "$WORKDIR2/boot2-resume.log"
 test -f "$MODEL2/model.json"
 assert_report_schema "$MODEL2"
 # Optional: if mutate wrote pairs before interrupt, resume must not drop them.
@@ -235,7 +235,7 @@ OUT=$("$BIN" bootstrap --repo "$WORKDIR4/repo" --out "$WORKDIR4/model" \
 RC=$?
 set -e
 test "$RC" -ne 0
-echo "$OUT" | rg -q -- "--force"
+echo "$OUT" | grep -q -- "--force"
 echo "case4 ok"
 
 echo "=== case 5: golden report.json schema (from case1) ==="
