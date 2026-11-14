@@ -983,6 +983,49 @@ fn root_pre_commit_yaml_not_non_py_source() {
     );
 }
 
+#[test]
+fn examples_html_not_non_py_source_even_with_py_sibling() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (mut repo, store) = seed_snapshot_repo(120);
+    // examples/ often ships helper .py next to HTML; must not count as source package.
+    repo.insert_file("0100", "examples/rwbench/index.html", "<html/>\n");
+    repo.insert_file("0100", "examples/rwbench/helper.py", "x = 1\n");
+    repo.insert_file("0100", "src/pkg/__init__.py", "");
+    let hunks = vec![
+        DiffHunk {
+            path: "examples/rwbench/index.html".into(),
+            old_path: None,
+            change_type: 'M',
+            old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            is_binary: false,
+        },
+        pkg_a_hunk(),
+    ];
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &Sha::from_hex("0099"),
+        &Sha::from_hex("0100"),
+        &hunks,
+        &Budget::Count(5),
+        &SafeOpts {
+            min_candidates: 1,
+            src_frac_threshold: 1.0,
+            ..SafeOpts::default()
+        },
+    );
+    assert!(
+        !out.payload
+            .safe
+            .reasons
+            .contains(&"non_py_source".to_string()),
+        "examples/ must be denylisted: {:?}",
+        out.payload.safe.reasons
+    );
+}
+
 fn full_many_run_results(fail_test: Option<&str>, outcome: &str) -> Vec<TestResultRow> {
     let mut ids = Vec::new();
     for i in 0..100 {

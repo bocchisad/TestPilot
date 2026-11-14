@@ -887,6 +887,25 @@ fn path_matches_config_surface(path: &str) -> bool {
 /// Root-level files (`.pre-commit-config.yaml`, lockfiles, …) are not packages.
 /// Paths under `src/` or under a top-level dir that contains non-test `.py` files
 /// (e.g. `pkg/templates/x.html` next to `pkg/a.py`) count.
+/// Top-level dirs that are never treated as installable source packages
+/// (examples, docs benches, demos — even if they contain `.py`).
+const NON_SOURCE_TOP_LEVEL: &[&str] = &[
+    "docs",
+    "tests",
+    ".github",
+    "examples",
+    "example",
+    "docs_src",
+    "benchmarks",
+    "benchmark",
+    "tutorial",
+    "tutorials",
+    "demo",
+    "demos",
+    "samples",
+    "sample",
+];
+
 fn is_inside_source_package(path: &str, all_paths: &[String]) -> bool {
     let p = normalize_path(path);
     if !p.contains('/') {
@@ -896,8 +915,7 @@ fn is_inside_source_package(path: &str, all_paths: &[String]) -> bool {
         return true;
     }
     let top = p.split('/').next().unwrap_or("");
-    if top.is_empty() || top == "docs" || top == "tests" || top == ".github" || top.starts_with('.')
-    {
+    if top.is_empty() || top.starts_with('.') || NON_SOURCE_TOP_LEVEL.contains(&top) {
         return false;
     }
     let prefix = format!("{top}/");
