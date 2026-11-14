@@ -9,6 +9,9 @@ use crate::error::{Error, Result};
 const EMBEDDED_PRIORS: &str =
     include_str!("../../../../docs/measurements/bootstrap_time_priors.json");
 
+/// In-repo path of the embedded default priors (for dry-run attribution).
+pub const EMBEDDED_PRIORS_PATH: &str = "docs/measurements/bootstrap_time_priors.json";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SuiteSeconds {
     pub click: f64,
@@ -30,6 +33,7 @@ pub struct TimeEstimate {
     pub collect_git_s: f64,
     pub backfill_s: f64,
     pub backfill_unmeasured: bool,
+    /// Hat for `|B_set|` ≈ N + last_fp (same value used in plan + backfill lines).
     pub backfill_shas_hat: u32,
     pub mutate_s: f64,
     pub mutate_jobs: u32,
@@ -54,16 +58,18 @@ fn suite_pick(s: &SuiteSeconds, suite: &str) -> f64 {
     }
 }
 
-/// Rough wall-clock estimate. `|B_set|` hat ≈ N + 20 (union last-20 FP).
+/// Rough wall-clock estimate.
+/// `|B_set|` hat ≈ `N + last_fp` where `last_fp` is 20 by default or `--backfill-commits`.
 pub fn estimate_wall(
     n: u32,
     k: u32,
     jobs: u32,
     suite: &str,
     priors: &BootstrapPriors,
+    last_fp: u32,
 ) -> TimeEstimate {
     let jobs = jobs.max(1);
-    let b_hat = n.saturating_add(20);
+    let b_hat = n.saturating_add(last_fp);
     let collect = suite_pick(&priors.collect_git_s, suite);
     let backfill_per = suite_pick(&priors.backfill_s_per_commit, suite);
     let backfill = backfill_per * f64::from(b_hat);
@@ -95,18 +101,27 @@ fn fmt_hours(secs: f64) -> String {
 
 pub fn format_dry_run_report(
     fp: &Fingerprint,
-    b_set_hat: u32,
     est: &TimeEstimate,
     resume_allowed: bool,
+    priors_source: &str,
 ) -> String {
     let mut out = String::new();
     out.push_str("testpilot bootstrap --dry-run\n");
     out.push_str(&format!(
-        "fingerprint: head={} N={} K={} seed={} B_policy={} bin={} schema_v={}\n",
-        fp.head_sha, fp.n, fp.k, fp.seed, fp.b_policy, fp.bin_version, fp.schema_version
+        "fingerprint: head={} N={} K={} seed={} B_policy={} B_override={:?} bin={} schema_v={}\n",
+        fp.head_sha,
+        fp.n,
+        fp.k,
+        fp.seed,
+        fp.b_policy,
+        fp.b_override,
+        fp.bin_version,
+        fp.schema_version
     ));
+    out.push_str(&format!("priors: {priors_source}\n"));
     out.push_str(&format!(
-        "plan: |B_set|≈{b_set_hat}  N×K={}  jobs={}  suite={}\n",
+        "plan: |B_set|≈{}  N×K={}  jobs={}  suite={}\n",
+        est.backfill_shas_hat,
         fp.n.saturating_mul(fp.k),
         est.mutate_jobs,
         est.suite

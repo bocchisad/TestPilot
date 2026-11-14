@@ -7,7 +7,8 @@ mod state;
 
 pub use cleanup::{CleanupReport, startup_cleanup};
 pub use estimate::{
-    TimeEstimate, default_priors, estimate_wall, format_dry_run_report, load_priors_file,
+    EMBEDDED_PRIORS_PATH, TimeEstimate, default_priors, estimate_wall, format_dry_run_report,
+    load_priors_file,
 };
 pub use fingerprint::{BootstrapInputs, Fingerprint, resolve_fingerprint, schema_sql_sha256};
 pub use state::{

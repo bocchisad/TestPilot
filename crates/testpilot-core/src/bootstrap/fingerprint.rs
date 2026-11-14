@@ -5,14 +5,19 @@ use crate::store::{SCHEMA_SQL, SCHEMA_VERSION};
 
 pub const B_POLICY_DEFAULT: &str = "sampled_C_union_last_20_fp";
 
+/// Keys match spec §2.3 (`N`, `K`, `B_policy`, `B_override`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fingerprint {
     pub head_sha: String,
+    #[serde(rename = "N")]
     pub n: u32,
+    #[serde(rename = "K")]
     pub k: u32,
     pub seed: u64,
+    #[serde(rename = "B_policy")]
     pub b_policy: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Always present in JSON (`null` when using the default last-20 limb).
+    #[serde(rename = "B_override")]
     pub b_override: Option<u32>,
     pub bin_version: String,
     pub schema_version: i64,

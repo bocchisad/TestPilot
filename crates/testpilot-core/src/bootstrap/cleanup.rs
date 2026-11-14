@@ -11,6 +11,7 @@ pub struct CleanupReport {
 }
 
 /// R9: `git worktree prune` + delete stale `.testpilot/bootstrap/wt-*`.
+/// Symlinks are unlinked only (target tree is left intact).
 pub fn startup_cleanup(repo: &Path) -> Result<CleanupReport> {
     let mut report = CleanupReport::default();
 
@@ -28,8 +29,20 @@ pub fn startup_cleanup(repo: &Path) -> Result<CleanupReport> {
             let entry = entry.map_err(Error::Io)?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with("wt-") && entry.path().is_dir() {
-                fs::remove_dir_all(entry.path()).map_err(Error::Io)?;
+            if !name.starts_with("wt-") {
+                continue;
+            }
+            let path = entry.path();
+            let ft = entry.file_type().map_err(Error::Io)?;
+            if ft.is_symlink() {
+                // Unlink the symlink only — never follow into an external target.
+                fs::remove_file(&path).map_err(Error::Io)?;
+                report.removed_wt_dirs += 1;
+            } else if ft.is_dir() {
+                fs::remove_dir_all(&path).map_err(Error::Io)?;
+                report.removed_wt_dirs += 1;
+            } else if ft.is_file() {
+                fs::remove_file(&path).map_err(Error::Io)?;
                 report.removed_wt_dirs += 1;
             }
         }

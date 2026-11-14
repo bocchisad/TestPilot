@@ -4,9 +4,9 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use testpilot_core::bootstrap::{
-    self, BootstrapInputs, ResumeDecision, decide_resume, default_priors, estimate_wall,
-    format_dry_run_report, load_priors_file, resolve_fingerprint, save_state, startup_cleanup,
-    state_path,
+    self, BootstrapInputs, EMBEDDED_PRIORS_PATH, ResumeDecision, decide_resume, default_priors,
+    estimate_wall, format_dry_run_report, load_priors_file, resolve_fingerprint, save_state,
+    startup_cleanup, state_path,
 };
 use testpilot_core::codec;
 use testpilot_core::collect_junit::{CollectJunitOpts, collect_junit, resolve_sha};
@@ -718,28 +718,36 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     };
     let fp = resolve_fingerprint(&inputs);
 
-    let mut priors = default_priors();
     let local_priors = repo.join(".testpilot/bootstrap/priors.json");
-    if local_priors.is_file() {
-        priors = load_priors_file(&local_priors).context("load local priors.json")?;
-    }
+    let (priors, priors_source) = if local_priors.is_file() {
+        (
+            load_priors_file(&local_priors).context("load local priors.json")?,
+            local_priors.display().to_string(),
+        )
+    } else {
+        (
+            default_priors(),
+            format!("{EMBEDDED_PRIORS_PATH} (embedded)"),
+        )
+    };
+    let last_fp = opts.backfill_commits.unwrap_or(20);
     let est = estimate_wall(
         opts.max_commits,
         opts.mutants_per_commit,
         opts.jobs,
         &opts.suite,
         &priors,
+        last_fp,
     );
-    let b_hat = opts
-        .max_commits
-        .saturating_add(opts.backfill_commits.unwrap_or(20));
 
     if opts.dry_run {
-        let resume_allowed =
-            !matches!(decide_resume(&repo, &fp, false)?, ResumeDecision::Refuse { .. });
+        let resume_allowed = !matches!(
+            decide_resume(&repo, &fp, false)?,
+            ResumeDecision::Refuse { .. }
+        );
         print!(
             "{}",
-            format_dry_run_report(&fp, b_hat, &est, resume_allowed)
+            format_dry_run_report(&fp, &est, resume_allowed, &priors_source)
         );
         if let Some(tb) = opts.time_budget {
             println!("time-budget flag: {tb}s (not applied in dry-run)");
@@ -747,7 +755,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         if let Some(ref out) = opts.out {
             println!("out: {}", out.display());
         }
-        // Explicit: no writes under --dry-run.
+        // Explicit: no writes / no cleanup under --dry-run.
         return Ok(());
     }
 

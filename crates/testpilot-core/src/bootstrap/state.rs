@@ -78,13 +78,18 @@ pub fn load_state(repo: &Path) -> Result<Option<BootstrapState>> {
     Ok(Some(state))
 }
 
+/// Atomic write: `state.json.tmp` next to the final path, then rename.
 pub fn save_state(repo: &Path, state: &BootstrapState) -> Result<()> {
     let dir = bootstrap_dir(repo);
     fs::create_dir_all(&dir)?;
     let path = state_path(repo);
+    let tmp = dir.join("state.json.tmp");
     let raw = serde_json::to_string_pretty(state)
         .map_err(|e| Error::Other(format!("serialize state: {e}")))?;
-    fs::write(&path, raw)?;
+    fs::write(&tmp, &raw)?;
+    fs::rename(&tmp, &path)?;
+    // Best-effort: if rename somehow left a tmp (cross-fs), remove it.
+    let _ = fs::remove_file(&tmp);
     Ok(())
 }
 
