@@ -91,11 +91,9 @@ echo "=== env fingerprint ==="
     echo "less=$(command -v less)"
   fi
 } | tee docs/measurements/env-host.txt
-python3 -m pip freeze > docs/measurements/env-pip-freeze.txt
-python3 - <<'PYVERS' > docs/measurements/env-training-versions.json
-import sys, json, importlib.metadata as m
-print(json.dumps({"python":sys.version.split()[0], "pytest":m.version("pytest"), "lightgbm":m.version("lightgbm")}, indent=2))
-PYVERS
+python3 scripts/measurement_environment.py \
+  --freeze-out docs/measurements/env-pip-freeze.txt \
+  --versions-out docs/measurements/env-training-versions.json
 
 echo "=== ensure pinned clones ==="
 ensure_repo click "$URL_CLICK" "$PINS_CLICK_SHA"

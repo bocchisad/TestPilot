@@ -10,8 +10,8 @@ pyarrow==18.1.0
 pytest==8.3.4
 pytest-cov==7.1.0
 pytest-rerunfailures==16.7
-pytest-testpilot @ file:///Users/gothscum/Documents/%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/TestPilot/python/pytest-testpilot
+pytest-testpilot==0.1.0
 pytest-xdist==3.8.0
 ruff==0.8.4
 scipy==1.18.1
--e git+https://github.com/bocchisad/TestPilot.git@fd8546f0bac459bfb15cd4a226191807bd7c6579#egg=testpilot_train&subdirectory=python/testpilot-train
+-e git+https://github.com/bocchisad/TestPilot.git@776c8d0dfc91bf20ef1cd8166cf7ed39f29f1b20#egg=testpilot_train&subdirectory=python/testpilot-train
