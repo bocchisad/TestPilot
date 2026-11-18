@@ -95,3 +95,20 @@ pub fn shas_needing_backfill(store: &Store, planned: &[String]) -> Result<Vec<St
     }
     Ok(need)
 }
+
+/// Count reusable runs without applying migrations, PRAGMA writes or creating a DB.
+pub fn dry_backfill_counts(db: &Path, planned: &[String]) -> Result<(u32, u32)> {
+    if !db.is_file() {
+        return Ok((planned.len() as u32, 0));
+    }
+    let conn =
+        rusqlite::Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut reused = 0;
+    for sha in planned {
+        let yes: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM test_runs r WHERE r.sha=?1 AND r.dirty=0 AND r.synthetic=0 AND r.partial=0 AND r.finished_at IS NOT NULL AND EXISTS(SELECT 1 FROM test_results t WHERE t.run_id=r.id))", [sha], |r| r.get(0))?;
+        if yes {
+            reused += 1;
+        }
+    }
+    Ok((planned.len() as u32 - reused, reused))
+}

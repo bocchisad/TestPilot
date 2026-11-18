@@ -458,19 +458,21 @@ def run_mutant(
     env = {
         "LC_ALL": os.environ.get("LC_ALL", "en_US.UTF-8"),
         "LANG": os.environ.get("LANG", "en_US.UTF-8"),
+        "PYTHONPATH": str(wt),  # never import the original checkout through inherited PYTHONPATH
     }
     extra = pytest_extra_args or []
     warn_args = _pytest_warn_args(python_bin)
 
-    if pip_bin is not None and install_project_cb is not None:
-        ok, log = install_project_cb(pip_bin, wt)  # type: ignore[misc]
-        if not ok:
-            return MutantRunResult(
-                ok=False,
-                log_tail=str(log)[-2000:],
-            )
-
     try:
+        if pip_bin is not None and install_project_cb is not None:
+            ok, log = install_project_cb(pip_bin, wt)  # type: ignore[misc]
+            if not ok:
+                return MutantRunResult(
+                    ok=False,
+                    log_tail=str(log)[-2000:],
+                )
+        if not pytest_bin.is_file() or not os.access(pytest_bin, os.X_OK):
+            raise OSError(f"pytest executable missing or not executable: {pytest_bin}")
         cmd = [
             str(pytest_bin),
             f"--junitxml={junit1}",
@@ -491,6 +493,8 @@ def run_mutant(
                 orphan_check_ok=orphan_ok,
             )
 
+        if not junit1.is_file():
+            return MutantRunResult(ok=False, pytest_rc=rc, log_tail=f"pytest produced no JUnit report: {tail}")
         collection_error = bool(_COLLECTION_RE.search(tail)) or (
             rc == 2 and not junit1.is_file()
         )
@@ -516,6 +520,8 @@ def run_mutant(
                 *warn_args,
                 *failed,
             ]
+            if not pytest_bin.is_file() or not os.access(pytest_bin, os.X_OK):
+                raise OSError(f"pytest executable missing before flaky rerun: {pytest_bin}")
             rc2, timed_out2, tail2, pgid2 = _run_pytest_group(
                 rerun, wt, env, timeout_sec
             )
@@ -598,6 +604,8 @@ def run_mutant(
             log_tail=tail,
             orphan_check_ok=orphan_ok,
         )
+    except OSError as exc:
+        return MutantRunResult(ok=False, log_tail=f"cannot execute mutant pytest: {exc}")
     finally:
         _run(["git", "worktree", "remove", "--force", str(wt)], cwd=repo, check=False)
         if wt.exists():

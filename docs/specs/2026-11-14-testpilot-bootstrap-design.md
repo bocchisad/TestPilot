@@ -221,28 +221,17 @@ Empirical fraction: \(n_C^{\text{test}} / N \approx 17/80 \approx 0.21\) (order-
 
 Report **must** print for val and test: `n_C`, `n_mutants` (changes with label), and cluster-paired CI.
 
-### 3.2 Time priors (R7) — calibrated from 80×5
+### 3.2 Time priors (T6 calibration)
 
-**Sources (in-repo only):**
+Source: `docs/measurements/bootstrap_time_priors.json`, user-provided N=20 K=4 calibration. Backfill seconds/commit click/jinja/attrs: 3.673 / 5.998 / 16.926. Mutation wall seconds/attempted: 3.018 (jobs=1, n=12) / 3.325 (jobs=2, n=22) / 5.491 (jobs=2, n=20). Attrs 16.926 excludes mypy; old 17.139 included it. Collect: 2.4 / 2.6 / 1.2 seconds; dump+train: 4.2 / 10.5 / 5.7.
 
-1. Scale/outcomes: [`docs/measurements/mut2-80x5-click-jinja.json`](../measurements/mut2-80x5-click-jinja.json).  
-2. Per-mutant wall prior: Week-3 design [`2026-11-11-testpilot-mutation-bootstrap-design.md`](2026-11-11-testpilot-mutation-bootstrap-design.md) §5.1 — click ~**10–13 s/mutant** without coverage. Use **12 s** click, **8 s** jinja as mutate hats until a bootstrap run writes `.testpilot/bootstrap/priors.json`.  
-3. Default dry-run hats also live in [`docs/measurements/bootstrap_time_priors.json`](../measurements/bootstrap_time_priors.json) (embedded/loaded by bootstrap; never `/tmp`).
+`T = collect + n_new_current * backfill_rate + pending_attempted_hat * mutate_wall_rate + dump_train`. Do not divide wall/attempted by jobs again. Density at K=4 assumes n_samples=attempted and n_new_calibration=20, yielding 12/20, 22/20, 20/20 attempted/history-commit; other K extrapolates linearly. Current reused history can still have pending mutants even when n_new_current=0. Completed pairs reduce remaining mutation work.
 
-**Backfill is likely the dominant wall cost** (C runs need coverage for features; ~200 C can exceed mutate). The **1.5–3 min/commit** figure is an **unmeasured placeholder** — mark it as such in dry-run and replace after T6 measurements.
+Conditional N=200 estimates: click 1103.36s, jinja 1944.20s, attrs 4490.30s; with a second click 8641.22s. These are estimates, not new measurements. Click's rate was measured at jobs=1; transfer to jobs=2 and worker-local environments is unmeasured. Extra venv setup may change totals. Every field retains per-suite provenance; legacy global measured flags cannot establish that a particular suite was measured.
 
-Linear scale from **80×5 = 400** mutants:
+Mutation executors use one venv per worker, one active mutant per worker, and a common installation lock. Pip cannot modify another worker's environment or editable target. pytest executions can overlap. Infrastructure failure is not a surviving or completed mutant; ordinary failures preserve completed pairs and failed state, interruption preserves interrupted state. Resume retries incomplete pairs.
 
-| Step | Prior (click) | Prior (jinja) | Derivation |
-|------|---------------|---------------|------------|
-| collect git | 1–3 min | 1–2 min | order-of-magnitude |
-| backfill (cold \|limb\|≈max(N,20)) | measured rates in `bootstrap_time_priors.json` (T6) | same file (click/jinja/attrs) | dry-run hats use limb size, not N+20; see §2.5 |
-| mutate 400 @ jobs=1 | 400×12 s ≈ **1.3 h** | 400×8 s ≈ **0.9 h** | §5.1 × 80×5 |
-| mutate 800 @ jobs=1 | **~2.7 h** | **~1.8 h** | ×2 vs 400 |
-| mutate 800 @ jobs=2 | **~1.4 h** | **~1.0 h** | /jobs (DB queue overhead ignored in hat) |
-| dump + train | 10–30 min | 5–15 min | order-of-magnitude |
-
-After first successful bootstrap on a repo, write `.testpilot/bootstrap/priors.json` (`t_mutant_s`, `t_backfill_s_per_commit`, …) for subsequent dry-runs. **T6:** measure real backfill seconds/commit on click/jinja/attrs.
+The measurement script defaults to dry-run only, in fresh temporary clones without leftover priors. A small estimate does not authorize full runs. Local writeback is separate from versioned calibration and is never copied wholesale into docs.
 
 ### 3.3 Third measurement repo (R11)
 
@@ -473,7 +462,7 @@ BIN=./target/release/testpilot
 
 ### T3 — collect + backfill (R6) + mutate + dump (R8)
 
-- [ ] B_set = sampled C ∪ last 20 FP; reuse real C runs.  
+- [ ] Cold backfill last max(N,20) FP, then sample; warm union sampled C and limb, reuse real C runs.
 - [ ] Mutate resume; jobs + DB queue; dump done via DB fingerprint.  
 - [ ] Commit: `Wire bootstrap backfill, mutate, and fingerprint dump.`
 

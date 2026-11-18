@@ -26,6 +26,7 @@ pub enum StepStatus {
     Pending,
     Done,
     Interrupted,
+    Failed,
     Skipped,
 }
 
@@ -61,6 +62,11 @@ pub struct BootstrapState {
     /// Mutate counters from last successful mutate JSON (for report / rates).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_mutants_attempted: Option<u32>,
+    /// Step wall spans multiple invocations; last invocation counters cannot define a rate.
+    #[serde(default)]
+    pub mutate_rate_incomplete: bool,
+    #[serde(default)]
+    pub mutate_environments: BTreeMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_timeout: Option<u32>,
     /// Set when mutate is skipped (e.g. `no_eligible_C`); step still marked done.
@@ -127,6 +133,8 @@ pub fn load_or_init_state(
         n_backfill_new: None,
         n_backfill_reused: None,
         n_mutants_attempted: None,
+        mutate_rate_incomplete: false,
+        mutate_environments: BTreeMap::new(),
         n_timeout: None,
         mutate_skip_reason: None,
     })

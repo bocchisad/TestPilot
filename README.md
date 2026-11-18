@@ -67,14 +67,16 @@ cargo build -p testpilot-cli --release
 
 Gate `use_baseline` reasons (select uses `cov_lines` from the same artifact — no `model.txt` required):
 
-- `insufficient_commit_idx` — unique `commit_idx` &lt; 10; chrono_split never starts (cold path before the quality gate).
-- `insufficient_test_C` — split ran, but synth TEST has `n_C` &lt; 10 (not a different “data insufficient” label for the cold path).
+- `insufficient_commit_idx` — unique `commit_idx` < 10; chrono_split never starts (cold path before the quality gate).
+- `insufficient_test_C` — split ran, but synth TEST has `n_C` < 10 (not a different “data insufficient” label for the cold path).
 
 After more history or a larger N, re-run with `--force`.
 
 **n_C widths** (why 200×4): see [`docs/measurements/mut2-80x5-click-jinja.json`](docs/measurements/mut2-80x5-click-jinja.json). **Measured step times / timeout rates / LORO:** [`docs/measurements/`](docs/measurements/) (do not invent numbers — open the JSON files). Dry-run hats: [`docs/measurements/bootstrap_time_priors.json`](docs/measurements/bootstrap_time_priors.json).
 
 **Click on Linux:** install **`less`**. Without it, pager tests fail on every commit (persistent, not `new_fail`).
+
+Bootstrap mutation workers use separate virtual environments (one per worker); installations are serialized while pytest executions may overlap. Dry-run wall/attempted calibration already includes concurrency and is not divided by jobs again. The supplied N=20 calibration is extrapolated to worker-local environments; their extra setup cost has not been measured. `scripts/measure_bootstrap_w6.sh` defaults to `--dry-run-only`; `--full` requires a separate decision after reviewing estimates. Existing `.cache/repos/` data is preserved: measurements use fresh temporary clones.
 
 ### Mutation bootstrap (low-level; when real `new_fail` is absent)
 
@@ -100,7 +102,7 @@ testpilot select \
   --format lines | xargs -r pytest
 ```
 
-Exactly one budget: `--budget-frac F` (0&lt;F≤1), `--max-tests N` (N≥1), or `--time-budget SECONDS`. Formats: `lines` (default), `table`, `json`. Use `--worktree` or `--head WORKTREE` for dirty trees (time features use **HEAD** author time, not wall clock).
+Exactly one budget: `--budget-frac F` (0<F≤1), `--max-tests N` (N≥1), or `--time-budget SECONDS`. Formats: `lines` (default), `table`, `json`. Use `--worktree` or `--head WORKTREE` for dirty trees (time features use **HEAD** author time, not wall clock).
 
 **Limitations:** models trained on mutation bootstrap may have near-constant history features (`t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag`); if `useful_on_val` is null the CLI warns that the model was validated on synthetic data only. Candidates are pytest nodeids (as in dump/train); parametrized ids from the base run are kept, but newly discovered defs are emitted bare (no param expansion — one bare id may expand to N collected nodeids). **Scanner change (PR #6):** `scan_python` now handles `#` comments, triple-quoted strings in paren continuations, and nested `@` correctly — change/import features that depend on def spans differ from earlier builds. **Retrain** models trained before this fix: re-run `features dump --include-mutants` + `testpilot-train` (no need to regenerate mutants). Design: [`docs/specs/2026-11-13-testpilot-select-design.md`](docs/specs/2026-11-13-testpilot-select-design.md). Latency: `scripts/bench_select.py` (pass **`--no-safe`** for Week-4 parity). Local scan vs collect check: `scripts/check_scan_collect_coverage.py`.
 

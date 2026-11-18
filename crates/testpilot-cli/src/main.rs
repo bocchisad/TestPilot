@@ -743,26 +743,11 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
     let last_fp_available = first_parent_shas(&repo, limb_n)
         .map(|v| v.len() as u32)
         .unwrap_or(limb_n);
-    let est = estimate_wall(
-        opts.max_commits,
-        opts.mutants_per_commit,
-        opts.jobs,
-        &opts.suite,
-        &priors,
-        limb_n,
-    );
 
     if opts.dry_run {
         let resume_allowed = !matches!(
             decide_resume(&repo, &fp, false)?,
             ResumeDecision::Refuse { .. }
-        );
-        print!(
-            "{}",
-            format_dry_run_report(&fp, &est, resume_allowed, &priors_source)
-        );
-        println!(
-            "last_fp_available={last_fp_available} requested_limb={limb_n} (cold: backfill last max(N,20) FP then sample)"
         );
         // Same limb as live cold path.
         let fp_limb = first_parent_shas(&repo, limb_n).unwrap_or_default();
@@ -770,16 +755,72 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             .db
             .clone()
             .unwrap_or_else(|| repo.join(".testpilot/db.sqlite"));
+        // SQLite readers of WAL databases may create -shm files even in read-only
+        // mode. Read a private copy so dry-run cannot touch the repository DB.
+        let snapshot = tempfile::tempdir()?;
+        let snapshot_db = snapshot.path().join("db.sqlite");
+        if db_path.is_file() {
+            let before = std::fs::metadata(&db_path)?;
+            std::fs::copy(&db_path, &snapshot_db)?;
+            let wal = std::path::PathBuf::from(format!("{}-wal", db_path.display()));
+            if wal.is_file() {
+                std::fs::copy(&wal, snapshot.path().join("db.sqlite-wal"))?;
+            }
+            let after = std::fs::metadata(&db_path)?;
+            if before.len() != after.len() || before.modified()? != after.modified()? {
+                bail!(
+                    "database changed during dry-run snapshot; retry without a concurrent writer"
+                );
+            }
+        }
         let sampled = if db_path.is_file() {
             let scripts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
-            sample_commits_py_repo(&scripts, &db_path, opts.max_commits, opts.seed, Some(&repo))
-                .map(|s| s.sampled)
-                .unwrap_or_default()
+            sample_commits_py_repo(
+                &scripts,
+                &snapshot_db,
+                opts.max_commits,
+                opts.seed,
+                Some(&repo),
+            )
+            .map(|s| s.sampled)
+            .unwrap_or_default()
         } else {
             vec![]
         };
         let b_set = build_b_set(&repo, &fp_limb, &sampled)
             .unwrap_or_else(|_| union_b_set(&fp_limb, &sampled));
+        let (new, reused) = bootstrap::dry_backfill_counts(&snapshot_db, &b_set)?;
+        let existing = if opts.force {
+            None
+        } else {
+            bootstrap::load_state(&repo)?
+        };
+        let completed = existing
+            .as_ref()
+            .filter(|s| s.fingerprint == fp)
+            .map(|s| s.mutate_completed_pairs.len() as u32)
+            .unwrap_or(0);
+        // Warm samples can extend beyond the cold FP limb; include their candidate history.
+        let history_width = (b_set.len() as u32).max(last_fp_available);
+        let mut est = estimate_wall(
+            opts.max_commits,
+            opts.mutants_per_commit,
+            opts.jobs,
+            &opts.suite,
+            &priors,
+            history_width,
+        );
+        est.remaining(&priors, new, reused, completed);
+        if existing.as_ref().is_some_and(|s| {
+            s.fingerprint == fp && s.steps.get("mutate") == Some(&StepStatus::Done)
+        }) {
+            est.remaining(&priors, new, reused, u32::MAX);
+        }
+        print!(
+            "{}",
+            format_dry_run_report(&fp, &est, resume_allowed, &priors_source)
+        );
+        println!("last_fp_available={last_fp_available} requested_limb={limb_n}");
         println!(
             "B_set={}",
             serde_json::to_string(&b_set).unwrap_or_else(|_| "[]".into())
@@ -1012,6 +1053,14 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                     .map(|d| d.as_secs_f64() + remain)
                     .unwrap_or(0.0)
             });
+            if state.step_timings_s.get("mutate").copied().unwrap_or(0.0) > 0.0
+                || matches!(
+                    state.steps.get("mutate"),
+                    Some(StepStatus::Interrupted | StepStatus::Failed)
+                )
+            {
+                state.mutate_rate_incomplete = true;
+            }
             let seed_mutate = opts.seed ^ 0x4D55;
             let mutate_out = match run_mutate(
                 &scripts,
@@ -1037,12 +1086,16 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                     add_step_timing(&mut state, "mutate", t0.elapsed().as_secs_f64());
                     return bootstrap_flush_interrupted(&repo, &mut state, "mutate");
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    save_mutate_failure(&repo, &mut state, &e, t0.elapsed().as_secs_f64())?;
+                    return Err(e);
+                }
             };
             merge_completed_pairs(
                 &mut state.mutate_completed_pairs,
                 &mutate_out.completed_pairs,
             );
+            state.mutate_environments.extend(mutate_out.environments);
             state.n_mutants_attempted = Some(mutate_out.n_mutants_attempted);
             state.n_timeout = Some(mutate_out.n_timeout);
             state.mutate_skip_reason = None;
@@ -1152,7 +1205,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         state.steps.insert("finalize".into(), StepStatus::Done);
         add_step_timing(&mut state, "finalize", t0.elapsed().as_secs_f64());
         write_bootstrap_finalize(&repo, &out_dir, &state, &opts, &steps_resumed)?;
-        maybe_write_local_priors(&repo, &state, &opts.suite)?;
+        maybe_write_local_priors(&repo, &state, &opts.suite, opts.jobs)?;
         save_state(&repo, &state)?;
     }
 
@@ -1194,6 +1247,9 @@ fn backfill_rate_fields(
 }
 
 fn mutate_rate_fields(state: &bootstrap::BootstrapState) -> serde_json::Value {
+    if state.mutate_rate_incomplete {
+        return serde_json::Value::Null;
+    }
     let attempted = state.n_mutants_attempted.unwrap_or(0);
     let wall = state.step_timings_s.get("mutate").copied().unwrap_or(0.0);
     if attempted == 0 {
@@ -1217,6 +1273,7 @@ fn maybe_write_local_priors(
     repo: &Path,
     state: &bootstrap::BootstrapState,
     suite: &str,
+    jobs: u32,
 ) -> Result<()> {
     let n_new = state.n_backfill_new.unwrap_or(0);
     let attempted = state.n_mutants_attempted.unwrap_or(0);
@@ -1225,42 +1282,22 @@ fn maybe_write_local_priors(
     if n_new < 10 && attempted == 0 {
         return Ok(());
     }
-    // Start from defaults; only mark measured for suites we actually update.
     let mut priors = default_priors();
-    priors.backfill_s_per_commit.measured = false;
-    priors.mutate_s_per_mutant.measured = false;
     if n_new >= 10 {
-        let rate = backfill_wall / f64::from(n_new);
-        match suite {
-            "jinja" => {
-                priors.backfill_s_per_commit.jinja = rate;
-                priors.backfill_s_per_commit.measured = true;
-            }
-            "attrs" => {
-                priors.backfill_s_per_commit.attrs = rate;
-                priors.backfill_s_per_commit.measured = true;
-            }
-            _ => {
-                priors.backfill_s_per_commit.click = rate;
-                priors.backfill_s_per_commit.measured = true;
-            }
-        }
+        priors
+            .backfill_s_per_commit
+            .record(suite, backfill_wall / f64::from(n_new), n_new, 1);
     }
-    if attempted > 0 {
-        let rate = mutate_wall / f64::from(attempted);
-        match suite {
-            "jinja" => {
-                priors.mutate_s_per_mutant.jinja = rate;
-                priors.mutate_s_per_mutant.measured = true;
-            }
-            "attrs" => {
-                priors.mutate_s_per_mutant.attrs = rate;
-                priors.mutate_s_per_mutant.measured = true;
-            }
-            _ => {
-                priors.mutate_s_per_mutant.click = rate;
-                priors.mutate_s_per_mutant.measured = true;
-            }
+    if attempted > 0 && !state.mutate_rate_incomplete {
+        // Resume step timings are cumulative but attempted may cover just the last invocation.
+        // Avoid claiming a new measurement when the denominator spans different attempts.
+        if state.mutate_completed_pairs.len() as u32 == attempted {
+            priors.mutate_s_per_mutant.record(
+                suite,
+                mutate_wall / f64::from(attempted),
+                attempted,
+                jobs,
+            );
         }
     }
     let path = repo.join(".testpilot/bootstrap/priors.json");
@@ -1306,6 +1343,9 @@ fn write_bootstrap_finalize(
         "n_timeout": state.n_timeout,
         "timeout_rate": timeout_rate,
         "mutate_s_per_mutant": mutate_s_per_mutant,
+        "mutate_s_per_mutant_reason": if state.mutate_rate_incomplete { Some("resumed_step_wall_with_last_invocation_counters") } else { None },
+        "mutate_counters_scope": "last_successful_invocation",
+        "mutate_environments": state.mutate_environments,
         "mutate_skip_reason": state.mutate_skip_reason,
         "mutate_completed_pairs": state.mutate_completed_pairs.len(),
         "jobs": opts.jobs,
@@ -1724,6 +1764,7 @@ impl std::fmt::Display for MutateInterrupted {
 impl std::error::Error for MutateInterrupted {}
 
 struct MutateOut {
+    environments: std::collections::BTreeMap<String, serde_json::Value>,
     completed_pairs: Vec<String>,
     interrupted: bool,
     n_mutants_attempted: u32,
@@ -1732,6 +1773,7 @@ struct MutateOut {
 
 fn parse_mutate_json(stdout: &[u8]) -> MutateOut {
     let empty = MutateOut {
+        environments: Default::default(),
         completed_pairs: vec![],
         interrupted: false,
         n_mutants_attempted: 0,
@@ -1781,6 +1823,11 @@ fn parse_mutate_json(stdout: &[u8]) -> MutateOut {
         .unwrap_or(0) as u32;
     let n_timeout = v.get("n_timeout").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
     MutateOut {
+        environments: v
+            .get("environments")
+            .and_then(|v| v.as_object())
+            .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default(),
         completed_pairs: pairs,
         interrupted,
         n_mutants_attempted,
@@ -1885,6 +1932,35 @@ fn run_backfill_shas(
     Ok(())
 }
 
+fn save_mutate_failure(
+    repo: &Path,
+    state: &mut bootstrap::BootstrapState,
+    error: &anyhow::Error,
+    wall: f64,
+) -> Result<()> {
+    if let Some(partial) = error.downcast_ref::<MutateFailed>() {
+        merge_completed_pairs(&mut state.mutate_completed_pairs, &partial.completed_pairs);
+    }
+    add_step_timing(state, "mutate", wall);
+    state.status = Some("failed".into());
+    state.steps.insert("mutate".into(), StepStatus::Failed);
+    save_state(repo, state)?;
+    Ok(())
+}
+
+#[derive(Debug)]
+struct MutateFailed {
+    completed_pairs: Vec<String>,
+    message: String,
+}
+
+impl std::fmt::Display for MutateFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+impl std::error::Error for MutateFailed {}
+
 #[allow(clippy::too_many_arguments)]
 fn run_mutate(
     scripts: &Path,
@@ -1959,10 +2035,14 @@ fn run_mutate(
         .into());
     }
     if !st.success() {
-        bail!(
-            "mutate_bootstrap.py failed with {st}: {}",
-            String::from_utf8_lossy(&stderr)
-        );
+        return Err(MutateFailed {
+            completed_pairs: parsed.completed_pairs,
+            message: format!(
+                "mutate_bootstrap.py failed with {st}: {}",
+                String::from_utf8_lossy(&stderr)
+            ),
+        }
+        .into());
     }
     Ok(parsed)
 }
@@ -2077,7 +2157,7 @@ fn civil_to_unix(y: i64, m: i64, d: i64) -> i64 {
 
 #[cfg(test)]
 mod gate_verdict_tests {
-    use super::{gate_verdict_from_model, parse_mutate_json};
+    use super::*;
 
     #[test]
     fn bootstrap_block_wins() {
@@ -2183,5 +2263,59 @@ progress: {\"pair\":\"abc:0\"}\n\
         let out = parse_mutate_json(b"no json here\n");
         assert!(out.completed_pairs.is_empty());
         assert_eq!(out.n_mutants_attempted, 0);
+    }
+    #[test]
+    fn ordinary_mutate_failure_persists_partial_pairs_and_failed_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let fp = bootstrap::Fingerprint {
+            head_sha: "abc".into(),
+            n: 2,
+            k: 1,
+            seed: 42,
+            b_policy: "test".into(),
+            b_override: None,
+            bin_version: "test".into(),
+            schema_version: 7,
+            schema_sql_sha256: "test".into(),
+        };
+        let mut state = bootstrap::load_or_init_state(dir.path(), fp, false).unwrap();
+        state.mutate_completed_pairs.push("first:0".into());
+        let error = MutateFailed {
+            completed_pairs: vec!["second:0".into()],
+            message: "injected ordinary failure".into(),
+        }
+        .into();
+        save_mutate_failure(dir.path(), &mut state, &error, 1.5).unwrap();
+        let loaded = bootstrap::load_state(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.status.as_deref(), Some("failed"));
+        assert_eq!(loaded.steps["mutate"], StepStatus::Failed);
+        assert_eq!(loaded.mutate_completed_pairs, vec!["first:0", "second:0"]);
+        assert_eq!(loaded.step_timings_s["mutate"], 1.5);
+    }
+    #[test]
+    fn resumed_mutate_rate_is_null_instead_of_dividing_cumulative_wall() {
+        let dir = tempfile::tempdir().unwrap();
+        let fp = bootstrap::Fingerprint {
+            head_sha: "abc".into(),
+            n: 2,
+            k: 1,
+            seed: 42,
+            b_policy: "test".into(),
+            b_override: None,
+            bin_version: "test".into(),
+            schema_version: 7,
+            schema_sql_sha256: "test".into(),
+        };
+        let mut state = bootstrap::load_or_init_state(dir.path(), fp, false).unwrap();
+        state.n_mutants_attempted = Some(2);
+        state.step_timings_s.insert("mutate".into(), 30.0);
+        state.mutate_rate_incomplete = true;
+        assert!(mutate_rate_fields(&state).is_null());
+        maybe_write_local_priors(dir.path(), &state, "click", 2).unwrap();
+        let path = dir.path().join(".testpilot/bootstrap/priors.json");
+        if path.exists() {
+            let priors = load_priors_file(&path).unwrap();
+            assert_eq!(priors.mutate_s_per_mutant.click, 3.018);
+        }
     }
 }

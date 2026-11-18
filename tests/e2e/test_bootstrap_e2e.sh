@@ -126,6 +126,7 @@ repo = Path("$repo")
 log = Path("$boot_log").read_text(encoding="utf-8", errors="replace")
 # Parse pretty-printed JSON objects (brace depth) for n_mutants_attempted.
 n_attempted = None
+n_sampled = None
 dec = json.JSONDecoder()
 i = 0
 while i < len(log):
@@ -139,6 +140,8 @@ while i < len(log):
         continue
     if isinstance(obj, dict) and "n_mutants_attempted" in obj:
         n_attempted = obj.get("n_mutants_attempted")
+        if "n_commits_sampled" in obj:
+            n_sampled = obj["n_commits_sampled"]
     i = end
 if n_attempted is None:
     db = repo / ".testpilot" / "db.sqlite"
@@ -152,6 +155,7 @@ if n_attempted is None:
 else:
     assert n_attempted > 0, f"n_mutants_attempted={n_attempted} (mutate no-op)"
     print("mutate ok n_mutants_attempted", n_attempted)
+assert n_sampled is not None and n_sampled > 1, f"post-backfill sampled={n_sampled}"
 st = json.loads((repo / ".testpilot" / "bootstrap" / "state.json").read_text())
 fp = st.get("dump_fingerprint") or {}
 n_syn = fp.get("n_synthetic_runs", 0)

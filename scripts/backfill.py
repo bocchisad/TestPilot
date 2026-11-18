@@ -114,12 +114,14 @@ def install_project(pip: Path, wt: Path) -> tuple[bool, str]:
         )
         return r
 
-    # Base package (editable preferred).
-    base = pip_run(["install", "-e", "."])
-    if base.returncode != 0:
-        base = pip_run(["install", "."])
+    # Source-only repositories need no package installation. Still load test requirements.
+    if (wt / "pyproject.toml").is_file() or (wt / "setup.py").is_file():
+        # Base package (editable preferred).
+        base = pip_run(["install", "-e", "."])
         if base.returncode != 0:
-            return False, "\n".join(logs)[-4000:]
+            base = pip_run(["install", "."])
+            if base.returncode != 0:
+                return False, "\n".join(logs)[-4000:]
 
     extras = _declared_extras(wt)
     for name in _EXTRA_CANDIDATES:

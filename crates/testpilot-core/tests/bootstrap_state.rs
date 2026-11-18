@@ -342,6 +342,8 @@ fn step_timings_sum_across_resume_and_pending_steps() {
         n_backfill_new: None,
         n_backfill_reused: None,
         n_mutants_attempted: None,
+        mutate_rate_incomplete: false,
+        mutate_environments: Default::default(),
         n_timeout: None,
         mutate_skip_reason: None,
     };
@@ -438,4 +440,48 @@ fn estimate_respects_cold_limb_not_n_plus_fp() {
         "must print number not Some(30): {text}"
     );
     assert!(!text.contains("Some("), "{text}");
+}
+
+#[test]
+fn calibrated_wall_rate_is_not_divided_by_jobs_again() {
+    let priors = default_priors();
+    for (suite, expected, attempted) in [
+        ("click", 1103.36, 120.0),
+        ("jinja", 1944.2, 220.0),
+        ("attrs", 4490.3, 200.0),
+    ] {
+        let one = estimate_wall(200, 4, 1, suite, &priors, 200);
+        let two = estimate_wall(200, 4, 2, suite, &priors, 200);
+        assert!((two.total_s - expected).abs() < 1e-8);
+        assert_eq!(one.total_s, two.total_s);
+        assert!((two.attempted_hat - attempted).abs() < 1e-8);
+    }
+}
+
+#[test]
+fn warm_backfill_zero_still_has_pending_mutations_but_resume_can_finish() {
+    let priors = default_priors();
+    let mut est = estimate_wall(200, 4, 2, "click", &priors, 200);
+    est.remaining(&priors, 0, 200, 0);
+    assert_eq!(est.backfill_s, 0.0);
+    assert!(est.mutate_s > 0.0);
+    est.remaining(&priors, 0, 200, 120);
+    assert_eq!(est.mutate_s, 0.0);
+    assert_eq!(estimate_wall(200, 4, 2, "click", &priors, 0).total_s, 6.6);
+}
+
+#[test]
+fn local_measurement_provenance_is_suite_specific() {
+    let mut priors = default_priors();
+    priors.mutate_s_per_mutant.record("click", 7.0, 12, 2);
+    assert_eq!(priors.mutate_s_per_mutant.click, 7.0);
+    assert_eq!(priors.mutate_s_per_mutant.jinja, 3.325);
+    assert_eq!(
+        priors.mutate_s_per_mutant.metadata["click"]["n_samples"],
+        12
+    );
+    assert_eq!(
+        priors.mutate_s_per_mutant.metadata["jinja"]["n_samples"],
+        22
+    );
 }

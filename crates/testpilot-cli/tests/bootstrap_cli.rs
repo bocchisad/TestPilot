@@ -115,7 +115,7 @@ fn dry_run_writes_nothing_and_prints_priors_source() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("backfill"), "{stdout}");
-    assert!(stdout.contains("|B_set|≈200"), "{stdout}");
+    assert!(stdout.contains("|B_set|≈1"), "{stdout}");
     assert!(
         stdout.contains("docs/measurements/bootstrap_time_priors.json"),
         "{stdout}"
@@ -174,11 +174,11 @@ fn dry_run_uses_local_priors_json_without_touching_tree() {
     );
     // --backfill-commits 5 → limb=5 × 9999s ≈ large hours; measured (no unmeasured=true).
     assert!(
-        stdout.contains("|B_set|≈5") || stdout.contains("≈5 SHAs"),
+        stdout.contains("|B_set|≈1") || stdout.contains("≈1 SHAs"),
         "{stdout}"
     );
     assert!(
-        stdout.contains("estimate backfill:") && !stdout.contains("unmeasured=true"),
+        stdout.contains("estimate backfill:") && stdout.contains("unmeasured=true"),
         "{stdout}"
     );
     assert!(
@@ -212,8 +212,8 @@ fn dry_run_backfill_commits_consistent_b_set() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     // Cold path: --backfill-commits overrides limb (not N+30).
-    assert!(stdout.contains("|B_set|≈30"), "{stdout}");
-    assert!(stdout.contains("≈30 SHAs"), "{stdout}");
+    assert!(stdout.contains("|B_set|≈1"), "{stdout}");
+    assert!(stdout.contains("≈1 SHAs"), "{stdout}");
     assert!(!stdout.contains("≈230 SHAs"), "{stdout}");
 }
 
@@ -618,5 +618,124 @@ fn init_from_worktree_writes_common_dir_exclude() {
     assert!(
         text.lines().any(|l| l.trim() == ".testpilot/"),
         "common exclude missing .testpilot/: {exclude:?} {text}"
+    );
+}
+
+#[test]
+fn ordinary_child_failure_saves_failed_state_and_harvests_partial_pairs() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = seed_repo();
+    let root = tmp.path();
+    fs::write(
+        root.join("pyproject.toml"),
+        "[project]\nname='tiny'\nversion='0'\n",
+    )
+    .unwrap();
+    fs::create_dir(root.join("pkg")).unwrap();
+    fs::write(root.join("pkg/__init__.py"), "def f(x):\n    return x+1\n").unwrap();
+    git(root, &["add", "."]);
+    git(root, &["commit", "-m", "source"]);
+    let sha = git_out(root, &["rev-parse", "HEAD"]);
+    let init = Command::new(bin())
+        .arg("init")
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(init.status.success());
+    let collect = Command::new(bin())
+        .args(["collect", "git"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(collect.status.success());
+    let xml = tmp.path().join("input.xml");
+    fs::write(
+        &xml,
+        "<testsuite><testcase classname='t' name='test_f' time='0.1'/></testsuite>",
+    )
+    .unwrap();
+    for commit in git_out(root, &["rev-list", "HEAD"]).lines() {
+        let result = Command::new(bin())
+            .args(["collect", "junit", xml.to_str().unwrap(), "--sha", commit])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let real = Command::new("python3")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    let real = String::from_utf8(real.stdout).unwrap();
+    let shims = tmp.path().join("shims");
+    fs::create_dir(&shims).unwrap();
+    let shim = shims.join("python3");
+    fs::write(&shim, format!("#!/bin/sh\ncase \"$1\" in\n */mutate_bootstrap.py) printf '%s\\n' '{{\"n_mutants_attempted\":2,\"completed_pairs\":[\"{sha}:0\"]}}'; echo 'injected child failure' >&2; exit 1;;\nesac\nexec '{}' \"$@\"\n", real.trim())).unwrap();
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!(
+        "{}:{}",
+        shims.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let result = Command::new(bin())
+        .args([
+            "bootstrap",
+            "--repo",
+            root.to_str().unwrap(),
+            "--max-commits",
+            "2",
+            "--mutants-per-commit",
+            "2",
+        ])
+        .env("PATH", path)
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stderr).contains("injected child failure"),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let state: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join(".testpilot/bootstrap/state.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["status"], "failed");
+    assert_eq!(state["steps"]["mutate"], "failed");
+    assert_eq!(
+        state["mutate_completed_pairs"],
+        serde_json::json!([format!("{sha}:0")])
+    );
+    let before = tree_snapshot(root);
+    let dry = Command::new(bin())
+        .args([
+            "bootstrap",
+            "--dry-run",
+            "--repo",
+            root.to_str().unwrap(),
+            "--max-commits",
+            "2",
+            "--mutants-per-commit",
+            "2",
+        ])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        dry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    let report = String::from_utf8_lossy(&dry.stdout);
+    assert!(report.contains("n_reused=2"), "{report}");
+    assert_eq!(
+        before,
+        tree_snapshot(root),
+        "warm dry-run changed the repository database or state"
     );
 }

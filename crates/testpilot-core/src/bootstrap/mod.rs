@@ -8,8 +8,8 @@ mod fingerprint;
 mod state;
 
 pub use bset::{
-    build_b_set, filter_with_first_parent, first_parent_shas, sha_has_first_parent,
-    shas_needing_backfill, union_b_set,
+    build_b_set, dry_backfill_counts, filter_with_first_parent, first_parent_shas,
+    sha_has_first_parent, shas_needing_backfill, union_b_set,
 };
 pub use cleanup::{CleanupReport, startup_cleanup};
 pub use dump_fp::{DbDumpFingerprint, dump_needs_refresh};

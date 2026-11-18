@@ -41,7 +41,6 @@ def paired_ci(train: dict) -> tuple[object, object, object]:
                 v.get("ci_low"),
                 v.get("ci_high"),
             )
-    boot = train.get("bootstrap") or {}
     return None, None, None
 
 
@@ -157,6 +156,7 @@ def repo_block(root: Path, name: str) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", type=Path, required=True)
+    ap.add_argument("--repos-root", type=Path)
     ap.add_argument("--level-b-out", type=Path, required=True)
     ap.add_argument("--pins-click", required=True)
     ap.add_argument("--pins-jinja", required=True)
@@ -190,7 +190,7 @@ def main() -> int:
     # So compare labels from /tmp level-b out's sibling repo state vs saved gold.
     # Practical approach: save gold mutants into summary from first report's
     # completed pairs file if still present under a stamped path.
-    click_repo = root / ".cache" / "repos" / "click"
+    click_repo = (args.repos_root or root / ".cache" / "repos") / "click"
     gold_path = root / "docs" / "measurements" / "bootstrap-click" / "level_b_gold.json"
     # After first click run, measure script should have saved gold; if missing, capture now
     # from current repo only once (second run overwrote DB — gold must be saved mid-script).
@@ -216,7 +216,6 @@ def main() -> int:
     loro_out = root / "docs" / "measurements" / "loro-w6-click-jinja-attrs"
     loro_out.mkdir(parents=True, exist_ok=True)
     loro_meta: dict = {"skipped": True, "reason": "missing_pairs_parquet"}
-    parts = []
     try:
         import polars as pl  # type: ignore
 

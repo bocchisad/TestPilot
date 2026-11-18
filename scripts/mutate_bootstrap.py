@@ -48,6 +48,12 @@ _HARD_STOP = threading.Event()  # SIGINT/SIGTERM: kill children now
 _PAIR_IO_LOCK = threading.Lock()
 
 
+def install_project_serialized(lock, pip: Path, wt: Path) -> tuple[bool, str]:
+    """All project installs share one lock, including failure/exception paths."""
+    with lock:
+        return install_project(pip, wt)
+
+
 @dataclass
 class BootstrapStats:
     n_eligible_C: int = 0
@@ -66,6 +72,8 @@ class BootstrapStats:
     n_collect_junit_failed: int = 0
     n_skipped_completed: int = 0
     interrupted: bool = False
+    failure: str | None = None
+    environments: dict[str, dict] = field(default_factory=dict)
     completed_pairs: list[str] = field(default_factory=list)
 
 
@@ -211,7 +219,6 @@ def run_bootstrap(
     else:
         owning = work_root
         owning.mkdir(parents=True, exist_ok=True)
-    venv = owning / "venv"
     run_root = owning / "runs"
     run_root.mkdir(parents=True, exist_ok=True)
 
@@ -219,9 +226,13 @@ def run_bootstrap(
     git_lock = threading.Lock()
     db_lock = threading.Lock()
     stats_lock = threading.Lock()
+    install_lock = threading.Lock()
+    worker = threading.local()
+    next_worker = iter(range(jobs))
+    failed = threading.Event()
 
     def _should_stop() -> bool:
-        if _STOP.is_set() or _HARD_STOP.is_set():
+        if failed.is_set() or _STOP.is_set() or _HARD_STOP.is_set():
             return True
         if deadline_unix is not None and time.time() >= deadline_unix:
             return True
@@ -231,13 +242,34 @@ def run_bootstrap(
         return deadline_unix is not None and time.time() >= deadline_unix
 
     try:
-        run([str(python), "-m", "venv", str(venv)])
-        pip = venv / "bin" / "pip"
-        pytest = venv / "bin" / "pytest"
-        vpy = venv / "bin" / "python"
-        run([str(pip), "install", "-U", "pip", "wheel"], check=False)
-        run([str(pip), "install", "-e", str(plugin_path)], check=False)
-        run([str(pip), "install", "pytest>=8,<10"], check=False)
+        def worker_environment() -> tuple[Path, Path, Path]:
+            if not hasattr(worker, "venv"):
+                with install_lock:
+                    venv = owning / f"venv-{next(next_worker)}"
+                    run([str(python), "-m", "venv", str(venv)])
+                    pip = venv / "bin" / "pip"
+                    for args in (["install", "-U", "pip", "wheel"],
+                                 ["install", "-e", str(plugin_path)],
+                                 ["install", "pytest>=8,<10"]):
+                        run([str(pip), *args])
+                    worker.venv = venv
+            return tuple(worker.venv / "bin" / name for name in ("pip", "pytest", "python"))
+
+        def install_serial(pip: Path, wt: Path) -> tuple[bool, str]:
+            ok, log = install_project_serialized(install_lock, pip, wt)
+            if ok:
+                # Snapshot the actual interpreter after project requirements may pin pytest.
+                vpy = pip.parent / "python"
+                versions = run([str(vpy), "-c", "import sys, json, importlib.metadata as m; print(json.dumps({'python':sys.version.split()[0], 'pytest':m.version('pytest')}))"], check=False)
+                freeze = run([str(pip), "freeze"], check=False)
+                env_dir = repo / ".testpilot" / "bootstrap" / "environment"
+                env_dir.mkdir(parents=True, exist_ok=True)
+                name = pip.parent.parent.name
+                (env_dir / f"{name}-pip-freeze.txt").write_text(freeze.stdout or "", encoding="utf-8")
+                if versions.returncode == 0 and versions.stdout.strip():
+                    with stats_lock:
+                        stats.environments[name] = json.loads(versions.stdout)
+            return ok, log
 
         extra = pytest_args.split() if pytest_args else ["-q"]
 
@@ -314,6 +346,7 @@ def run_bootstrap(
                 maybe_test_pause_after_pairs(repo, n_done)
                 return
 
+            pip, pytest, vpy = worker_environment()
             result = run_mutant(
                 repo,
                 db,
@@ -326,11 +359,15 @@ def run_bootstrap(
                 timeout_override=timeout_sec,
                 pytest_extra_args=extra,
                 pip_bin=pip,
-                install_project_cb=install_project,
+                install_project_cb=install_serial,
                 mutant_index=i,
                 db_lock=db_lock,
             )
 
+            if not result.ok and not result.timed_out and not result.collection_error:
+                raise RuntimeError(f"mutant C={c_sha} i={i}: {result.log_tail or result.collect_note or 'infrastructure failure'}")
+            if not result.collect_ok and not result.timed_out and not result.collection_error:
+                raise RuntimeError(f"mutant C={c_sha} i={i}: JUnit ingestion failed: {result.collect_note}")
             with stats_lock:
                 if result.timed_out:
                     stats.n_timeout += 1
@@ -356,21 +393,34 @@ def run_bootstrap(
             _append_pair(pairs_out, key, m_sha)
             maybe_test_pause_after_pairs(repo, n_done)
 
+        process_unchecked = _process
+
+        def _process(task):
+            if failed.is_set():
+                return
+            try:
+                process_unchecked(task)
+            except Exception as exc:  # retain successful sibling pairs for resume
+                with stats_lock:
+                    if stats.failure is None:
+                        stats.failure = str(exc)
+                failed.set()
+
         if jobs <= 1:
             for task in tasks:
                 if _should_stop():
-                    stats.interrupted = True
+                    stats.interrupted = not failed.is_set()
                     break
                 _process(task)
                 if _should_stop():
-                    stats.interrupted = True
+                    stats.interrupted = not failed.is_set()
                     break
         else:
             with ThreadPoolExecutor(max_workers=jobs) as pool:
                 futs = []
                 for task in tasks:
                     if _should_stop():
-                        stats.interrupted = True
+                        stats.interrupted = not failed.is_set()
                         break
                     futs.append(pool.submit(_process, task))
                 for fut in as_completed(futs):
@@ -418,6 +468,8 @@ def stats_to_report(stats: BootstrapStats) -> dict:
         "n_collect_junit_failed": stats.n_collect_junit_failed,
         "n_skipped_completed": stats.n_skipped_completed,
         "interrupted": stats.interrupted,
+        "failure": stats.failure,
+        "environments": stats.environments,
         "completed_pairs": list(stats.completed_pairs),
     }
 
@@ -512,6 +564,9 @@ def main() -> int:
     # 130 = interrupted (Ctrl-C / deadline); nonzero so Rust can flush status.
     if stats.interrupted:
         return 130
+    if stats.failure:
+        print(stats.failure, file=sys.stderr)
+        return 1
     return 0
 
 

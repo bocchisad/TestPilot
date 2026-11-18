@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -21,6 +22,8 @@ pub struct SuiteSeconds {
     pub attrs: f64,
     #[serde(default)]
     pub measured: bool,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +32,8 @@ pub struct BootstrapPriors {
     pub backfill_s_per_commit: SuiteSeconds,
     pub collect_git_s: SuiteSeconds,
     pub dump_train_s: SuiteSeconds,
+    #[serde(default)]
+    pub attempted_per_commit: BTreeMap<String, f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +48,10 @@ pub struct TimeEstimate {
     pub dump_train_s: f64,
     pub total_s: f64,
     pub suite: String,
+    pub attempted_hat: f64,
+    pub backfill_reused: u32,
+    pub calibration_jobs: Option<u64>,
+    pub density: f64,
 }
 
 pub fn default_priors() -> BootstrapPriors {
@@ -54,16 +63,10 @@ pub fn load_priors_file(path: &Path) -> Result<BootstrapPriors> {
     serde_json::from_str(&raw).map_err(|e| Error::Other(format!("priors.json: {e}")))
 }
 
-fn suite_pick(s: &SuiteSeconds, suite: &str) -> f64 {
+pub fn suite_pick(s: &SuiteSeconds, suite: &str) -> f64 {
     match suite {
         "jinja" => s.jinja,
-        "attrs" => {
-            if s.attrs > 0.0 {
-                s.attrs
-            } else {
-                s.jinja
-            }
-        }
+        "attrs" => s.attrs,
         _ => s.click,
     }
 }
@@ -80,23 +83,65 @@ pub fn estimate_wall(
 ) -> TimeEstimate {
     let jobs = jobs.max(1);
     // Clean-start n_new ≈ FP limb length (caller passes max(N,20) or override).
-    let b_hat = limb_n.max(1);
+    let b_hat = limb_n;
     let collect = suite_pick(&priors.collect_git_s, suite);
     let backfill_per = suite_pick(&priors.backfill_s_per_commit, suite);
     let backfill = backfill_per * f64::from(b_hat);
-    let mutants = f64::from(n.saturating_mul(k));
-    let mutate = suite_pick(&priors.mutate_s_per_mutant, suite) * mutants / f64::from(jobs);
+    let density = priors
+        .attempted_per_commit
+        .get(suite)
+        .copied()
+        .unwrap_or(1.0);
+    let mutants = f64::from(n.min(limb_n)) * density * f64::from(k) / 4.0;
+    let mutate = suite_pick(&priors.mutate_s_per_mutant, suite) * mutants;
     let dump_train = suite_pick(&priors.dump_train_s, suite);
     TimeEstimate {
         collect_git_s: collect,
         backfill_s: backfill,
-        backfill_unmeasured: !priors.backfill_s_per_commit.measured,
+        backfill_unmeasured: !priors.backfill_s_per_commit.is_measured(suite),
         backfill_shas_hat: b_hat,
         mutate_s: mutate,
         mutate_jobs: jobs,
         dump_train_s: dump_train,
         total_s: collect + backfill + mutate + dump_train,
         suite: suite.to_string(),
+        attempted_hat: mutants,
+        backfill_reused: 0,
+        calibration_jobs: priors
+            .mutate_s_per_mutant
+            .metadata
+            .get(suite)
+            .and_then(|v| v["jobs"].as_u64()),
+        density,
+    }
+}
+
+impl SuiteSeconds {
+    pub fn is_measured(&self, suite: &str) -> bool {
+        self.metadata
+            .get(suite)
+            .and_then(|v| v["measured"].as_bool())
+            .unwrap_or(false)
+    }
+    pub fn record(&mut self, suite: &str, rate: f64, samples: u32, jobs: u32) {
+        match suite {
+            "jinja" => self.jinja = rate,
+            "attrs" => self.attrs = rate,
+            _ => self.click = rate,
+        }
+        self.metadata.insert(suite.into(), serde_json::json!({"measured":true,"source":"local bootstrap step wall / count","n_samples":samples,"jobs":jobs,"confidence":"low"}));
+        self.measured = false; // legacy global marker cannot describe individual suites
+    }
+}
+
+impl TimeEstimate {
+    pub fn remaining(&mut self, priors: &BootstrapPriors, new: u32, reused: u32, completed: u32) {
+        self.backfill_shas_hat = new;
+        self.backfill_reused = reused;
+        self.backfill_s = f64::from(new) * suite_pick(&priors.backfill_s_per_commit, &self.suite);
+        self.attempted_hat = (self.attempted_hat - f64::from(completed)).max(0.0);
+        self.mutate_s = self.attempted_hat * suite_pick(&priors.mutate_s_per_mutant, &self.suite);
+        self.total_s = self.collect_git_s + self.backfill_s + self.mutate_s + self.dump_train_s;
     }
 }
 
@@ -129,7 +174,7 @@ pub fn format_dry_run_report(
     out.push_str(&format!("priors: {priors_source}\n"));
     out.push_str(&format!(
         "plan: |B_set|≈{}  N×K={}  jobs={}  suite={}\n",
-        est.backfill_shas_hat,
+        est.backfill_shas_hat + est.backfill_reused,
         fp.n.saturating_mul(fp.k),
         est.mutate_jobs,
         est.suite
@@ -158,6 +203,12 @@ pub fn format_dry_run_report(
         fmt_hours(est.dump_train_s)
     ));
     out.push_str(&format!("estimate total: {}\n", fmt_hours(est.total_s)));
+    out.push_str(&format!(
+        "components_s: collect={} backfill={} mutate={} dump_train={}\n",
+        est.collect_git_s, est.backfill_s, est.mutate_s, est.dump_train_s
+    ));
+    out.push_str(&format!("attempted_hat={} density_per_history_commit={} calibration_K=4 calibration_jobs={} target_jobs={} n_reused={}\n", est.attempted_hat, est.density, est.calibration_jobs.map(|n| n.to_string()).unwrap_or_else(|| "null".into()), est.mutate_jobs, est.backfill_reused));
+    out.push_str("assumptions: calibration n_samples=attempted,n_new_cal=20; K scaled linearly; wall/attempted already includes jobs; worker-local venv setup unmeasured; legacy priors without density use 1 attempted/history-commit at K=4\n");
     out.push_str(&format!("total_s={:.3}\n", est.total_s));
     out.push_str(&format!(
         "resume: {}\n",
