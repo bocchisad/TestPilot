@@ -23,8 +23,13 @@ URL_CLICK=https://github.com/pallets/click.git
 URL_JINJA=https://github.com/pallets/jinja.git
 URL_ATTRS=https://github.com/python-attrs/attrs.git
 
-MEASURE_REPOS=$(mktemp -d "${TMPDIR:-/tmp}/testpilot-w6.XXXXXX")
-trap 'rm -rf "$MEASURE_REPOS"' EXIT
+mkdir -p "$ROOT/.cache/measurements"
+MEASURE_ROOT=$(mktemp -d "$ROOT/.cache/measurements/w6.XXXXXX")
+MEASURE_REPOS="$MEASURE_ROOT/repos"
+mkdir -p "$MEASURE_REPOS"
+# Keep DBs, ledgers and environment snapshots for independent audit/resume.
+echo "measurement_work_root=$MEASURE_ROOT"
+trap 'echo "Retained measurement data: $MEASURE_ROOT"' EXIT
 N=200
 K=4
 JOBS=2
@@ -130,7 +135,7 @@ open("docs/measurements/dry-run-estimates.json", "w").write(
         "click": click, "jinja": jinja, "attrs": attrs,
         "estimated_total_s": total,
         "max_est_s": $MAX_EST_S,
-        "actual_s": None, "reason": "full_runs_not_authorized",
+        "actual_s": None, "reason": "dry_run_only" if "$MODE" == "--dry-run-only" else "full_runs_in_progress",
         "N": $N, "K": $K, "jobs": $JOBS, "seed": $SEED,
         "assumptions": "n_samples=attempted; n_new_cal=20; worker-local venv setup unmeasured",
         "binary_version": __import__("subprocess").check_output(["$BIN", "--version"], text=True).strip(),
@@ -150,7 +155,9 @@ fi
 
 run_one() {
   local R="$1" OUT="$2"
-  rm -rf "$MEASURE_REPOS/$R/.testpilot"
+  if [[ -e "$MEASURE_REPOS/$R/.testpilot" ]]; then
+    echo "refuse non-clean measurement checkout: $R" >&2; exit 1
+  fi
   mkdir -p "$OUT"
   # attrs: exclude mypy suite (16.926 s/commit calibration; 17.139 was WITH mypy).
   unset PYTEST_ADDOPTS
@@ -190,16 +197,32 @@ run_one jinja docs/measurements/bootstrap-jinja
 run_one attrs docs/measurements/bootstrap-attrs
 
 echo "=== level-b second click ==="
-rm -rf /tmp/tp-boot-click-b
-run_one click /tmp/tp-boot-click-b
+# Preserve first click DB/ledger; clone a separate clean checkout for run b.
+mv "$MEASURE_REPOS/click" "$MEASURE_ROOT/click-first"
+ensure_repo click "$URL_CLICK" "$PINS_CLICK_SHA"
+LEVEL_B_OUT="$MEASURE_ROOT/click-b-out"
+run_one click "$LEVEL_B_OUT"
 
+BOOTSTRAP_END=$(date +%s)
 echo "=== LORO ×3 + summary ==="
 python3 "$ROOT/scripts/aggregate_bootstrap_w6.py" \
   --root "$ROOT" --repos-root "$MEASURE_REPOS" \
-  --level-b-out /tmp/tp-boot-click-b \
+  --level-b-out "$LEVEL_B_OUT" --bootstrap-wall-s "$((BOOTSTRAP_END - START))" \
   --pins-click "$PINS_CLICK_SHA:$PINS_CLICK_TAG" \
   --pins-jinja "$PINS_JINJA_SHA:$PINS_JINJA_TAG" \
   --pins-attrs "$PINS_ATTRS_SHA:$PINS_ATTRS_TAG"
 
 END=$(date +%s)
 echo "measure_bootstrap_w6 wall_s=$((END - START))"
+python3 - "$((END - START))" <<'PYACT'
+import json, sys
+from pathlib import Path
+path = Path("docs/measurements/dry-run-estimates.json")
+value = json.loads(path.read_text())
+value.update(actual_pipeline_wall_s=int(sys.argv[1]))
+path.write_text(json.dumps(value, indent=2) + "\n")
+summary_path = Path("docs/measurements/bootstrap-w6-click-jinja-attrs.json")
+summary = json.loads(summary_path.read_text())
+summary["dry_run_estimates"] = value
+summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\n")
+PYACT

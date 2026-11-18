@@ -1,295 +1,215 @@
 #!/usr/bin/env python3
-"""Aggregate W6 bootstrap measurement allowlisted artifacts into summary JSON."""
-
+"""Strict W6 measurement export. Raw DB/Parquet/ledgers remain untracked."""
 from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import re
 import sqlite3
 import subprocess
 import sys
-from pathlib import Path
+import tempfile
 
-ABS_BAD = re.compile(r"(/home/|/Users/|/tmp/)")
+ABS_BAD = re.compile(r"/(?:home|Users|tmp|private)/")
 
 
-def load(p: Path) -> dict:
-    return json.loads(p.read_text(encoding="utf-8"))
+def load(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def forbid_abs(obj: object, path: str) -> None:
-    blob = json.dumps(obj, ensure_ascii=False)
-    if ABS_BAD.search(blob):
-        raise SystemExit(f"absolute path leak in {path}")
+    if ABS_BAD.search(json.dumps(obj, ensure_ascii=False)):
+        raise ValueError(f"absolute path leak in {path}")
 
 
-def paired_ci(train: dict) -> tuple[object, object, object]:
-    # Prefer synthetic TEST cluster-paired vs cov_lines fields.
-    for key in (
-        "paired_delta_ci_synthetic_test_cov_lines",
-        "paired_delta_ci_test",
-        "paired_delta_ci_synthetic_test",
-    ):
-        v = train.get(key)
-        if isinstance(v, dict):
-            ci = v.get("ci95") or v.get("ci") or [None, None]
-            if isinstance(ci, (list, tuple)) and len(ci) >= 2:
-                return v.get("mean"), ci[0], ci[1]
-            return (
-                v.get("mean") or v.get("delta"),
-                v.get("ci_low"),
-                v.get("ci_high"),
-            )
-    return None, None, None
+def paired_ci(train: dict) -> tuple:
+    value = train.get("paired_delta_ci_synthetic_test_cov_lines")
+    if not isinstance(value, dict):
+        return None, None, None
+    ci = value.get("ci95", [None, None])
+    return value.get("mean"), ci[0], ci[1]
 
 
-def test_nc(train: dict) -> tuple[object, object]:
+def test_nc(train: dict) -> tuple:
+    ci = train.get("paired_delta_ci_synthetic_test_cov_lines") or {}
     diag = train.get("diagnostics") or {}
-    n_c = (
-        diag.get("mutant_test_distinct_base_change")
-        or diag.get("test_n_C")
-        or train.get("test_n_C")
-    )
-    n_m = (
-        diag.get("mutant_test_new_fail_changes")
-        or diag.get("test_n_mutants")
-        or train.get("test_n_mutants")
-    )
-    return n_c, n_m
+    return (ci.get("n_C", diag.get("mutant_test_distinct_base_change")),
+            ci.get("n_mutants", diag.get("mutant_test_new_fail_changes")))
+
+
+def run_details(con, sha, synthetic):
+    row = con.execute("""SELECT id FROM test_runs WHERE sha=? AND synthetic=? AND dirty=0
+        AND partial=0 AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 1""", (sha, synthetic)).fetchone()
+    if row is None:
+        raise ValueError(f"missing finished run for {sha}")
+    rows = con.execute("""SELECT t.test_id, r.outcome, r.flaky FROM test_results r
+        JOIN tests t ON t.id=r.test_pk WHERE r.run_id=?""", (row[0],)).fetchall()
+    return ({t for t, outcome, flaky in rows if outcome in ('fail', 'error') and not flaky},
+            {t for t, _, flaky in rows if flaky})
 
 
 def collect_mutants(repo: Path) -> dict:
-    """SHA sets + kill/survive (non-flaky) + timeout pairs from mutate_pairs + DB."""
-    pairs_path = repo / ".testpilot" / "bootstrap" / "mutate_pairs.jsonl"
-    pairs: list[dict] = []
-    if pairs_path.is_file():
-        for line in pairs_path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                pairs.append(json.loads(line))
-    db = repo / ".testpilot" / "db.sqlite"
-    labels: dict[str, str] = {}
-    timeouts: list[str] = []
-    if db.is_file():
-        con = sqlite3.connect(db)
-        for rec in pairs:
-            m = rec.get("m_sha")
-            pair = rec.get("pair")
-            if not m:
+    boot = repo / '.testpilot/bootstrap'
+    ledger = boot / 'mutate_outcomes.jsonl'
+    if not ledger.is_file():
+        raise ValueError('missing explicit mutation outcome ledger')
+    events = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+    latest = {row['pair']: row for row in events}
+    completed_path = boot / 'mutate_pairs.jsonl'
+    if completed_path.is_file():
+        completed = {json.loads(line)['pair'] for line in completed_path.read_text().splitlines() if line.strip()}
+        if completed - latest.keys():
+            raise ValueError('completed mutant missing from explicit outcome ledger')
+    labels, details, non_timeout, timeout_pairs, timeout_shas, collection = {}, {}, [], [], [], []
+    with sqlite3.connect(repo / '.testpilot/db.sqlite') as con:
+        for pair, event in sorted(latest.items()):
+            sha = event['m_sha']
+            status = event['status']
+            if status == 'timeout':
+                timeout_pairs.append(pair)
+                timeout_shas.append(sha)
                 continue
-            # Timeout mutants: no finished synthetic run or flagged — best-effort.
-            row = con.execute(
-                """
-                SELECT COUNT(*) FROM test_runs
-                WHERE sha=? AND IFNULL(synthetic,0)=1 AND finished_at IS NOT NULL
-                """,
-                (m,),
-            ).fetchone()
-            if not row or row[0] == 0:
-                timeouts.append(pair or m)
+            if status == 'infrastructure_failure':
+                raise ValueError('infrastructure failure in completed measurement')
+            non_timeout.append(sha)
+            if status == 'collection_error':
+                collection.append(pair)
                 continue
-            fails = con.execute(
-                """
-                SELECT COUNT(*) FROM test_runs r
-                JOIN test_results tr ON tr.run_id = r.id
-                WHERE r.sha=? AND IFNULL(r.synthetic,0)=1
-                  AND tr.outcome IN ('fail','error') AND IFNULL(tr.flaky,0)=0
-                """,
-                (m,),
-            ).fetchone()[0]
-            labels[m] = "kill" if fails else "survive"
-        con.close()
-    m_shas = sorted(labels.keys())
-    return {
-        "m_shas_non_timeout": m_shas,
-        "labels": labels,
-        "timeout_pairs": sorted(timeouts),
-        "pairs": sorted({p.get("pair") for p in pairs if p.get("pair")}),
-    }
+            base, _ = pair.rsplit(':', 1)
+            fails_c, flaky_c = run_details(con, base, 0)
+            fails_m, flaky_m = run_details(con, sha, 1)
+            flaky = flaky_c | flaky_m | set(event.get('flaky_tests', []))
+            new = (fails_m - fails_c) - flaky
+            labels[sha] = 'kill' if new else 'survive'
+            details[sha] = {'new_fail_tests': sorted(new), 'flaky_tests': sorted(flaky)}
+    return {'m_shas_non_timeout': sorted(set(non_timeout)), 'labels': labels, 'label_details': details,
+            'timeout_pairs': timeout_pairs, 'timeout_shas': sorted(set(timeout_shas)),
+            'collection_error_pairs': collection, 'pairs': sorted(latest),
+            'attempts_recorded': len(events)}
+
+
+def compare_level_b(gold: dict, second: dict) -> dict:
+    if not gold['m_shas_non_timeout'] or not second['m_shas_non_timeout']:
+        raise ValueError('level-b cannot compare empty mutant sets')
+    excluded = set(gold['timeout_shas']) | set(second['timeout_shas'])
+    left = set(gold['m_shas_non_timeout']) - excluded
+    right = set(second['m_shas_non_timeout']) - excluded
+    common = left & right
+    label_match = True
+    for sha in common:
+        a = gold['label_details'].get(sha)
+        b = second['label_details'].get(sha)
+        if a is None or b is None:
+            label_match = label_match and a == b
+            continue
+        flaky = set(a['flaky_tests']) | set(b['flaky_tests'])
+        label_match = label_match and bool(set(a['new_fail_tests'])-flaky) == bool(set(b['new_fail_tests'])-flaky)
+    return {'gold': gold, 'run_b': second, 'excluded_timeout_shas': sorted(excluded),
+            'sha_match': left == right, 'label_match': label_match,
+            'n_compared': len(common)}
 
 
 def repo_block(root: Path, name: str) -> dict:
-    out = root / "docs" / "measurements" / f"bootstrap-{name}"
-    br = load(out / "bootstrap_report.json")
-    mj = load(out / "model.json")
-    train = br
-    tr_path = out / "report.json"
-    if tr_path.is_file():
-        train = {**load(tr_path), **br}
-    mean, lo, hi = paired_ci(train if tr_path.is_file() else mj)
-    if mean is None:
-        mean, lo, hi = paired_ci(mj)
-    n_c, n_m = test_nc(train if tr_path.is_file() else mj)
-    if n_c is None:
-        n_c, n_m = test_nc(mj)
-    boot = mj.get("bootstrap") or br.get("bootstrap") or {}
-    block = {
-        "tip_repo": name,
-        "step_timings_s": br.get("step_timings_s"),
-        "n_backfill_new": br.get("n_backfill_new"),
-        "n_backfill_reused": br.get("n_backfill_reused"),
-        "backfill_s_per_commit": br.get("backfill_s_per_commit"),
-        "backfill_s_per_commit_reason": br.get("backfill_s_per_commit_reason"),
-        "mutate_s_per_mutant": br.get("mutate_s_per_mutant"),
-        "n_mutants_attempted": br.get("n_mutants_attempted"),
-        "n_timeout": br.get("n_timeout"),
-        "timeout_rate": br.get("timeout_rate"),
-        "n_eligible": br.get("n_eligible"),
-        "n_actual": br.get("n_actual"),
-        "verdict": boot.get("verdict"),
-        "reason": boot.get("reason"),
-        "ranker": mj.get("ranker") or br.get("ranker"),
-        "test_n_C": n_c,
-        "test_n_mutants": n_m,
-        "paired_delta_mean": mean,
-        "ci_low": lo,
-        "ci_high": hi,
-        "steps_resumed": br.get("steps_resumed"),
-    }
-    forbid_abs(br, str(out / "bootstrap_report.json"))
-    forbid_abs(mj, str(out / "model.json"))
-    if tr_path.is_file():
-        forbid_abs(load(tr_path), str(tr_path))
-    return block
+    out = root / 'docs/measurements' / f'bootstrap-{name}'
+    br, model = load(out/'bootstrap_report.json'), load(out/'model.json')
+    train = load(out/'report.json') if (out/'report.json').is_file() else model
+    mean, lo, hi = paired_ci(train)
+    n_c, n_m = test_nc(train)
+    boot = model.get('bootstrap') or {}
+    keys = ('step_timings_s', 'n_backfill_new', 'n_backfill_reused', 'backfill_s_per_commit',
+            'backfill_s_per_commit_reason', 'mutate_s_per_mutant', 'mutate_s_per_mutant_reason',
+            'n_mutants_attempted', 'n_timeout', 'timeout_rate', 'n_eligible', 'n_actual', 'steps_resumed',
+            'mutate_environments', 'mutate_counters_scope')
+    result = {key: br.get(key) for key in keys}
+    result.update(tip_repo=name, verdict=boot.get('verdict'), reason=boot.get('reason'),
+                  ranker=model.get('ranker'), test_n_C=n_c, test_n_mutants=n_m,
+                  paired_delta_mean=mean, ci_low=lo, ci_high=hi)
+    if br.get('n_backfill_reused') != 0:
+        raise ValueError(f'{name}: measurement did not start clean')
+    for filename in ('bootstrap_report.json', 'model.json', 'report.json'):
+        if (out/filename).is_file():
+            forbid_abs(load(out/filename), filename)
+    return result
+
+
+def run_loro(root: Path) -> dict:
+    # Keep each original Parquet's schema/version metadata intact.
+    paths = [root/'docs/measurements'/f'bootstrap-{name}'/'pairs.parquet'
+             for name in ('click', 'jinja', 'attrs')]
+    if not all(path.is_file() for path in paths):
+        raise ValueError('LORO requires all three original Parquet files')
+    import pyarrow.parquet as pq
+    repos = set()
+    for path in paths:
+        values = pq.read_table(path, columns=['repo'])['repo'].unique().to_pylist()
+        if len(values) != 1:
+            raise ValueError('measurement Parquet must contain exactly one repo')
+        repos.update(values)
+    if len(repos) != 3:
+        raise ValueError('LORO requires three distinct repositories')
+    out = root/'docs/measurements/loro-w6-click-jinja-attrs'
+    out.mkdir(parents=True, exist_ok=True)
+    # A failed process cannot reuse stale report.json from an earlier attempt.
+    with tempfile.TemporaryDirectory(prefix='loro-', dir=root/'.cache') as staging:
+        stage = Path(staging)
+        command = [sys.executable, '-m', 'testpilot_train.cli', 'train', '--data',
+                   *map(str, paths), '--out', str(stage), '--seed', '42']
+        result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+        (out/'train.stdout.log').write_text(result.stdout)
+        (out/'train.stderr.log').write_text(result.stderr)
+        if result.returncode != 0:
+            raise ValueError('LORO train failed; see retained stdout/stderr logs')
+        report = load(stage/'report.json')
+        loro = report.get('loro') or {}
+        held = {row.get('held_out') for row in loro.get('per_repo', [])}
+        if loro.get('skipped') is not False or held != repos or len(loro.get('per_repo', [])) != 3:
+            raise ValueError('LORO did not produce exactly three held-out evaluations')
+        forbid_abs(report, 'LORO report.json')
+        for filename in ('report.json', 'report.md', 'model.json', 'bootstrap_report.json'):
+            if (stage/filename).is_file():
+                (out/filename).write_bytes((stage/filename).read_bytes())
+    return loro
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", type=Path, required=True)
-    ap.add_argument("--repos-root", type=Path)
-    ap.add_argument("--level-b-out", type=Path, required=True)
-    ap.add_argument("--pins-click", required=True)
-    ap.add_argument("--pins-jinja", required=True)
-    ap.add_argument("--pins-attrs", required=True)
+    ap.add_argument('--root', type=Path, required=True)
+    ap.add_argument('--repos-root', type=Path, required=True)
+    ap.add_argument('--level-b-out', type=Path, required=True)
+    ap.add_argument('--bootstrap-wall-s', type=float, required=True)
+    for name in ('click', 'jinja', 'attrs'):
+        ap.add_argument(f'--pins-{name}', required=True)
     args = ap.parse_args()
-    root: Path = args.root
-
-    def pin(s: str) -> dict:
-        sha, tag = s.split(":", 1)
-        return {"sha": sha, "tag": tag}
-
-    host = {}
-    host_path = root / "docs" / "measurements" / "env-host.txt"
-    if host_path.is_file():
-        for line in host_path.read_text().splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                host[k] = v
-
-    dry = {}
-    dry_path = root / "docs" / "measurements" / "dry-run-estimates.json"
-    if dry_path.is_file():
-        dry = load(dry_path)
-
-    per = {name: repo_block(root, name) for name in ("click", "jinja", "attrs")}
-
-    # Level-b: compare first click in-repo DB vs second out dir's sibling... 
-    # Second run used same pin; mutants live under .cache/repos/click after last run.
-    # For level-b we need gold from first run — re-collect from bootstrap-click pairs
-    # stored only if measure script left mutate_pairs. After second run, DB is second.
-    # So compare labels from /tmp level-b out's sibling repo state vs saved gold.
-    # Practical approach: save gold mutants into summary from first report's
-    # completed pairs file if still present under a stamped path.
-    click_repo = (args.repos_root or root / ".cache" / "repos") / "click"
-    gold_path = root / "docs" / "measurements" / "bootstrap-click" / "level_b_gold.json"
-    # After first click run, measure script should have saved gold; if missing, capture now
-    # from current repo only once (second run overwrote DB — gold must be saved mid-script).
-    # Fallback: try /tmp stamp.
-    gold = None
-    if gold_path.is_file():
-        gold = load(gold_path)
-    b_mut = collect_mutants(click_repo)
-    level_b = {
-        "note": "gold captured mid-measure; see level_b_gold.json if present",
-        "run_b": b_mut,
-        "gold": gold,
-        "sha_match": None,
-        "label_match": None,
-    }
-    if gold:
-        level_b["sha_match"] = set(gold.get("m_shas_non_timeout") or []) == set(
-            b_mut.get("m_shas_non_timeout") or []
-        )
-        level_b["label_match"] = gold.get("labels") == b_mut.get("labels")
-
-    # LORO: concat parquets if present and train.
-    loro_out = root / "docs" / "measurements" / "loro-w6-click-jinja-attrs"
-    loro_out.mkdir(parents=True, exist_ok=True)
-    loro_meta: dict = {"skipped": True, "reason": "missing_pairs_parquet"}
-    try:
-        import polars as pl  # type: ignore
-
-        frames = []
-        for name in ("click", "jinja", "attrs"):
-            pq = root / "docs" / "measurements" / f"bootstrap-{name}" / "pairs.parquet"
-            # pairs may be gitignored but still on disk after measure
-            if not pq.is_file():
-                # also check under repo .testpilot from last run — not available per-repo out
-                continue
-            df = pl.read_parquet(pq)
-            if "repo" in df.columns:
-                df = df.with_columns(pl.lit(name).alias("repo"))
-            frames.append(df)
-        if len(frames) >= 2:
-            merged = pl.concat(frames, how="diagonal_relaxed")
-            merged_path = loro_out / "pairs_merged.parquet"
-            merged.write_parquet(merged_path)
-            cmd = [
-                sys.executable,
-                "-m",
-                "testpilot_train.cli",
-                "train",
-                "--data",
-                str(merged_path),
-                "--out",
-                str(loro_out),
-                "--seed",
-                "42",
-            ]
-            subprocess.run(cmd, check=False, cwd=str(root))
-            if (loro_out / "report.json").is_file():
-                loro_meta = load(loro_out / "report.json").get("loro") or {"ok": True}
-                forbid_abs(load(loro_out / "report.json"), str(loro_out / "report.json"))
-                loro_meta = {"skipped": False, "loro": loro_meta}
-            else:
-                loro_meta = {"skipped": True, "reason": "train_failed"}
-        else:
-            loro_meta = {"skipped": True, "reason": "need_ge_2_parquets", "found": len(frames)}
-    except Exception as exc:  # noqa: BLE001
-        loro_meta = {"skipped": True, "reason": f"loro_error:{exc}"}
-
-    summary = {
-        "pins": {
-            "click": pin(args.pins_click),
-            "jinja": pin(args.pins_jinja),
-            "attrs": pin(args.pins_attrs),
-        },
-        "env": {
-            **host,
-            "pip_freeze": "docs/measurements/env-pip-freeze.txt",
-        },
-        "dry_run_estimates": dry,
-        "repos": per,
-        "level_b": level_b,
-        "loro": loro_meta,
-        "n_C_widths_citation": {
-            "path": "docs/measurements/mut2-80x5-click-jinja.json",
-            "n_C_test_over_N": load(
-                root / "docs" / "measurements" / "mut2-80x5-click-jinja.json"
-            ).get("n_C_test_over_N"),
-            "mutant_test_distinct_base_change": load(
-                root / "docs" / "measurements" / "mut2-80x5-click-jinja.json"
-            )
-            .get("diagnostics", {})
-            .get("mutant_test_distinct_base_change"),
-        },
-    }
-    forbid_abs(summary, "bootstrap-w6-click-jinja-attrs.json")
-    out = root / "docs" / "measurements" / "bootstrap-w6-click-jinja-attrs.json"
-    out.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print("wrote", out)
+    root = args.root
+    per = {name: repo_block(root, name) for name in ('click', 'jinja', 'attrs')}
+    gold_path = root/'docs/measurements/bootstrap-click/level_b_gold.json'
+    if not gold_path.is_file():
+        raise ValueError('missing first click gold snapshot')
+    second = collect_mutants(args.repos_root/'click')
+    level = compare_level_b(load(gold_path), second)
+    if not level['sha_match'] or not level['label_match'] or not level['n_compared']:
+        raise ValueError('level-b mutant sets or nonflaky labels differ')
+    b_report = load(args.level_b_out/'bootstrap_report.json')
+    per['click_level_b'] = {k: b_report.get(k) for k in ('step_timings_s', 'n_timeout', 'timeout_rate', 'n_actual')}
+    loro = run_loro(root)
+    host = dict(line.split('=', 1) for line in (root/'docs/measurements/env-host.txt').read_text().splitlines() if '=' in line)
+    dry_path = root/'docs/measurements/dry-run-estimates.json'
+    dry = load(dry_path)
+    for name in ('click', 'jinja', 'attrs'):
+        per[name]['estimate_s'] = dry[name]
+        per[name]['actual_step_wall_s'] = sum(per[name]['step_timings_s'].values())
+    actual = sum(v['actual_step_wall_s'] for k,v in per.items() if k != 'click_level_b') + sum(b_report['step_timings_s'].values())
+    dry.update(actual_s=args.bootstrap_wall_s, actual_bootstrap_step_wall_s=actual, reason='full_runs_completed')
+    dry_path.write_text(json.dumps(dry, indent=2)+'\n')
+    summary = {'pins': {name: dict(zip(('sha','tag'), getattr(args, 'pins_'+name).split(':',1))) for name in ('click','jinja','attrs')},
+               'env': {**host, 'pip_freeze':'docs/measurements/env-pip-freeze.txt', 'training':load(root/'docs/measurements/env-training-versions.json')},
+               'dry_run_estimates':dry, 'repos':per, 'level_b':level, 'loro':loro,
+               'n_C_widths_citation': {'path':'docs/measurements/mut2-80x5-click-jinja.json', 'n_C_test_over_N':load(root/'docs/measurements/mut2-80x5-click-jinja.json').get('n_C_test_over_N'), 'diagnostics':load(root/'docs/measurements/mut2-80x5-click-jinja.json').get('diagnostics')}}
+    forbid_abs(summary, 'bootstrap-w6-click-jinja-attrs.json')
+    (root/'docs/measurements/bootstrap-w6-click-jinja-attrs.json').write_text(json.dumps(summary,indent=2,sort_keys=True,allow_nan=False)+'\n')
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())

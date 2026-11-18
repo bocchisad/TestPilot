@@ -37,6 +37,7 @@ from mutate.git_mutant import (  # noqa: E402
 )
 from mutate.hunks import is_source_py, parse_hunks, show_blob  # noqa: E402
 from mutate.run_mutant import (  # noqa: E402
+    MutantRunResult,
     kill_active_pytest_groups,
     run_mutant,
     synthetic_run_exists,
@@ -147,6 +148,23 @@ def _append_pair(pairs_out: Path | None, pair: str, m_sha: str) -> None:
             os.fsync(f.fileno())
 
 
+def _append_outcome(pairs_out: Path | None, pair: str, m_sha: str, result) -> None:
+    if pairs_out is None:
+        return
+    path = pairs_out.with_name("mutate_outcomes.jsonl")
+    status = ("timeout" if result.timed_out else "collection_error" if result.collection_error
+              else "complete" if result.ok and result.collect_ok else "infrastructure_failure")
+    row = {"pair": pair, "m_sha": m_sha, "status": status,
+           "killed": result.killed, "n_new_fail": result.n_new_fail,
+           "flaky_tests": sorted(result.flaky_tests)}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _PAIR_IO_LOCK:
+        with path.open("a", encoding="utf-8") as out:
+            out.write(json.dumps(row, sort_keys=True) + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+
+
 _PAUSE_ENV = "TESTPILOT_TEST_PAUSE_AFTER_PAIRS"
 _PAUSE_MARKER_NAME = "TESTPILOT_PAUSE_AFTER_PAIRS"
 
@@ -249,7 +267,7 @@ def run_bootstrap(
                     run([str(python), "-m", "venv", str(venv)])
                     pip = venv / "bin" / "pip"
                     for args in (["install", "-U", "pip", "wheel"],
-                                 ["install", "-e", str(plugin_path)],
+                                 ["install", str(plugin_path)],
                                  ["install", "pytest>=8,<10"]):
                         run([str(pip), *args])
                     worker.venv = venv
@@ -342,6 +360,7 @@ def run_bootstrap(
                     if key not in stats.completed_pairs:
                         stats.completed_pairs.append(key)
                     n_done = len(stats.completed_pairs)
+                _append_outcome(pairs_out, key, m_sha, MutantRunResult(ok=True, collect_ok=True))
                 _append_pair(pairs_out, key, m_sha)
                 maybe_test_pause_after_pairs(repo, n_done)
                 return
@@ -364,6 +383,7 @@ def run_bootstrap(
                 db_lock=db_lock,
             )
 
+            _append_outcome(pairs_out, key, m_sha, result)
             if not result.ok and not result.timed_out and not result.collection_error:
                 raise RuntimeError(f"mutant C={c_sha} i={i}: {result.log_tail or result.collect_note or 'infrastructure failure'}")
             if not result.collect_ok and not result.timed_out and not result.collection_error:

@@ -354,7 +354,7 @@ def main() -> int:
         pip = venv / "bin" / "pip"
         pytest = venv / "bin" / "pytest"
         run([str(pip), "install", "-U", "pip", "wheel"], check=False)
-        r_plugin = run([str(pip), "install", "-e", str(plugin)], check=False)
+        r_plugin = run([str(pip), "install", str(plugin)], check=False)
         if r_plugin.returncode != 0:
             print("plugin install failed:", r_plugin.stderr[-2000:])
             return 1

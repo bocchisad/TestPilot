@@ -234,3 +234,25 @@ def test_unfinished_runs_not_eligible_but_finished_failures_are(tmp_path):
     con.commit()
     con.close()
     assert sample_commits(db, 2, 42, repo=repo).n_eligible_C == 1
+
+
+def test_outcome_ledger_records_timeout_then_completed_retry_without_marking_timeout_done(tmp_path, monkeypatch):
+    import json
+    repo, db, sha = setup_tasks(tmp_path, monkeypatch)
+    pairs = tmp_path / 'mutate_pairs.jsonl'
+    def mutant(*a, **kw):
+        if kw['mutant_index'] == 1:
+            return MutantRunResult(ok=False, timed_out=True)
+        return MutantRunResult(ok=True, collect_ok=True)
+    monkeypatch.setattr(mb, 'run_mutant', mutant)
+    first = invoke(repo, db, tmp_path, jobs=1, pairs_out=pairs)
+    assert first.n_timeout == 1
+    assert first.completed_pairs == [f'{sha}:0']
+    completed = [json.loads(line)['pair'] for line in pairs.read_text().splitlines()]
+    assert completed == [f'{sha}:0']
+    ledger = pairs.with_name('mutate_outcomes.jsonl')
+    assert [json.loads(line)['status'] for line in ledger.read_text().splitlines()] == ['complete', 'timeout']
+    monkeypatch.setattr(mb, 'run_mutant', lambda *a, **kw: MutantRunResult(ok=True, collect_ok=True))
+    second = invoke(repo, db, tmp_path, jobs=1, pairs_out=pairs, completed_pairs=set(first.completed_pairs))
+    assert second.n_timeout == 0 and len(second.completed_pairs) == 2
+    assert [json.loads(line)['status'] for line in ledger.read_text().splitlines()] == ['complete', 'timeout', 'complete']

@@ -458,7 +458,7 @@ def run_mutant(
     env = {
         "LC_ALL": os.environ.get("LC_ALL", "en_US.UTF-8"),
         "LANG": os.environ.get("LANG", "en_US.UTF-8"),
-        "PYTHONPATH": str(wt),  # never import the original checkout through inherited PYTHONPATH
+        "PYTHONPATH": os.pathsep.join((str(wt), str(wt / "src"))),  # own flat/src layout only
     }
     extra = pytest_extra_args or []
     warn_args = _pytest_warn_args(python_bin)
