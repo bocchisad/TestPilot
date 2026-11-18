@@ -1,0 +1,17 @@
+coverage==7.17.3
+execnet==2.1.2
+iniconfig==2.3.1
+lightgbm==4.5.0
+numpy==2.1.3
+packaging==26.3
+pluggy==1.7.0
+polars==1.17.1
+pyarrow==18.1.0
+pytest==8.3.4
+pytest-cov==7.1.0
+pytest-rerunfailures==16.7
+pytest-testpilot @ file:///Users/gothscum/Documents/%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82%D1%8B/TestPilot/python/pytest-testpilot
+pytest-xdist==3.8.0
+ruff==0.8.4
+scipy==1.18.1
+-e git+https://github.com/bocchisad/TestPilot.git@fd8546f0bac459bfb15cd4a226191807bd7c6579#egg=testpilot_train&subdirectory=python/testpilot-train
