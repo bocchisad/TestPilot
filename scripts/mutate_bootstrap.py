@@ -338,19 +338,13 @@ def run_bootstrap(
                         {path: new_src},
                     )
                     cg = collect_git_sha(repo, db, m_sha)
-            except Exception as exc:  # noqa: BLE001
-                print(
-                    f"commit mutant failed C={c_sha[:12]} i={i}: {exc}",
-                    file=sys.stderr,
-                )
-                with stats_lock:
-                    stats.n_invalid += 1
-                return
+            except Exception as exc:
+                raise RuntimeError(f"cannot create/index mutant C={c_sha} i={i}: {exc}") from exc
 
             if not cg.ok:
                 with stats_lock:
                     stats.n_collect_git_failed += 1
-                print(cg.note or cg.stderr, file=sys.stderr)
+                raise RuntimeError(f"cannot index mutant C={c_sha} i={i}: {cg.note or cg.stderr}")
 
             # Already have synthetic run → mark complete without re-pytest.
             with db_lock:

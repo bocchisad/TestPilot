@@ -121,6 +121,7 @@ ensure_repo attrs "$URL_ATTRS" "$PINS_ATTRS_SHA"
 echo "=== build release ==="
 cargo build -p testpilot-cli --release --locked
 BIN="$ROOT/target/release/testpilot"
+export TESTPILOT_BIN="$BIN"
 
 echo "=== dry-run estimates ==="
 mkdir -p docs/measurements
@@ -172,6 +173,7 @@ run_one() {
     echo "refuse non-clean measurement checkout: $R" >&2; exit 1
   fi
   mkdir -p "$OUT"
+  OUT="$(cd "$OUT" && pwd)"
   # attrs: exclude mypy suite (16.926 s/commit calibration; 17.139 was WITH mypy).
   unset PYTEST_ADDOPTS
   if [[ "$R" == attrs ]]; then
@@ -187,6 +189,9 @@ import json
 from pathlib import Path
 rep = json.loads(Path("$OUT/bootstrap_report.json").read_text())
 assert rep.get("n_backfill_reused", 1) == 0, rep
+assert rep.get("n_mutants_attempted", 0) > 0, "full measurement produced no mutation attempts"
+state = json.loads(Path("$MEASURE_REPOS/$R/.testpilot/bootstrap/state.json").read_text())
+assert (state.get("dump_fingerprint") or {}).get("n_synthetic_runs", 0) > 0, "full measurement produced no synthetic results"
 print("ok n_backfill_reused=0 n_new=", rep.get("n_backfill_new"))
 PY
 }

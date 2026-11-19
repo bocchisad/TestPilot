@@ -684,7 +684,7 @@ fn ordinary_child_failure_saves_failed_state_and_harvests_partial_pairs() {
     let shims = tmp.path().join("shims");
     fs::create_dir(&shims).unwrap();
     let shim = shims.join("python3");
-    fs::write(&shim, format!("#!/bin/sh\ncase \"$1\" in\n */mutate_bootstrap.py) printf '%s\\n' '{{\"n_mutants_attempted\":2,\"completed_pairs\":[\"{sha}:0\"]}}'; echo 'injected child failure' >&2; exit 1;;\nesac\nexec '{}' \"$@\"\n", real.trim())).unwrap();
+    fs::write(&shim, format!("#!/bin/sh\ncase \"$1\" in\n */mutate_bootstrap.py) test -x \"$TESTPILOT_BIN\" || {{ echo \"missing orchestrator binary\" >&2; exit 99; }}; printf '%s\\n' '{{\"n_mutants_attempted\":2,\"completed_pairs\":[\"{sha}:0\"]}}'; echo 'injected child failure' >&2; exit 1;;\nesac\nexec '{}' \"$@\"\n", real.trim())).unwrap();
     fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
     let path = format!(
         "{}:{}",
@@ -702,6 +702,7 @@ fn ordinary_child_failure_saves_failed_state_and_harvests_partial_pairs() {
             "2",
         ])
         .env("PATH", path)
+        .env_remove("TESTPILOT_BIN")
         .current_dir(root)
         .output()
         .unwrap();
@@ -814,4 +815,86 @@ fn skipped_backfill_is_not_counted_as_successful_new_runs() {
             .unwrap_or(0),
         0
     );
+}
+
+#[test]
+fn final_sample_includes_runs_written_by_extra_backfill() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = seed_repo();
+    let root = tmp.path();
+    fs::write(
+        root.join("pyproject.toml"),
+        "[project]\nname='tiny'\nversion='0'\n",
+    )
+    .unwrap();
+    fs::write(root.join("code.py"), "def f(x):\n    return x+1\n").unwrap();
+    git(root, &["add", "."]);
+    git(root, &["commit", "-m", "source"]);
+    let real = Command::new("python3")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    let real = String::from_utf8(real.stdout).unwrap();
+    let shims = root.join("shims");
+    fs::create_dir(&shims).unwrap();
+    let code = r#"import sys,os,sqlite3,json
+if sys.argv[1].endswith('backfill.py'):
+    db=sys.argv[sys.argv.index('--db')+1]
+    shas=[sys.argv[i+1] for i,x in enumerate(sys.argv) if x=='--sha']
+    with sqlite3.connect(db) as c:
+        c.execute("INSERT OR IGNORE INTO tests(id,test_id) VALUES(1,'test')")
+        if c.execute('SELECT COUNT(*) FROM test_runs').fetchone()[0]==0:
+            shas=shas[:1]
+        for sha in shas:
+            cur=c.execute("INSERT INTO test_runs(sha,source,started_at,finished_at) VALUES(?,'pytest',0,1)",(sha,))
+            c.execute("INSERT INTO test_results(run_id,test_pk,outcome,duration_ms) VALUES(?,1,'pass',1)",(cur.lastrowid,))
+    raise SystemExit(0)
+if sys.argv[1].endswith('mutate_bootstrap.py'):
+    print(json.dumps({'n_mutants_attempted':0,'completed_pairs':[]}))
+    raise SystemExit(0)
+os.execv(REAL,[REAL]+sys.argv[1:])
+"#;
+    let shim = shims.join("python3");
+    let code = format!(
+        "#!{}\n{}",
+        real.trim(),
+        code.replace("REAL", &format!("{:?}", real.trim()))
+    );
+    fs::write(&shim, code).unwrap();
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+    let train = shims.join("testpilot-train");
+    let train_code = r#"import sys,json
+from pathlib import Path
+out=Path(sys.argv[sys.argv.index('--out')+1]); out.mkdir(parents=True,exist_ok=True)
+(out/'model.json').write_text(json.dumps({'ranker':'cov_lines','bootstrap':{'verdict':'use_baseline','reason':'test_fixture'}}))
+"#;
+    fs::write(&train, format!("#!{}\n{}", real.trim(), train_code)).unwrap();
+    fs::set_permissions(&train, fs::Permissions::from_mode(0o755)).unwrap();
+    let result = Command::new(bin())
+        .args([
+            "bootstrap",
+            "--repo",
+            root.to_str().unwrap(),
+            "--max-commits",
+            "2",
+        ])
+        .env(
+            "PATH",
+            format!("{}:{}", shims.display(), std::env::var("PATH").unwrap()),
+        )
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let state: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join(".testpilot/bootstrap/state.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["n_eligible"], 1);
+    assert_eq!(state["n_actual"], 1);
+    assert_eq!(state["n_backfill_new"], 2);
 }

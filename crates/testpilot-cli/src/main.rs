@@ -928,6 +928,11 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         .out
         .clone()
         .unwrap_or_else(|| repo.join(".testpilot/model"));
+    let out_dir = if out_dir.is_absolute() {
+        out_dir
+    } else {
+        std::env::current_dir()?.join(out_dir)
+    };
     let parquet = out_dir.join("pairs.parquet");
     let scripts = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../scripts");
 
@@ -985,13 +990,6 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         // Re-sample AFTER backfill so eligibility sees fresh clean runs.
         let sample =
             sample_commits_py_repo(&scripts, &db, opts.max_commits, opts.seed, Some(&repo))?;
-        state.n_eligible = Some(sample.n_eligible);
-        state.n_actual = Some(sample.sampled.len() as u32);
-        println!(
-            "sample: n_eligible={} n_actual={}",
-            sample.n_eligible,
-            sample.sampled.len()
-        );
         // Warm path: ensure any sampled C outside the limb still get a run.
         let b_set = build_b_set(&repo, &fp_limb, &sample.sampled)?;
         let need_extra = shas_needing_backfill(&store, &b_set)?;
@@ -1015,6 +1013,18 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                 }
             }
         }
+        // Extra backfill can make previously ineligible C usable; only publish
+        // the final sample after every backfill attempt has completed.
+        let final_sample =
+            sample_commits_py_repo(&scripts, &db, opts.max_commits, opts.seed, Some(&repo))?;
+        state.n_eligible = Some(final_sample.n_eligible);
+        state.n_actual = Some(final_sample.sampled.len() as u32);
+        println!(
+            "sample: n_eligible={} n_actual={}",
+            final_sample.n_eligible,
+            final_sample.sampled.len()
+        );
+        let b_set = build_b_set(&repo, &b_set, &final_sample.sampled)?;
         let attempted = union_b_set(&need_limb, &need_extra);
         let (n_new, n_reused, unavailable) =
             bootstrap::backfill_progress(&store, &b_set, &attempted)?;
@@ -1992,6 +2002,10 @@ fn run_mutate(
     let pairs_out = repo.join(".testpilot/bootstrap/mutate_pairs.jsonl");
 
     let mut cmd = Command::new("python3");
+    cmd.env(
+        "TESTPILOT_BIN",
+        std::env::current_exe().context("resolve running testpilot binary")?,
+    );
     cmd.arg(&script)
         .arg("--repo")
         .arg(repo)

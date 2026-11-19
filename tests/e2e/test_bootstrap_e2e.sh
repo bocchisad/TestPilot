@@ -218,8 +218,9 @@ MODEL1="$WORKDIR/model"
 seed_repo "$WORKDIR/repo" 6
 # Clone BEFORE gold bootstrap so case2 shares identical commit SHAs.
 cp -a "$WORKDIR/repo" "$WORKDIR/repo_intr"
-cd "$WORKDIR/repo"
-"$BIN" bootstrap --repo "$WORKDIR/repo" --out "$MODEL1" \
+# Exercise standalone binary discovery and a relative out from outside the target repo.
+cd "$WORKDIR"
+env -u TESTPILOT_BIN "$BIN" bootstrap --repo "$WORKDIR/repo" --out "model" \
   --max-commits "$N" --mutants-per-commit "$K" --jobs 1 --seed "$SEED" --force \
   --train-threads 1 2>&1 | tee "$WORKDIR/boot1.log"
 test -f "$MODEL1/model.json"
@@ -236,8 +237,8 @@ assert len(g["m_shas"]) > 0, g
 print("gold mutants", len(g["m_shas"]), "labels", g["labels"])
 PY
 # Select must load the artifact.
-BASE=$(git rev-parse HEAD~1)
-HEAD=$(git rev-parse HEAD)
+BASE=$(git -C "$WORKDIR/repo" rev-parse HEAD~1)
+HEAD=$(git -C "$WORKDIR/repo" rev-parse HEAD)
 SEL=$("$BIN" select --repo "$WORKDIR/repo" --db "$WORKDIR/repo/.testpilot/db.sqlite" \
   --base "$BASE" --head "$HEAD" --model "$MODEL1" --max-tests 3 --format json)
 "$PYTHON" - <<PY

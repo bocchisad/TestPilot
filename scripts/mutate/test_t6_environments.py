@@ -256,3 +256,18 @@ def test_outcome_ledger_records_timeout_then_completed_retry_without_marking_tim
     second = invoke(repo, db, tmp_path, jobs=1, pairs_out=pairs, completed_pairs=set(first.completed_pairs))
     assert second.n_timeout == 0 and len(second.completed_pairs) == 2
     assert [json.loads(line)['status'] for line in ledger.read_text().splitlines()] == ['complete', 'timeout', 'complete']
+
+
+@pytest.mark.parametrize('mode', ['missing_binary', 'collector_error'])
+def test_indexing_infrastructure_failure_is_not_an_invalid_mutant(tmp_path, monkeypatch, mode):
+    repo, db, _ = setup_tasks(tmp_path, monkeypatch)
+    def collect(*a):
+        if mode == 'missing_binary':
+            raise FileNotFoundError('missing testpilot binary')
+        return type('R', (), {'ok': False, 'note': 'collector failed', 'stderr': ''})()
+    monkeypatch.setattr(mb, 'collect_git_sha', collect)
+    result = invoke(repo, db, tmp_path, jobs=1)
+    assert result.failure and ('index' in result.failure or 'binary' in result.failure)
+    assert result.n_invalid == 0
+    assert result.completed_pairs == []
+    assert not result.interrupted
