@@ -341,6 +341,7 @@ fn step_timings_sum_across_resume_and_pending_steps() {
         step_timings_s: Default::default(),
         n_backfill_new: None,
         n_backfill_reused: None,
+        n_backfill_unavailable: None,
         n_mutants_attempted: None,
         mutate_rate_incomplete: false,
         mutate_environments: Default::default(),
@@ -483,5 +484,19 @@ fn local_measurement_provenance_is_suite_specific() {
     assert_eq!(
         priors.mutate_s_per_mutant.metadata["jinja"]["n_samples"],
         22
+    );
+}
+
+#[test]
+fn backfill_progress_counts_written_runs_not_failed_or_repeated_attempts() {
+    let store = Store::open_in_memory().unwrap();
+    store.connection().execute_batch("INSERT INTO tests(id,test_id) VALUES(1,'test');
+      INSERT INTO test_runs(id,sha,source,started_at,finished_at) VALUES(1,'old','pytest',0,1),(2,'new','pytest',0,1);
+      INSERT INTO test_results(run_id,test_pk,outcome,duration_ms) VALUES(1,1,'pass',1),(2,1,'fail',1);").unwrap();
+    let planned = vec!["old".into(), "new".into(), "missing".into()];
+    let attempted = vec!["new".into(), "missing".into(), "missing".into()];
+    assert_eq!(
+        testpilot_core::bootstrap::backfill_progress(&store, &planned, &attempted).unwrap(),
+        (1, 1, 1)
     );
 }

@@ -13,6 +13,7 @@ CI environment (not a bare `pip install .`).
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import shutil
@@ -144,6 +145,23 @@ def install_project(pip: Path, wt: Path) -> tuple[bool, str]:
         if req.is_file():
             pip_run(["install", "-r", str(req)])
 
+    # Historical lockfiles may downgrade pytest/pluggy below the plugin's
+    # supported runner, or make pytest unimportable on the selected Python.
+    # Preserve compatible historical pins (e.g. click's 8.3.4); repair only an
+    # incompatible runner, after ALL dependency installs and under install-lock.
+    vpy = pip.with_name("python")
+    probe = run([str(vpy), "-c",
+                 "import pytest; major=int(pytest.__version__.split('.')[0]); "
+                 "raise SystemExit(0 if 8 <= major < 10 else 1)"], check=False)
+    if probe.returncode != 0:
+        logs.append("runner override: historical pytest is incompatible; restoring pytest==8.3.4")
+        restored = pip_run(["install", "pytest==8.3.4", "pluggy>=1.5,<2", "py>=1.11,<2"])
+        if restored.returncode != 0:
+            return False, "\n".join(logs)[-4000:]
+        probe = run([str(vpy), "-c", "import pytest; assert pytest.__version__ == '8.3.4'"], check=False)
+        if probe.returncode != 0:
+            logs.append(probe.stderr or "pytest validation failed")
+            return False, "\n".join(logs)[-4000:]
     return True, "\n".join(logs)[-2000:]
 
 
@@ -245,6 +263,10 @@ def _has_reusable_real_run(db: Path, sha: str) -> bool:
         return row is not None
     finally:
         con.close()
+
+
+def backfill_result_ok(returncode: int, db: Path, sha: str) -> bool:
+    return returncode in (0, 1) and _has_reusable_real_run(db, sha)
 
 
 def main() -> int:
@@ -392,6 +414,15 @@ def main() -> int:
                     skip += 1
                     continue
 
+                logs_dir = boot_wt / "backfill_logs"
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                versions = run([str(venv / "bin" / "python"), "-c",
+                    "import json, sys, pytest, importlib.metadata as m; "
+                    "print(json.dumps({'python':sys.version.split()[0], 'pytest':pytest.__version__, "
+                    "'pluggy':m.version('pluggy')}))"], check=False)
+                if versions.returncode == 0 and versions.stdout.strip():
+                    (logs_dir / f"{sha}.environment.json").write_text(
+                        json.dumps(json.loads(versions.stdout), indent=2) + "\n", encoding="utf-8")
                 env = {"COVERAGE_CORE": "ctrace"}
                 # Prefer UTF-8 locale so tests that assert on encoding don't flake.
                 env.setdefault("LC_ALL", os.environ.get("LC_ALL", "en_US.UTF-8"))
@@ -422,9 +453,14 @@ def main() -> int:
                     *args.pytest_args.split(),
                 ]
                 r = run(cmd, cwd=wt, env=env, check=False)
+                logs_dir = boot_wt / "backfill_logs"
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                (logs_dir / f"{sha}.stdout.log").write_text(r.stdout or "", encoding="utf-8")
+                (logs_dir / f"{sha}.stderr.log").write_text(r.stderr or "", encoding="utf-8")
                 head = run(["git", "rev-parse", "HEAD"], cwd=wt).stdout.strip()
                 print(f"HEAD={head} pytest_rc={r.returncode}")
-                if r.returncode not in (0, 1):
+                if not backfill_result_ok(r.returncode, db, sha):
+                    print("no reusable finished real run; see backfill_logs" if r.returncode in (0,1) else "pytest failed before completing tests")
                     print(r.stdout[-2000:] if r.stdout else "")
                     print(r.stderr[-2000:] if r.stderr else "")
                     skip += 1

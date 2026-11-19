@@ -739,3 +739,69 @@ fn ordinary_child_failure_saves_failed_state_and_harvests_partial_pairs() {
         "warm dry-run changed the repository database or state"
     );
 }
+
+#[test]
+fn skipped_backfill_is_not_counted_as_successful_new_runs() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = seed_repo();
+    let root = tmp.path();
+    fs::write(
+        root.join("pyproject.toml"),
+        "[project]\nname='tiny'\nversion='0'\n",
+    )
+    .unwrap();
+    fs::write(root.join("code.py"), "def f(x):\n    return x+1\n").unwrap();
+    git(root, &["add", "."]);
+    git(root, &["commit", "-m", "source"]);
+    let python = Command::new("python3")
+        .args(["-c", "import sys; print(sys.executable)"])
+        .output()
+        .unwrap();
+    let python = String::from_utf8(python.stdout).unwrap();
+    let shims = root.join("shims");
+    fs::create_dir(&shims).unwrap();
+    let shim = shims.join("python3");
+    fs::write(
+        &shim,
+        format!(
+            "#!/bin/sh\ncase \"$1\" in */backfill.py) exit 0;; esac\nexec '{}' \"$@\"\n",
+            python.trim()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+    let result = Command::new(bin())
+        .args([
+            "bootstrap",
+            "--repo",
+            root.to_str().unwrap(),
+            "--max-commits",
+            "2",
+        ])
+        .env(
+            "PATH",
+            format!("{}:{}", shims.display(), std::env::var("PATH").unwrap()),
+        )
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let state: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join(".testpilot/bootstrap/state.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["n_backfill_new"], 0);
+    assert_eq!(state["n_backfill_reused"], 0);
+    assert_eq!(state["n_backfill_unavailable"], 2);
+    assert_eq!(
+        state["backfill_done_shas"]
+            .as_array()
+            .map(Vec::len)
+            .unwrap_or(0),
+        0
+    );
+}

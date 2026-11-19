@@ -117,7 +117,7 @@ def repo_block(root: Path, name: str) -> dict:
     mean, lo, hi = paired_ci(train)
     n_c, n_m = test_nc(train)
     boot = model.get('bootstrap') or {}
-    keys = ('step_timings_s', 'n_backfill_new', 'n_backfill_reused', 'backfill_s_per_commit',
+    keys = ('step_timings_s', 'n_backfill_new', 'n_backfill_reused', 'n_backfill_unavailable', 'backfill_s_per_commit',
             'backfill_s_per_commit_reason', 'mutate_s_per_mutant', 'mutate_s_per_mutant_reason',
             'n_mutants_attempted', 'n_timeout', 'timeout_rate', 'n_eligible', 'n_actual', 'steps_resumed',
             'mutate_environments', 'mutate_counters_scope')

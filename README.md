@@ -76,6 +76,8 @@ After more history or a larger N, re-run with `--force`.
 
 **Click on Linux:** install **`less`**. Without it, pager tests fail on every commit (persistent, not `new_fail`).
 
+Historical test requirements can downgrade the runner to unsupported pytest versions. After project installs, backfill and mutate validate pytest; incompatible or unimportable runners are restored to pytest 8.3.4, pluggy >=1.5,<2 and py >=1.11,<2. Compatible historical pins remain in place. Backfill counts a result only when a finished clean real run with test results exists in SQLite; raw per-commit logs and runner versions stay under `.testpilot/bootstrap/backfill_logs/`.
+
 Bootstrap mutation workers use separate virtual environments (one per worker); installations are serialized while pytest executions may overlap. Dry-run wall/attempted calibration already includes concurrency and is not divided by jobs again. The supplied N=20 calibration is extrapolated to worker-local environments; their extra setup cost has not been measured. `scripts/measure_bootstrap_w6.sh` defaults to `--dry-run-only`; `--full` requires a separate decision after reviewing estimates. Existing `.cache/repos/` data is preserved: measurements use fresh temporary clones.
 
 ### Mutation bootstrap (low-level; when real `new_fail` is absent)

@@ -967,8 +967,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         let fp_limb = first_parent_shas(&repo, limb_n)?;
         // Count new vs reused on the FP limb before any pytest.
         let need_limb = shas_needing_backfill(&store, &fp_limb)?;
-        let mut n_reused = (fp_limb.len().saturating_sub(need_limb.len())) as u32;
-        let mut n_new = need_limb.len() as u32;
+
         if !need_limb.is_empty() {
             match run_backfill_shas(&scripts, &repo, &db, &need_limb, None, &interrupted) {
                 Ok(()) => {}
@@ -997,7 +996,6 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         let b_set = build_b_set(&repo, &fp_limb, &sample.sampled)?;
         let need_extra = shas_needing_backfill(&store, &b_set)?;
         if !need_extra.is_empty() {
-            n_new += need_extra.len() as u32;
             match run_backfill_shas(&scripts, &repo, &db, &need_extra, None, &interrupted) {
                 Ok(()) => {}
                 Err(e) if e.is::<ChildInterrupted>() || interrupted.load(Ordering::SeqCst) => {
@@ -1011,18 +1009,23 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                 }
             }
         } else {
-            let _ = n_reused; // limb reused already counted
             for s in &b_set {
                 if !state.backfill_done_shas.iter().any(|x| x == s) {
                     state.backfill_done_shas.push(s.clone());
                 }
             }
         }
-        // Recompute reused for report: planned B_set size − newly run this step.
-        let planned = b_set.len() as u32;
-        if planned >= n_new {
-            n_reused = planned - n_new;
+        let attempted = union_b_set(&need_limb, &need_extra);
+        let (n_new, n_reused, unavailable) =
+            bootstrap::backfill_progress(&store, &b_set, &attempted)?;
+        let mut finished = Vec::new();
+        for sha in &state.backfill_done_shas {
+            if store.last_clean_run_with_results(sha)?.is_some() {
+                finished.push(sha.clone());
+            }
         }
+        state.backfill_done_shas = finished;
+        state.n_backfill_unavailable = Some(unavailable);
         state.n_backfill_new = Some(n_new);
         state.n_backfill_reused = Some(n_reused);
         add_step_timing(&mut state, "backfill", t0.elapsed().as_secs_f64());
@@ -1337,6 +1340,7 @@ fn write_bootstrap_finalize(
         "n_actual": state.n_actual,
         "n_backfill_new": state.n_backfill_new,
         "n_backfill_reused": state.n_backfill_reused,
+        "n_backfill_unavailable": state.n_backfill_unavailable,
         "backfill_s_per_commit": backfill_s_per_commit,
         "backfill_s_per_commit_reason": backfill_reason,
         "n_mutants_attempted": state.n_mutants_attempted,

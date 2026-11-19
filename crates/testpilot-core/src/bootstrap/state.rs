@@ -59,6 +59,8 @@ pub struct BootstrapState {
     pub n_backfill_new: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_backfill_reused: Option<u32>,
+    #[serde(default)]
+    pub n_backfill_unavailable: Option<u32>,
     /// Mutate counters from last successful mutate JSON (for report / rates).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_mutants_attempted: Option<u32>,
@@ -132,6 +134,7 @@ pub fn load_or_init_state(
         step_timings_s: BTreeMap::new(),
         n_backfill_new: None,
         n_backfill_reused: None,
+        n_backfill_unavailable: None,
         n_mutants_attempted: None,
         mutate_rate_incomplete: false,
         mutate_environments: BTreeMap::new(),

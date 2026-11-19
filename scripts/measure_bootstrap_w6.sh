@@ -2,6 +2,7 @@
 # Local-only Week-6 bootstrap measurements (NOT CI). Spec §7.3 / §8 / T6.
 # Pins tip SHAs, dry-runs first; aborts if estimated wall > 4h.
 set -euo pipefail
+export PYTHONUNBUFFERED=1
 MODE=${1:---dry-run-only}
 case "$MODE" in
   --dry-run-only|--full) ;;

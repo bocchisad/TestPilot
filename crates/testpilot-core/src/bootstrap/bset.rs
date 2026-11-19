@@ -112,3 +112,27 @@ pub fn dry_backfill_counts(db: &Path, planned: &[String]) -> Result<(u32, u32)> 
     }
     Ok((planned.len() as u32 - reused, reused))
 }
+
+/// Successful new/reused/unavailable SHAs after backfill, not attempted invocations.
+pub fn backfill_progress(
+    store: &Store,
+    planned: &[String],
+    attempted: &[String],
+) -> Result<(u32, u32, u32)> {
+    let attempted: BTreeSet<_> = attempted.iter().collect();
+    let mut new = 0;
+    let mut reused = 0;
+    let mut unavailable = 0;
+    for sha in planned.iter().collect::<BTreeSet<_>>() {
+        if store.last_clean_run_with_results(sha)?.is_some() {
+            if attempted.contains(sha) {
+                new += 1;
+            } else {
+                reused += 1;
+            }
+        } else {
+            unavailable += 1;
+        }
+    }
+    Ok((new, reused, unavailable))
+}

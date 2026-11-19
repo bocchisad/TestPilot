@@ -163,6 +163,8 @@ where `L = --backfill-commits` if set, else `max(N, 20)`.
 - If C already has a clean real pytest/junit run (`synthetic=0`, `partial=0`, `finished_at` set, ≥1 `test_results`) → **reuse**; do not re-run. Exit code 1 (some failing tests) still counts as a finished clean run for eligibility.  
 - `--backfill-commits B` replaces the limb length with B (still unions sampled C when needed).
 
+Backfill accounting records actual completed clean real runs, not subprocess return codes or attempted SHAs. Failed/skipped SHAs are `n_backfill_unavailable`, not new/reused/done. A pytest exit 0/1 without persisted results is not a successful backfill. Historical dependency files may downgrade pytest; backfill and mutate validate the runner after installs and restore incompatible environments to pytest 8.3.4 / pluggy >=1.5,<2 / py >=1.11,<2. Compatible pins are preserved. Raw stdout/stderr and actual per-commit runner versions are retained under `.testpilot/bootstrap/backfill_logs/`.
+
 ### 2.6 `--dry-run`
 
 Prints without writing:
