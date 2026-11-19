@@ -48,9 +48,21 @@ ensure_repo() {
   if [[ ! -d "$dest/.git" ]]; then
     # Full clone — blob:none partial clones break historical pytest checkouts.
     if [[ -d "$source/.git" ]]; then
-      git clone --no-hardlinks "$source" "$dest"
+      git clone --no-checkout --no-hardlinks "$source" "$dest"
     else
-      git clone "$url" "$dest"
+      git clone --no-checkout "$url" "$dest"
+    fi
+  fi
+  # A local source clone can itself be partial; --no-hardlinks does not hydrate it.
+  local missing
+  missing=$(git -C "$dest" rev-list --objects --missing=print "$sha" | awk '/^\?/{n++} END{print n+0}')
+  if [[ "$missing" -gt 0 ]]; then
+    echo "Hydrating $name: $missing missing objects from upstream"
+    git -C "$dest" remote set-url origin "$url"
+    git -C "$dest" fetch --refetch --no-filter origin "$sha"
+    missing=$(git -C "$dest" rev-list --objects --missing=print "$sha" | awk '/^\?/{n++} END{print n+0}')
+    if [[ "$missing" -ne 0 ]]; then
+      echo "incomplete $name history after hydration" >&2; exit 1
     fi
   fi
   git -C "$dest" checkout --force "$sha"
