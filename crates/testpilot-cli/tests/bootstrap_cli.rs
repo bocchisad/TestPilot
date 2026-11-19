@@ -524,6 +524,11 @@ fn mutate_skips_with_no_eligible_c_when_resample_empty() {
         "def test_ok():\n    assert True\n",
     )
     .unwrap();
+    fs::write(
+        root.join(".gitignore"),
+        "*.egg-info/\n__pycache__/\n.pytest_cache/\nbuild/\n",
+    )
+    .unwrap();
     git(root, &["add", "."]);
     git(root, &["commit", "-m", "root"]);
     for i in 0..3 {
@@ -569,6 +574,11 @@ fn mutate_skips_with_no_eligible_c_when_resample_empty() {
         Some("no_eligible_C"),
         "{report}"
     );
+    assert_eq!(
+        report["n_backfill_new"], 3,
+        "fixture must record real clean runs: {report}"
+    );
+    assert_eq!(report["n_backfill_unavailable"], 0, "{report}");
     assert_eq!(report["n_actual"].as_u64().unwrap_or(99), 0, "{report}");
     let state: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(root.join(".testpilot/bootstrap/state.json")).unwrap(),
