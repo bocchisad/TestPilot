@@ -461,8 +461,6 @@ def run_mutant(
         "PYTHONPATH": os.pathsep.join((str(wt), str(wt / "src"))),  # own flat/src layout only
     }
     extra = pytest_extra_args or []
-    warn_args = _pytest_warn_args(python_bin)
-
     try:
         if pip_bin is not None and install_project_cb is not None:
             ok, log = install_project_cb(pip_bin, wt)  # type: ignore[misc]
@@ -471,6 +469,8 @@ def run_mutant(
                     ok=False,
                     log_tail=str(log)[-2000:],
                 )
+        # Project requirements can replace pytest; probe warning classes only afterwards.
+        warn_args = _pytest_warn_args(python_bin)
         if not pytest_bin.is_file() or not os.access(pytest_bin, os.X_OK):
             raise OSError(f"pytest executable missing or not executable: {pytest_bin}")
         cmd = [

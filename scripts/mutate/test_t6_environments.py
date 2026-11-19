@@ -271,3 +271,21 @@ def test_indexing_infrastructure_failure_is_not_an_invalid_mutant(tmp_path, monk
     assert result.n_invalid == 0
     assert result.completed_pairs == []
     assert not result.interrupted
+
+
+def test_warning_classes_are_probed_after_project_installs_can_replace_pytest(tmp_path, monkeypatch):
+    repo, db, sha = _seed_eligible(tmp_path)
+    monkeypatch.setattr(rm, 'synthetic_run_exists', lambda *a: False)
+    state={'installed':False,'probed':False}
+    def install(*a):
+        state['installed']=True
+        return True,''
+    def warnings(*a):
+        assert state['installed'], 'warning classes belong to the post-install pytest version'
+        state['probed']=True
+        return []
+    monkeypatch.setattr(rm, '_pytest_warn_args', warnings)
+    result=rm.run_mutant(repo,db,sha,parent_sha=sha,pytest_bin=tmp_path/'missing',
+        python_bin=Path(sys.executable),work_dir=tmp_path/'runs',pip_bin=tmp_path/'pip',install_project_cb=install)
+    assert state['probed'] and not result.ok
+    assert 'pytest executable missing' in result.log_tail
