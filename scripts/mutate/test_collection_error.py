@@ -193,11 +193,11 @@ def test_import_break_mutant_is_collection_error(tmp_path: Path) -> None:
     os.environ.get("TP_SKIP_SLOW") == "1", reason="slow mutant integration"
 )
 def test_class_creation_collection_failure_without_junit_is_not_infrastructure(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An import-time class decorator failure can stop pytest before JUnit exists."""
     bin_ = _testpilot()
-    os.environ["TESTPILOT_BIN"] = bin_
+    monkeypatch.setenv("TESTPILOT_BIN", bin_)
     repo, _parent = _init_tiny_repo(tmp_path)
     db = tmp_path / "tp.sqlite"
     (repo / "tests" / "conftest.py").write_text("from pkg import X\n", encoding="utf-8")
@@ -297,6 +297,7 @@ def test_pytest_rc4_conftest_path_outside_mutant_worktree_stays_infrastructure(
     _git(repo, "reset", "--hard", parent)
     outside = tmp_path / "outside" / "conftest.py"
     outside.parent.mkdir()
+    outside.write_text("# outside worktree\n", encoding="utf-8")
     wrapper = tmp_path / "pytest_wrap"
     wrapper.write_text(
         "#!/bin/sh\n"
