@@ -1947,17 +1947,58 @@ fn run_backfill_shas(
     if let Some(py) = python {
         cmd.arg("--python").arg(py);
     }
-    let (st, _stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
+    let (st, stdout, stderr) = run_interruptible_captured(cmd, interrupted)?;
     if status_is_interrupt(&st) || interrupted.load(Ordering::SeqCst) {
         return Err(ChildInterrupted.into());
     }
     if !st.success() {
+        let stdout_text = String::from_utf8_lossy(&stdout);
+        let stderr_text = String::from_utf8_lossy(&stderr);
+        if backfill_batch_is_only_unavailable(st.code(), &stdout_text, &stderr_text, shas.len()) {
+            eprintln!(
+                "backfill: {} requested SHA(s) unavailable; retaining this as a measured skip",
+                shas.len()
+            );
+            return Ok(());
+        }
         bail!(
-            "backfill.py failed with {st}: {}",
-            String::from_utf8_lossy(&stderr)
+            "backfill.py failed with {st}: {}\n{}",
+            stdout_text,
+            stderr_text
         );
     }
     Ok(())
+}
+
+fn backfill_batch_is_only_unavailable(
+    exit_code: Option<i32>,
+    stdout: &str,
+    stderr: &str,
+    requested: usize,
+) -> bool {
+    if exit_code != Some(1) || requested == 0 || !stderr.trim().is_empty() {
+        return false;
+    }
+    let summary = stdout
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("done ")?;
+            let mut ok = None;
+            let mut reused = None;
+            let mut skip = None;
+            for field in rest.split_whitespace() {
+                let (key, value) = field.split_once('=')?;
+                match key {
+                    "ok" => ok = value.parse::<usize>().ok(),
+                    "reused" => reused = value.parse::<usize>().ok(),
+                    "skip" => skip = value.parse::<usize>().ok(),
+                    _ => {}
+                }
+            }
+            Some((ok?, reused?, skip?))
+        })
+        .last();
+    summary == Some((0, 0, requested))
 }
 
 fn save_mutate_failure(
@@ -2377,5 +2418,24 @@ progress: {\"pair\":\"abc:0\"}\n\
         mark_mutate_rate_incomplete_if_needed(dir.path(), &mut state).unwrap();
         let loaded = bootstrap::load_state(dir.path()).unwrap().unwrap();
         assert!(loaded.mutate_rate_incomplete);
+    }
+
+    #[test]
+    fn backfill_unavailable_acceptance_requires_a_complete_skip_summary() {
+        let summary = "done ok=0 reused=0 skip=1\n";
+        assert!(backfill_batch_is_only_unavailable(Some(1), summary, "", 1));
+        assert!(!backfill_batch_is_only_unavailable(Some(2), summary, "", 1));
+        assert!(!backfill_batch_is_only_unavailable(
+            Some(1),
+            summary,
+            "Traceback: child crashed",
+            1
+        ));
+        assert!(!backfill_batch_is_only_unavailable(
+            Some(1),
+            "done ok=0 reused=0 skip=0\n",
+            "",
+            1
+        ));
     }
 }
