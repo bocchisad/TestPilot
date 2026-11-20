@@ -578,7 +578,7 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
         )
     elif failure_kind == "generated_init_typeerror":
         failure_output = (
-            "printf '%s\\n' 'Error while loading plugin \"pytest11\".'\n"
+            "printf '%s\\n' 'Traceback (most recent call last):'\n"
             "printf '%s\\n' 'src/attr/_make.py:2: in value'\n"
             "i=0\n"
             "while [ \"$i\" -lt 2500 ]; do printf x; i=$((i + 1)); done\n"

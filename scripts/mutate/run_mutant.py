@@ -162,6 +162,9 @@ _NO_JUNIT_HYPOTHESIS_PROFILE_RE = re.compile(
     r"(?m)^INTERNALERROR> hypothesis\.errors\.InvalidArgument: "
     r"Profile ['\"]patience['\"] is not registered\s*$"
 )
+_NO_JUNIT_MUTANT_INIT_TYPEERROR_RE = re.compile(
+    r"(?m)^TypeError: cannot unpack non-iterable NoneType object\s*$"
+)
 _PYTEST_OUTPUT_TRUNCATED_MARKER = "\n... pytest output truncated ...\n"
 _TRACEBACK_FRAME_RE = re.compile(
     r"(?m)^\s*(?:(?:E|INTERNALERROR>)\s+)?File ['\"](?P<path>.+?)['\"], line (?P<line>\d+),"
@@ -714,16 +717,17 @@ def run_mutant(
 
         if not junit1.is_file():
             no_junit_collection_error = _no_junit_collection_error(rc, tail, wt)
-            no_junit_mutant_plugin_error = _no_junit_mutant_plugin_collection_error(
+            no_junit_mutant_control_error = _no_junit_mutant_plugin_collection_error(
                 rc, tail, wt, repo, parent_sha, mutant_sha
             )
             no_junit_note = f"pytest produced no JUnit report: {tail}"
             if (
-                not no_junit_mutant_plugin_error
+                not no_junit_mutant_control_error
                 and rc in {1, 3}
                 and (
                     _NO_JUNIT_PYTEST11_RE.search(tail) is not None
                     or _NO_JUNIT_HYPOTHESIS_PROFILE_RE.search(tail) is not None
+                    or _NO_JUNIT_MUTANT_INIT_TYPEERROR_RE.search(tail) is not None
                 )
                 and _has_mutant_worktree_frame(tail, wt)
             ):
@@ -738,9 +742,9 @@ def run_mutant(
                     timeout_sec,
                     env,
                 )
-                no_junit_mutant_plugin_error = parent_ok
+                no_junit_mutant_control_error = parent_ok
                 no_junit_note = f"{no_junit_note}\n{parent_note}"
-            if no_junit_collection_error or no_junit_mutant_plugin_error:
+            if no_junit_collection_error or no_junit_mutant_control_error:
                 return MutantRunResult(
                     ok=False,
                     collection_error=True,
