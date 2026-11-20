@@ -155,6 +155,17 @@ _NO_JUNIT_CONFTEST_RE = re.compile(
     r"(?m)^ImportError while loading conftest ['\"](?P<path>[^'\"]+)['\"]\.?\s*$"
 )
 
+_NO_JUNIT_PYTEST11_RE = re.compile(
+    r"(?m)^Error while loading plugin ['\"]pytest11['\"]\.$"
+)
+_TRACEBACK_FRAME_RE = re.compile(
+    r"(?m)^\s*File ['\"](?P<path>.+?)['\"], line (?P<line>\d+),"
+    r"|^\s*(?:E\s+)?(?P<compact_path>.+?\.py):(?P<compact_line>\d+): in\b"
+)
+_DIFF_HUNK_RE = re.compile(
+    r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@"
+)
+
 _COLLECTION_MSG_RE = re.compile(
     r"(collection failure|ERROR collecting|failed to collect|ImportError while importing)",
     re.I,
@@ -211,6 +222,56 @@ def _no_junit_collection_error(returncode: int | None, tail: str, worktree: Path
         )
     except OSError:
         return False
+
+
+def _no_junit_mutant_plugin_collection_error(
+    returncode: int | None,
+    tail: str,
+    worktree: Path,
+    repo: Path,
+    parent_sha: str,
+    mutant_sha: str,
+) -> bool:
+    """Accept pytest11 import failure only when its innermost frame is a changed line."""
+    if (
+        returncode not in {1, 3}
+        or _NO_JUNIT_PYTEST11_RE.search(tail) is None
+    ):
+        return False
+    frames = list(_TRACEBACK_FRAME_RE.finditer(tail))
+    if not frames:
+        return False
+    frame = frames[-1]
+    try:
+        resolved_wt = worktree.resolve(strict=True)
+        frame_path = Path(frame.group("path") or frame.group("compact_path"))
+        if not frame_path.is_absolute():
+            frame_path = resolved_wt / frame_path
+        resolved_source = frame_path.resolve(strict=True)
+        if not resolved_source.is_file() or not resolved_source.is_relative_to(resolved_wt):
+            return False
+        relpath = resolved_source.relative_to(resolved_wt).as_posix()
+        result = subprocess.run(
+            ["git", "diff", "--unified=0", "--no-ext-diff", parent_sha, mutant_sha, "--", relpath],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+        line = int(frame.group("line") or frame.group("compact_line"))
+        for hunk in result.stdout.splitlines():
+            match = _DIFF_HUNK_RE.match(hunk)
+            if match is None:
+                continue
+            start = int(match.group("start"))
+            count = int(match.group("count") or "1")
+            if count > 0 and start <= line < start + count:
+                return True
+    except (OSError, ValueError):
+        return False
+    return False
 
 
 def run_test_count(db: Path, sha: str, *, synthetic: bool) -> int:
@@ -520,8 +581,11 @@ def run_mutant(
 
         if not junit1.is_file():
             no_junit_collection_error = _no_junit_collection_error(rc, tail, wt)
+            no_junit_mutant_plugin_error = _no_junit_mutant_plugin_collection_error(
+                rc, tail, wt, repo, parent_sha, mutant_sha
+            )
             no_junit_note = f"pytest produced no JUnit report: {tail}"
-            if no_junit_collection_error:
+            if no_junit_collection_error or no_junit_mutant_plugin_error:
                 return MutantRunResult(
                     ok=False,
                     collection_error=True,

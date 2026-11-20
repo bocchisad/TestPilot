@@ -16,7 +16,11 @@ _ROOT = Path(__file__).resolve().parents[2]
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from mutate.run_mutant import junit_collection_error, run_mutant  # noqa: E402
+from mutate.run_mutant import (  # noqa: E402
+    _no_junit_mutant_plugin_collection_error,
+    junit_collection_error,
+    run_mutant,
+)
 from mutate.testpilot_bin import resolve_testpilot_bin  # noqa: E402
 
 
@@ -359,3 +363,124 @@ def test_pytest_rc3_with_conftest_header_stays_infrastructure(tmp_path: Path) ->
     assert result.pytest_rc == 3
     assert result.collection_error is False
     assert result.ok is False
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "compact_traceback"), [(1, False), (3, True)]
+)
+def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+    compact_traceback: bool,
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def value():\n    return 1\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text("def value():\n    return 2\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant breaks plugin import")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+    work = tmp_path / "work"
+    mutant_file = work / f"wt-{mutant[:12]}" / "src" / "attr" / "_make.py"
+    wrapper = tmp_path / "pytest_wrap"
+    if compact_traceback:
+        frame = "E   src/attr/_make.py:2: in value"
+        exception = 'E   TypeError: can only concatenate str (not "bool") to str'
+    else:
+        frame = f'  File "{mutant_file}", line 2, in <module>'
+        exception = 'TypeError: can only concatenate str (not "bool") to str'
+    output = [
+        'Error while loading plugin "pytest11".',
+        *( ["Traceback (most recent call last):"] if not compact_traceback else [] ),
+        frame,
+        "    return 2",
+        exception,
+    ]
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' " + " ".join(f"'{line}'" for line in output) + "\n"
+        f"exit {exit_code}\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=work,
+        timeout_override=60,
+    )
+    assert result.pytest_rc == exit_code
+    assert result.junit_path is None
+    assert result.collection_error is True, result.log_tail[-2000:]
+    assert result.collect_ok is False
+    assert result.killed is False
+    assert "TypeError: can only concatenate" in result.collect_note
+    from mutate_bootstrap import (
+        _append_outcome,
+        _load_first_outcomes,
+        _result_from_stored_outcome,
+    )
+
+    outcomes = tmp_path / "mutate_pairs.jsonl"
+    _append_outcome(outcomes, "C:0", mutant, result)
+    persisted = _load_first_outcomes(outcomes)["C:0"]
+    assert persisted["status"] == "collection_error"
+    assert persisted["pytest_rc"] == exit_code
+    assert "TypeError: can only concatenate" in persisted["collect_note"]
+    reused = _result_from_stored_outcome(persisted, mutant)
+    assert reused is not None
+    assert reused.pytest_rc == exit_code
+
+
+def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
+    tmp_path: Path,
+) -> None:
+    repo, _initial = _init_tiny_repo(tmp_path)
+    (repo / "pkg" / "__init__.py").write_text(
+        "def value():\n    return 1\n", encoding="utf-8"
+    )
+    _git(repo, "add", "pkg/__init__.py")
+    _git(repo, "commit", "-m", "baseline package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    (repo / "pkg" / "__init__.py").write_text(
+        "def value():\n    return 2\n", encoding="utf-8"
+    )
+    _git(repo, "add", "pkg/__init__.py")
+    _git(repo, "commit", "-m", "mutant changes another line")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+    worktree = tmp_path / "work" / f"wt-{mutant[:12]}"
+    (worktree / "pkg").mkdir(parents=True)
+    (worktree / "pkg" / "__init__.py").write_text(
+        "def value():\n    return 2\n", encoding="utf-8"
+    )
+    tail = (
+        'Error while loading plugin "pytest11".\n'
+        "Traceback (most recent call last):\n"
+        f'  File "{worktree / "pkg" / "__init__.py"}", line 1, in <module>\n'
+        "TypeError: can only concatenate str (not \"bool\") to str\n"
+    )
+
+    assert _no_junit_mutant_plugin_collection_error(
+        1, tail, worktree, repo, parent, mutant
+    ) is False

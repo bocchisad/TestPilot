@@ -157,6 +157,8 @@ def _append_outcome(pairs_out: Path | None, pair: str, m_sha: str, result) -> No
     row = {"pair": pair, "m_sha": m_sha, "status": status,
            "killed": result.killed, "n_new_fail": result.n_new_fail,
            "flaky_tests": sorted(result.flaky_tests)}
+    if result.pytest_rc is not None:
+        row["pytest_rc"] = result.pytest_rc
     if result.collect_note:
         row["collect_note"] = result.collect_note
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,12 +193,16 @@ def _result_from_stored_outcome(row: dict | None, m_sha: str) -> MutantRunResult
     """Reuse a durable outcome without turning a collection error into a kill."""
     if row is None or row.get("m_sha") != m_sha:
         return None
+    pytest_rc = row.get("pytest_rc")
+    if not isinstance(pytest_rc, int) or isinstance(pytest_rc, bool):
+        pytest_rc = None
     status = row.get("status")
     if status == "complete":
         n_new_fail = int(row.get("n_new_fail", 0))
         return MutantRunResult(
             ok=True,
             collect_ok=True,
+            pytest_rc=pytest_rc,
             n_new_fail=n_new_fail,
             killed=bool(row.get("killed", n_new_fail > 0)),
             flaky_tests=set(row.get("flaky_tests") or ()),
@@ -207,6 +213,7 @@ def _result_from_stored_outcome(row: dict | None, m_sha: str) -> MutantRunResult
             ok=True,
             collect_ok=False,
             collection_error=True,
+            pytest_rc=pytest_rc,
             collect_note=row.get("collect_note") or "reused persisted collection error",
         )
     return None
