@@ -165,6 +165,11 @@ _TRACEBACK_FRAME_RE = re.compile(
 _DIFF_HUNK_RE = re.compile(
     r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@"
 )
+_COLLECTED_COUNT_RE = re.compile(
+    r"(?im)^\s*=*\s*(?:(?P<count_first>\d+)\s+(?:tests?|items?)\s+collected|"
+    r"collected\s+(?P<count_last>\d+)\s+(?:tests?|items?))\b"
+    r"(?:\s+in\s+[\d.]+\s*[a-z]+)?\s*=*\s*$"
+)
 
 _COLLECTION_MSG_RE = re.compile(
     r"(collection failure|ERROR collecting|failed to collect|ImportError while importing)",
@@ -201,6 +206,19 @@ def junit_collection_error(path: Path) -> bool:
             if classname == name or not classname:
                 return True
     return False
+
+
+def _valid_junit(path: Path) -> bool:
+    """Return whether path contains a minimal JUnit testsuite document."""
+    if not path.is_file():
+        return False
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    if root.tag == "testsuite":
+        return True
+    return root.tag == "testsuites" and any(child.tag == "testsuite" for child in root)
 
 
 def _no_junit_collection_error(returncode: int | None, tail: str, worktree: Path) -> bool:
@@ -272,6 +290,100 @@ def _no_junit_mutant_plugin_collection_error(
     except (OSError, ValueError):
         return False
     return False
+
+
+def _has_mutant_worktree_frame(tail: str, worktree: Path) -> bool:
+    try:
+        resolved_wt = worktree.resolve(strict=True)
+        for frame in _TRACEBACK_FRAME_RE.finditer(tail):
+            raw_path = frame.group("path") or frame.group("compact_path")
+            frame_path = Path(raw_path)
+            if not frame_path.is_absolute():
+                frame_path = resolved_wt / frame_path
+            source = frame_path.resolve(strict=True)
+            if source.is_file() and source.is_relative_to(resolved_wt):
+                return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def _collected_count(output: str) -> int:
+    matches = list(_COLLECTED_COUNT_RE.finditer(output))
+    if not matches:
+        return 0
+    match = matches[-1]
+    return int(match.group("count_first") or match.group("count_last"))
+
+
+def _parent_control_collection(
+    repo: Path,
+    parent_sha: str,
+    mutant_sha: str,
+    work_dir: Path,
+    pytest_bin: Path,
+    warn_args: list[str],
+    extra: list[str],
+    timeout_sec: int,
+    env: dict[str, str],
+) -> tuple[bool, str]:
+    """Use the same worker environment to verify parent C still collects."""
+    control_wt = work_dir / f"wt-parent-{mutant_sha[:12]}"
+    junit = work_dir / f"junit-parent-{mutant_sha[:12]}.xml"
+    _run(["git", "worktree", "remove", "--force", str(control_wt)], cwd=repo, check=False)
+    if control_wt.exists():
+        shutil.rmtree(control_wt, ignore_errors=True)
+    junit.unlink(missing_ok=True)
+    add = _run(
+        ["git", "worktree", "add", "--detach", str(control_wt), parent_sha],
+        cwd=repo,
+        check=False,
+    )
+    if add.returncode != 0:
+        return False, f"parent control worktree failed: {(add.stderr or add.stdout or '').strip()[-1000:]}"
+
+    control_env = dict(env)
+    control_env["PYTHONPATH"] = os.pathsep.join((str(control_wt), str(control_wt / "src")))
+    cmd = [
+        str(pytest_bin),
+        f"--junitxml={junit}",
+        *warn_args,
+        "--collect-only",
+        *extra,
+    ]
+    try:
+        rc, timed_out, tail, pgid = _run_pytest_group(
+            cmd, control_wt, control_env, timeout_sec
+        )
+        orphan_ok = not _pgid_alive(pgid)
+        # pytest --collect-only creates a valid JUnit shell with tests=0; its
+        # collection summary is the source of the nonzero collected-test count.
+        valid_junit = _valid_junit(junit)
+        n_tests = _collected_count(tail)
+        ok = (
+            rc == 0
+            and not timed_out
+            and orphan_ok
+            and n_tests > 0
+            and valid_junit
+            and not junit_collection_error(junit)
+        )
+        if ok:
+            return True, (
+                f"parent control collection succeeded: pytest_rc={rc} n_tests={n_tests}; "
+                "same worker environment, no dependency reinstall"
+            )
+        return False, (
+            f"parent control collection failed: pytest_rc={rc} timed_out={timed_out} "
+            f"orphan_check_ok={orphan_ok} n_tests={n_tests}; {tail[-1200:]}"
+        )
+    except OSError as exc:
+        return False, f"parent control collection could not run: {exc}"
+    finally:
+        _run(["git", "worktree", "remove", "--force", str(control_wt)], cwd=repo, check=False)
+        if control_wt.exists():
+            shutil.rmtree(control_wt, ignore_errors=True)
+        junit.unlink(missing_ok=True)
 
 
 def run_test_count(db: Path, sha: str, *, synthetic: bool) -> int:
@@ -585,6 +697,25 @@ def run_mutant(
                 rc, tail, wt, repo, parent_sha, mutant_sha
             )
             no_junit_note = f"pytest produced no JUnit report: {tail}"
+            if (
+                not no_junit_mutant_plugin_error
+                and rc in {1, 3}
+                and _NO_JUNIT_PYTEST11_RE.search(tail) is not None
+                and _has_mutant_worktree_frame(tail, wt)
+            ):
+                parent_ok, parent_note = _parent_control_collection(
+                    repo,
+                    parent_sha,
+                    mutant_sha,
+                    work_dir,
+                    pytest_bin,
+                    warn_args,
+                    extra,
+                    timeout_sec,
+                    env,
+                )
+                no_junit_mutant_plugin_error = parent_ok
+                no_junit_note = f"{no_junit_note}\n{parent_note}"
             if no_junit_collection_error or no_junit_mutant_plugin_error:
                 return MutantRunResult(
                     ok=False,

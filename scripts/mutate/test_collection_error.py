@@ -17,6 +17,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from mutate.run_mutant import (  # noqa: E402
+    _collected_count,
     _no_junit_mutant_plugin_collection_error,
     junit_collection_error,
     run_mutant,
@@ -111,6 +112,21 @@ def test_junit_normal_assertion_failure_not_collection(tmp_path: Path) -> None:
     fail.text = "assert 1 == 2"
     junit.write_text(ET.tostring(suite, encoding="unicode"), encoding="utf-8")
     assert junit_collection_error(junit) is False
+
+
+def test_collected_count_accepts_pytest_terminal_summary_after_long_output() -> None:
+    output = "collected 160 items\n" + ("collection detail\n" * 700)
+    output = output[-4000:] + "\n================ 160 tests collected in 0.02s ================\n"
+    assert _collected_count(output) == 160
+
+
+@pytest.mark.parametrize("xml", ["<not-junit/>", "<testsuites/>", "<broken"])
+def test_parent_control_rejects_invalid_or_empty_junit_shape(tmp_path: Path, xml: str) -> None:
+    from mutate.run_mutant import _valid_junit
+
+    junit = tmp_path / "junit.xml"
+    junit.write_text(xml, encoding="utf-8")
+    assert _valid_junit(junit) is False
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -484,3 +500,81 @@ def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
     assert _no_junit_mutant_plugin_collection_error(
         1, tail, worktree, repo, parent, mutant
     ) is False
+
+
+@pytest.mark.parametrize("parent_collects", [True, False])
+def test_pytest11_plugin_failure_uses_same_worker_parent_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    parent_collects: bool,
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def value():\n    return 1\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text("def value():\n    return 2\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant fails from generated code")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+
+    wrapper = tmp_path / "pytest_wrap"
+    parent_output = (
+        "cat > \"$junit\" <<'XML'\n"
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+        "<testsuites><testsuite name=\"tests\" tests=\"1\">"
+        "<testcase classname=\"tests.test_basic\" name=\"test_ok\"/>"
+        "</testsuite></testsuites>\n"
+        "XML\n"
+        "echo '1 test collected'\n"
+        "exit 0\n"
+    )
+    if not parent_collects:
+        parent_output = (
+            "printf '%s\\n' 'Error while loading plugin \"pytest11\".' "
+            "'E   src/attr/_make.py:1: in value' "
+            "'E   TypeError: can only concatenate str (not \"bool\") to str'\n"
+            "exit 3\n"
+        )
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "junit=''\n"
+        "for arg in \"$@\"; do case \"$arg\" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n"
+        "case \"$PWD\" in *wt-parent-*)\n"
+        + parent_output
+        + "esac\n"
+        "printf '%s\\n' 'Error while loading plugin \"pytest11\".' "
+        "'E   src/attr/_make.py:1: in value' "
+        "'E   TypeError: can only concatenate str (not \"bool\") to str'\n"
+        "exit 3\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.pytest_rc == 3
+    if parent_collects:
+        assert result.collection_error is True, result.collect_note[-2000:]
+        assert "parent control collection succeeded" in result.collect_note
+        assert "n_tests=1" in result.collect_note
+        assert result.killed is False
+    else:
+        assert result.collection_error is False
+        assert "parent control collection failed" in result.collect_note
