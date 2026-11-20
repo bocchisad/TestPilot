@@ -196,9 +196,16 @@ def test_class_creation_collection_failure_without_junit_is_not_infrastructure(
     tmp_path: Path,
 ) -> None:
     """An import-time class decorator failure can stop pytest before JUnit exists."""
-    _testpilot()
-    repo, parent = _init_tiny_repo(tmp_path)
+    bin_ = _testpilot()
+    os.environ["TESTPILOT_BIN"] = bin_
+    repo, _parent = _init_tiny_repo(tmp_path)
     db = tmp_path / "tp.sqlite"
+    (repo / "tests" / "conftest.py").write_text("from pkg import X\n", encoding="utf-8")
+    _git(repo, "add", "tests/conftest.py")
+    _git(repo, "commit", "-m", "import package from conftest")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
     (repo / "pkg" / "__init__.py").write_text(
         "from collections import abc\n"
         "class BrokenMeta(type):\n"
@@ -218,24 +225,18 @@ def test_class_creation_collection_failure_without_junit_is_not_infrastructure(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
     ).strip()
     _git(repo, "reset", "--hard", parent)
-    wrapper = tmp_path / "pytest_wrap"
-    wrapper.write_text(
-        "#!/bin/sh\n"
-        "printf '%s\\n' \"ImportError while loading conftest\" \"TypeError: Can only register classes\"\n"
-        "exit 2\n",
-        encoding="utf-8",
-    )
-    wrapper.chmod(0o755)
     result = run_mutant(
         repo,
         db,
         mutant_sha,
         parent_sha=parent,
-        pytest_bin=wrapper,
+        pytest_bin=Path(sys.executable).with_name("pytest"),
         python_bin=Path(sys.executable),
         work_dir=tmp_path / "work",
         timeout_override=60,
     )
+    assert result.pytest_rc == 4
+    assert result.junit_path is None
     assert result.collection_error is True, result.log_tail[-2000:]
     assert result.collect_ok is False
     assert result.killed is False
@@ -278,5 +279,82 @@ def test_non_collection_pytest_exit_without_junit_stays_infrastructure(
         work_dir=tmp_path / "work",
         timeout_override=60,
     )
+    assert result.collection_error is False
+    assert result.ok is False
+
+
+def test_pytest_rc4_conftest_path_outside_mutant_worktree_stays_infrastructure(
+    tmp_path: Path,
+) -> None:
+    _testpilot()
+    repo, parent = _init_tiny_repo(tmp_path)
+    (repo / "pkg" / "__init__.py").write_text("X = 2\n", encoding="utf-8")
+    _git(repo, "add", "pkg/__init__.py")
+    _git(repo, "commit", "-m", "change package")
+    mutant_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+    outside = tmp_path / "outside" / "conftest.py"
+    outside.parent.mkdir()
+    wrapper = tmp_path / "pytest_wrap"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"ImportError while loading conftest '{outside}'\" \"TypeError: Can only register classes\"\n"
+        "exit 4\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant_sha,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.collection_error is False
+    assert result.ok is False
+
+
+def test_pytest_rc3_with_conftest_header_stays_infrastructure(tmp_path: Path) -> None:
+    _testpilot()
+    repo, parent = _init_tiny_repo(tmp_path)
+    (repo / "tests" / "conftest.py").write_text("from pkg import X\n", encoding="utf-8")
+    _git(repo, "add", "tests/conftest.py")
+    _git(repo, "commit", "-m", "import package from conftest")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    (repo / "pkg" / "__init__.py").write_text("X = 2\n", encoding="utf-8")
+    _git(repo, "add", "pkg/__init__.py")
+    _git(repo, "commit", "-m", "change package")
+    mutant_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+    work = tmp_path / "work"
+    conftest = work / f"wt-{mutant_sha[:12]}" / "tests" / "conftest.py"
+    wrapper = tmp_path / "pytest_wrap"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"ImportError while loading conftest '{conftest}'\" \"internal failure\"\n"
+        "exit 3\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant_sha,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=work,
+        timeout_override=60,
+    )
+    assert result.pytest_rc == 3
     assert result.collection_error is False
     assert result.ok is False

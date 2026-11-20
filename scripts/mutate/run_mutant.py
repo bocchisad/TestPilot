@@ -151,6 +151,10 @@ _COLLECTION_RE = re.compile(
     re.I,
 )
 
+_NO_JUNIT_CONFTEST_RE = re.compile(
+    r"(?m)^ImportError while loading conftest ['\"](?P<path>[^'\"]+)['\"]\.?\s*$"
+)
+
 _COLLECTION_MSG_RE = re.compile(
     r"(collection failure|ERROR collecting|failed to collect|ImportError while importing)",
     re.I,
@@ -186,6 +190,27 @@ def junit_collection_error(path: Path) -> bool:
             if classname == name or not classname:
                 return True
     return False
+
+
+def _no_junit_collection_error(returncode: int | None, tail: str, worktree: Path) -> bool:
+    if returncode == 2:
+        return bool(_COLLECTION_RE.search(tail))
+    if returncode != 4:
+        return False
+    match = _NO_JUNIT_CONFTEST_RE.search(tail)
+    if match is None:
+        return False
+    conftest = Path(match.group("path"))
+    try:
+        resolved_wt = worktree.resolve()
+        resolved_conftest = conftest.resolve()
+        return (
+            resolved_conftest.name == "conftest.py"
+            and resolved_conftest.is_file()
+            and resolved_conftest.is_relative_to(resolved_wt)
+        )
+    except OSError:
+        return False
 
 
 def run_test_count(db: Path, sha: str, *, synthetic: bool) -> int:
@@ -494,7 +519,7 @@ def run_mutant(
             )
 
         if not junit1.is_file():
-            no_junit_collection_error = rc == 2 and bool(_COLLECTION_RE.search(tail))
+            no_junit_collection_error = _no_junit_collection_error(rc, tail, wt)
             no_junit_note = f"pytest produced no JUnit report: {tail}"
             if no_junit_collection_error:
                 return MutantRunResult(
