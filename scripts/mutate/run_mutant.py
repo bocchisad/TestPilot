@@ -495,15 +495,22 @@ def run_mutant(
 
         if not junit1.is_file():
             no_junit_collection_error = rc == 2 and bool(_COLLECTION_RE.search(tail))
+            no_junit_note = f"pytest produced no JUnit report: {tail}"
             if no_junit_collection_error:
                 return MutantRunResult(
                     ok=False,
                     collection_error=True,
                     high_fail_rate=True,
                     pytest_rc=rc,
-                    log_tail=f"pytest produced no JUnit report: {tail}",
+                    collect_note=no_junit_note,
+                    log_tail=no_junit_note,
                 )
-            return MutantRunResult(ok=False, pytest_rc=rc, log_tail=f"pytest produced no JUnit report: {tail}")
+            return MutantRunResult(
+                ok=False,
+                pytest_rc=rc,
+                collect_note=no_junit_note,
+                log_tail=no_junit_note,
+            )
         collection_error = bool(_COLLECTION_RE.search(tail)) or (
             rc == 2 and not junit1.is_file()
         )

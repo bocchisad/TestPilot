@@ -240,3 +240,43 @@ def test_class_creation_collection_failure_without_junit_is_not_infrastructure(
     assert result.collect_ok is False
     assert result.killed is False
     assert "Can only register classes" in result.log_tail
+    from mutate_bootstrap import _append_outcome, _load_first_outcomes
+    outcomes = tmp_path / "mutate_pairs.jsonl"
+    _append_outcome(outcomes, "C:0", mutant_sha, result)
+    persisted = _load_first_outcomes(outcomes)["C:0"]
+    assert "Can only register classes" in persisted.get("collect_note", "")
+
+
+@pytest.mark.parametrize("exit_code", [3, 4])
+def test_non_collection_pytest_exit_without_junit_stays_infrastructure(
+    tmp_path: Path, exit_code: int
+) -> None:
+    _testpilot()
+    repo, parent = _init_tiny_repo(tmp_path)
+    (repo / "pkg" / "__init__.py").write_text("X = 2\n", encoding="utf-8")
+    _git(repo, "add", "pkg/__init__.py")
+    _git(repo, "commit", "-m", "change package")
+    mutant_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+    wrapper = tmp_path / "pytest_wrap"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"ImportError while loading conftest\" \"TypeError: Can only register classes\"\n"
+        f"exit {exit_code}\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant_sha,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.collection_error is False
+    assert result.ok is False
