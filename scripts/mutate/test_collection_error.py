@@ -187,3 +187,56 @@ def test_import_break_mutant_is_collection_error(tmp_path: Path) -> None:
     assert result.collection_error is True, result.log_tail[-2000:]
     assert result.killed is False
     assert result.n_new_fail == 0
+
+
+@pytest.mark.skipif(
+    os.environ.get("TP_SKIP_SLOW") == "1", reason="slow mutant integration"
+)
+def test_class_creation_collection_failure_without_junit_is_not_infrastructure(
+    tmp_path: Path,
+) -> None:
+    """An import-time class decorator failure can stop pytest before JUnit exists."""
+    _testpilot()
+    repo, parent = _init_tiny_repo(tmp_path)
+    db = tmp_path / "tp.sqlite"
+    (repo / "pkg" / "__init__.py").write_text(
+        "from collections import abc\n"
+        "class BrokenMeta(type):\n"
+        "    def __new__(mcs, name, bases, namespace):\n"
+        "        if not bases:\n"
+        "            return None\n"
+        "        return super().__new__(mcs, name, bases, namespace)\n"
+        "@abc.Mapping.register\n"
+        "class Broken(metaclass=BrokenMeta):\n"
+        "    pass\n"
+        "X = 1\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", "pkg/__init__.py")
+    _git(repo, "commit", "-m", "break class creation")
+    mutant_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+    wrapper = tmp_path / "pytest_wrap"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"ImportError while loading conftest\" \"TypeError: Can only register classes\"\n"
+        "exit 2\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    result = run_mutant(
+        repo,
+        db,
+        mutant_sha,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.collection_error is True, result.log_tail[-2000:]
+    assert result.collect_ok is False
+    assert result.killed is False
+    assert "Can only register classes" in result.log_tail
