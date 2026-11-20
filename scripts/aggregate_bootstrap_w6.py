@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
@@ -15,7 +16,13 @@ ABS_BAD = re.compile(r"/(?:home|Users|tmp|private)/")
 
 
 def load(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    def reject_constant(value: str):
+        raise ValueError(f"non-finite JSON value {value} in {path}")
+
+    value = json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
+    if not isinstance(value, dict):
+        raise ValueError(f"expected JSON object in {path}")
+    return value
 
 
 def forbid_abs(obj: object, path: str) -> None:
@@ -62,10 +69,13 @@ def collect_mutants(repo: Path) -> dict:
         if completed - latest.keys():
             raise ValueError('completed mutant missing from explicit outcome ledger')
     labels, details, non_timeout, timeout_pairs, timeout_shas, collection = {}, {}, [], [], [], []
+    collection_error_shas = []
     with sqlite3.connect(repo / '.testpilot/db.sqlite') as con:
         for pair, event in sorted(latest.items()):
             sha = event['m_sha']
             status = event['status']
+            if status not in {'complete', 'timeout', 'collection_error', 'infrastructure_failure'}:
+                raise ValueError(f'unknown mutation outcome status: {status!r}')
             if status == 'timeout':
                 timeout_pairs.append(pair)
                 timeout_shas.append(sha)
@@ -75,6 +85,7 @@ def collect_mutants(repo: Path) -> dict:
             non_timeout.append(sha)
             if status == 'collection_error':
                 collection.append(pair)
+                collection_error_shas.append(sha)
                 continue
             base, _ = pair.rsplit(':', 1)
             fails_c, flaky_c = run_details(con, base, 0)
@@ -85,7 +96,8 @@ def collect_mutants(repo: Path) -> dict:
             details[sha] = {'new_fail_tests': sorted(new), 'flaky_tests': sorted(flaky)}
     return {'m_shas_non_timeout': sorted(set(non_timeout)), 'labels': labels, 'label_details': details,
             'timeout_pairs': timeout_pairs, 'timeout_shas': sorted(set(timeout_shas)),
-            'collection_error_pairs': collection, 'pairs': sorted(latest),
+            'collection_error_pairs': collection, 'collection_error_shas': sorted(set(collection_error_shas)),
+            'pairs': sorted(latest),
             'attempts_recorded': len(events)}
 
 
@@ -97,17 +109,29 @@ def compare_level_b(gold: dict, second: dict) -> dict:
     right = set(second['m_shas_non_timeout']) - excluded
     common = left & right
     label_match = True
+    n_compared = 0
+    left_collection_errors = set(gold.get('collection_error_shas', []))
+    right_collection_errors = set(second.get('collection_error_shas', []))
     for sha in common:
+        left_is_collection_error = sha in left_collection_errors
+        right_is_collection_error = sha in right_collection_errors
+        if left_is_collection_error or right_is_collection_error:
+            label_match = label_match and left_is_collection_error == right_is_collection_error
+            continue
         a = gold['label_details'].get(sha)
         b = second['label_details'].get(sha)
         if a is None or b is None:
-            label_match = label_match and a == b
-            continue
+            raise ValueError(f'missing label details for comparable mutant {sha}')
+        if not all(isinstance(row.get(key), list) for row in (a, b) for key in ('new_fail_tests', 'flaky_tests')):
+            raise ValueError(f'malformed label details for comparable mutant {sha}')
         flaky = set(a['flaky_tests']) | set(b['flaky_tests'])
         label_match = label_match and bool(set(a['new_fail_tests'])-flaky) == bool(set(b['new_fail_tests'])-flaky)
+        n_compared += 1
     return {'gold': gold, 'run_b': second, 'excluded_timeout_shas': sorted(excluded),
             'sha_match': left == right, 'label_match': label_match,
-            'n_compared': len(common)}
+            'n_compared': n_compared, 'n_collection_error_compared': sum(
+                sha in left_collection_errors and sha in right_collection_errors for sha in common
+            )}
 
 
 def repo_block(root: Path, name: str) -> dict:
@@ -162,12 +186,35 @@ def run_loro(root: Path) -> dict:
             raise ValueError('LORO train failed; see retained stdout/stderr logs')
         report = load(stage/'report.json')
         loro = report.get('loro') or {}
-        held = {row.get('held_out') for row in loro.get('per_repo', [])}
-        if loro.get('skipped') is not False or held != repos or len(loro.get('per_repo', [])) != 3:
+        rows = loro.get('per_repo')
+        held = {row.get('held_out') for row in rows} if isinstance(rows, list) and all(isinstance(row, dict) for row in rows) else set()
+        if loro.get('skipped') is not False or held != repos or not isinstance(rows, list) or len(rows) != 3:
             raise ValueError('LORO did not produce exactly three held-out evaluations')
+        recalls = []
+        for row in rows:
+            recall = row.get('recall@10%')
+            n_changes = row.get('n_changes')
+            baselines = row.get('baselines')
+            if (not isinstance(n_changes, int) or isinstance(n_changes, bool) or n_changes <= 0
+                    or not isinstance(recall, (int, float)) or isinstance(recall, bool)
+                    or not math.isfinite(recall) or not 0 <= recall <= 1
+                    or not isinstance(baselines, dict)
+                    or set(baselines) != {'cov_lines', 'cc_max', 'random'}
+                    or any(not isinstance(value, (int, float)) or isinstance(value, bool)
+                           or not math.isfinite(value) or not 0 <= value <= 1
+                           for value in baselines.values())):
+                raise ValueError(f"LORO row for {row.get('held_out')} is missing valid metrics")
+            recalls.append(float(recall))
+        macro = loro.get('macro_recall@10%')
+        if (not isinstance(macro, (int, float)) or isinstance(macro, bool)
+                or not math.isfinite(macro) or not 0 <= macro <= 1
+                or not math.isclose(float(macro), sum(recalls) / len(recalls), rel_tol=1e-9, abs_tol=1e-9)):
+            raise ValueError('LORO macro recall is missing or inconsistent with held-out rows')
         forbid_abs(report, 'LORO report.json')
         for filename in ('report.json', 'report.md', 'model.json', 'bootstrap_report.json'):
             if (stage/filename).is_file():
+                if filename.endswith('.json'):
+                    forbid_abs(load(stage/filename), filename)
                 (out/filename).write_bytes((stage/filename).read_bytes())
     return loro
 
@@ -201,7 +248,7 @@ def main() -> int:
         per[name]['actual_step_wall_s'] = sum(per[name]['step_timings_s'].values())
     actual = sum(v['actual_step_wall_s'] for k,v in per.items() if k != 'click_level_b') + sum(b_report['step_timings_s'].values())
     dry.update(actual_s=args.bootstrap_wall_s, actual_bootstrap_step_wall_s=actual, reason='full_runs_completed')
-    dry_path.write_text(json.dumps(dry, indent=2)+'\n')
+    dry_path.write_text(json.dumps(dry, indent=2, allow_nan=False)+'\n')
     summary = {'pins': {name: dict(zip(('sha','tag'), getattr(args, 'pins_'+name).split(':',1))) for name in ('click','jinja','attrs')},
                'env': {**host, 'pip_freeze':'docs/measurements/env-pip-freeze.txt', 'training':load(root/'docs/measurements/env-training-versions.json')},
                'dry_run_estimates':dry, 'repos':per, 'level_b':level, 'loro':loro,
