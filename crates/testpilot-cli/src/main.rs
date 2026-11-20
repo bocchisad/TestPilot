@@ -1979,26 +1979,43 @@ fn backfill_batch_is_only_unavailable(
     if exit_code != Some(1) || requested == 0 || !stderr.trim().is_empty() {
         return false;
     }
-    let summary = stdout
+    let summaries: Vec<_> = stdout
         .lines()
-        .filter_map(|line| {
-            let rest = line.strip_prefix("done ")?;
-            let mut ok = None;
-            let mut reused = None;
-            let mut skip = None;
-            for field in rest.split_whitespace() {
-                let (key, value) = field.split_once('=')?;
-                match key {
-                    "ok" => ok = value.parse::<usize>().ok(),
-                    "reused" => reused = value.parse::<usize>().ok(),
-                    "skip" => skip = value.parse::<usize>().ok(),
-                    _ => {}
-                }
-            }
-            Some((ok?, reused?, skip?))
-        })
-        .last();
-    summary == Some((0, 0, requested))
+        .enumerate()
+        .filter(|(_, line)| *line == "done" || line.starts_with("done "))
+        .collect();
+    if summaries.len() != 1 {
+        return false;
+    }
+
+    let (summary_index, summary_line) = summaries[0];
+    if stdout
+        .lines()
+        .skip(summary_index + 1)
+        .any(|line| !line.trim().is_empty())
+    {
+        return false;
+    }
+    let Some(rest) = summary_line.strip_prefix("done ") else {
+        return false;
+    };
+    let mut values = std::collections::HashMap::new();
+    for field in rest.split_whitespace() {
+        let Some((key, value)) = field.split_once('=') else {
+            return false;
+        };
+        if !matches!(key, "ok" | "reused" | "skip") || values.contains_key(key) {
+            return false;
+        }
+        let Ok(value) = value.parse::<usize>() else {
+            return false;
+        };
+        values.insert(key, value);
+    }
+    values.len() == 3
+        && values.get("ok") == Some(&0)
+        && values.get("reused") == Some(&0)
+        && values.get("skip") == Some(&requested)
 }
 
 fn save_mutate_failure(
@@ -2434,6 +2451,36 @@ progress: {\"pair\":\"abc:0\"}\n\
         assert!(!backfill_batch_is_only_unavailable(
             Some(1),
             "done ok=0 reused=0 skip=0\n",
+            "",
+            1
+        ));
+        assert!(!backfill_batch_is_only_unavailable(
+            Some(1),
+            "done ok=0 reused=0 skip=1\nTraceback: fatal failure\n",
+            "",
+            1
+        ));
+        assert!(!backfill_batch_is_only_unavailable(
+            Some(1),
+            "done ok=1 ok=0 reused=0 skip=1\n",
+            "",
+            1
+        ));
+        assert!(!backfill_batch_is_only_unavailable(
+            Some(1),
+            "done ok=0 reused=0 skip=1 fatal=true\n",
+            "",
+            1
+        ));
+        assert!(!backfill_batch_is_only_unavailable(
+            Some(1),
+            "done ok=0 reused=0 skip=1\ndone malformed summary\n",
+            "",
+            1
+        ));
+        assert!(!backfill_batch_is_only_unavailable(
+            Some(1),
+            "done ok=0 reused=0 skip=1\ndone ok=0 reused=0 skip=2\n",
             "",
             1
         ));

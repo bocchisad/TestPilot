@@ -478,11 +478,14 @@ def main() -> int:
                 interrupted = True
                 break
 
-        print(f"done ok={ok} reused={reused} skip={skip}")
         if interrupted or _STOP:
+            print(f"done ok={ok} reused={reused} skip={skip}")
             print("interrupted=1", flush=True)
             return 130
         warn_always_failing(db, threshold=args.always_fail_threshold)
+        # Keep the machine-readable completion record terminal so callers can
+        # reject a later traceback or conflicting completion output.
+        print(f"done ok={ok} reused={reused} skip={skip}", flush=True)
         return 0 if ok else 1
     finally:
         shutil.rmtree(work_root, ignore_errors=True)
