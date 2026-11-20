@@ -1066,14 +1066,7 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
                     .map(|d| d.as_secs_f64() + remain)
                     .unwrap_or(0.0)
             });
-            if state.step_timings_s.get("mutate").copied().unwrap_or(0.0) > 0.0
-                || matches!(
-                    state.steps.get("mutate"),
-                    Some(StepStatus::Interrupted | StepStatus::Failed)
-                )
-            {
-                state.mutate_rate_incomplete = true;
-            }
+            mark_mutate_rate_incomplete_if_needed(&repo, &mut state)?;
             let seed_mutate = opts.seed ^ 0x4D55;
             let mutate_out = match run_mutate(
                 &scripts,
@@ -1229,6 +1222,27 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
         state_path(&repo).display(),
         out_dir.display()
     );
+    Ok(())
+}
+
+fn mark_mutate_rate_incomplete_if_needed(
+    repo: &Path,
+    state: &mut bootstrap::BootstrapState,
+) -> Result<()> {
+    let resumed_after_work = state.step_timings_s.get("mutate").copied().unwrap_or(0.0) > 0.0
+        || matches!(
+            state.steps.get("mutate"),
+            Some(StepStatus::Interrupted | StepStatus::Failed)
+        )
+        || std::fs::metadata(repo.join(".testpilot/bootstrap/mutate_outcomes.jsonl"))
+            .map(|metadata| metadata.len() > 0)
+            .unwrap_or(false);
+    if resumed_after_work {
+        state.mutate_rate_incomplete = true;
+        // Preserve the incomplete-rate marker if the process is killed again
+        // before the mutate child returns and state is finalized.
+        save_state(repo, state)?;
+    }
     Ok(())
 }
 
@@ -2335,5 +2349,33 @@ progress: {\"pair\":\"abc:0\"}\n\
             let priors = load_priors_file(&path).unwrap();
             assert_eq!(priors.mutate_s_per_mutant.click, 3.018);
         }
+    }
+
+    #[test]
+    fn persisted_mutate_outcomes_mark_an_uncheckpointed_resume_incomplete() {
+        let dir = tempfile::tempdir().unwrap();
+        let fp = bootstrap::Fingerprint {
+            head_sha: "abc".into(),
+            n: 2,
+            k: 1,
+            seed: 42,
+            b_policy: "test".into(),
+            b_override: None,
+            bin_version: "test".into(),
+            schema_version: 7,
+            schema_sql_sha256: "test".into(),
+        };
+        let mut state = bootstrap::load_or_init_state(dir.path(), fp, false).unwrap();
+        mark_mutate_rate_incomplete_if_needed(dir.path(), &mut state).unwrap();
+        assert!(!state.mutate_rate_incomplete);
+        let outcomes = dir
+            .path()
+            .join(".testpilot/bootstrap/mutate_outcomes.jsonl");
+        std::fs::create_dir_all(outcomes.parent().unwrap()).unwrap();
+        std::fs::write(&outcomes, "").unwrap();
+        std::fs::write(&outcomes, "{\"pair\":\"C:0\"}\n").unwrap();
+        mark_mutate_rate_incomplete_if_needed(dir.path(), &mut state).unwrap();
+        let loaded = bootstrap::load_state(dir.path()).unwrap().unwrap();
+        assert!(loaded.mutate_rate_incomplete);
     }
 }

@@ -157,12 +157,59 @@ def _append_outcome(pairs_out: Path | None, pair: str, m_sha: str, result) -> No
     row = {"pair": pair, "m_sha": m_sha, "status": status,
            "killed": result.killed, "n_new_fail": result.n_new_fail,
            "flaky_tests": sorted(result.flaky_tests)}
+    if result.collect_note:
+        row["collect_note"] = result.collect_note
     path.parent.mkdir(parents=True, exist_ok=True)
     with _PAIR_IO_LOCK:
         with path.open("a", encoding="utf-8") as out:
             out.write(json.dumps(row, sort_keys=True) + "\n")
             out.flush()
             os.fsync(out.fileno())
+
+
+def _load_first_outcomes(pairs_out: Path | None) -> dict[str, dict]:
+    """Read the original outcome for each pair before appending resumed results."""
+    if pairs_out is None:
+        return {}
+    path = pairs_out.with_name("mutate_outcomes.jsonl")
+    outcomes: dict[str, dict] = {}
+    if not path.is_file():
+        return outcomes
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            pair = row.get("pair")
+            if isinstance(pair, str) and row.get("status") in {"complete", "collection_error"}:
+                outcomes.setdefault(pair, row)
+    return outcomes
+
+
+def _result_from_stored_outcome(row: dict | None, m_sha: str) -> MutantRunResult | None:
+    """Reuse a durable outcome without turning a collection error into a kill."""
+    if row is None or row.get("m_sha") != m_sha:
+        return None
+    status = row.get("status")
+    if status == "complete":
+        n_new_fail = int(row.get("n_new_fail", 0))
+        return MutantRunResult(
+            ok=True,
+            collect_ok=True,
+            n_new_fail=n_new_fail,
+            killed=bool(row.get("killed", n_new_fail > 0)),
+            flaky_tests=set(row.get("flaky_tests") or ()),
+            collect_note="reused persisted synthetic outcome",
+        )
+    if status == "collection_error":
+        return MutantRunResult(
+            ok=True,
+            collect_ok=False,
+            collection_error=True,
+            collect_note=row.get("collect_note") or "reused persisted collection error",
+        )
+    return None
 
 
 _PAUSE_ENV = "TESTPILOT_TEST_PAUSE_AFTER_PAIRS"
@@ -221,6 +268,7 @@ def run_bootstrap(
 ) -> BootstrapStats:
     stats = BootstrapStats()
     done = set(completed_pairs or ())
+    previous_outcomes = _load_first_outcomes(pairs_out)
     sample = sample_commits(db, commits_n, seed, repo=repo)
     stats.n_eligible_C = sample.n_eligible_C
     stats.n_commits_sampled = len(sample.sampled)
@@ -346,36 +394,41 @@ def run_bootstrap(
                     stats.n_collect_git_failed += 1
                 raise RuntimeError(f"cannot index mutant C={c_sha} i={i}: {cg.note or cg.stderr}")
 
-            # Already have synthetic run → mark complete without re-pytest.
+            # Reuse existing synthetic results while preserving their original
+            # typed outcome. The DB run alone cannot distinguish a complete test
+            # result from one whose JUnit collection was incomplete.
             with db_lock:
                 already = synthetic_run_exists(db, m_sha)
             if already:
-                with stats_lock:
-                    if key not in stats.completed_pairs:
-                        stats.completed_pairs.append(key)
-                    n_done = len(stats.completed_pairs)
-                _append_outcome(pairs_out, key, m_sha, MutantRunResult(ok=True, collect_ok=True))
-                _append_pair(pairs_out, key, m_sha)
-                maybe_test_pause_after_pairs(repo, n_done)
-                return
-
-            pip, pytest, vpy = worker_environment()
-            result = run_mutant(
-                repo,
-                db,
-                m_sha,
-                parent_sha=c_sha,
-                pytest_bin=pytest,
-                python_bin=vpy,
-                work_dir=run_root,
-                duration_sec=duration_sec,
-                timeout_override=timeout_sec,
-                pytest_extra_args=extra,
-                pip_bin=pip,
-                install_project_cb=install_serial,
-                mutant_index=i,
-                db_lock=db_lock,
-            )
+                result = _result_from_stored_outcome(previous_outcomes.get(key), m_sha)
+                if result is None:
+                    result = MutantRunResult(
+                        ok=True,
+                        collect_ok=False,
+                        collection_error=True,
+                        collect_note=(
+                            "existing synthetic run has no durable terminal outcome; "
+                            "cannot safely infer its label"
+                        ),
+                    )
+            else:
+                pip, pytest, vpy = worker_environment()
+                result = run_mutant(
+                    repo,
+                    db,
+                    m_sha,
+                    parent_sha=c_sha,
+                    pytest_bin=pytest,
+                    python_bin=vpy,
+                    work_dir=run_root,
+                    duration_sec=duration_sec,
+                    timeout_override=timeout_sec,
+                    pytest_extra_args=extra,
+                    pip_bin=pip,
+                    install_project_cb=install_serial,
+                    mutant_index=i,
+                    db_lock=db_lock,
+                )
 
             _append_outcome(pairs_out, key, m_sha, result)
             if not result.ok and not result.timed_out and not result.collection_error:

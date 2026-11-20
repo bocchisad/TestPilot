@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import subprocess
+import json
 import sys
 import threading
 import venv
@@ -154,6 +155,73 @@ def test_infrastructure_failure_keeps_successful_pairs_and_retries_failed(tmp_pa
     assert calls == [1]
     assert second.failure is None
     assert set(second.completed_pairs) == {f"{sha}:0", f"{sha}:1"}
+
+
+def test_resume_preserves_persisted_collection_error_instead_of_promoting_db_reuse(tmp_path, monkeypatch):
+    repo, db, sha = setup_tasks(tmp_path, monkeypatch, count=1)
+    pairs_out = repo / ".testpilot/bootstrap/mutate_pairs.jsonl"
+    outcomes = pairs_out.with_name("mutate_outcomes.jsonl")
+    outcomes.parent.mkdir(parents=True, exist_ok=True)
+    outcomes.write_text(
+        json.dumps({
+            "pair": f"{sha}:0", "m_sha": "mutant-sha", "status": "collection_error",
+            "killed": False, "n_new_fail": 0, "flaky_tests": [],
+        }) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mb, "create_mutant_commit", lambda *a, **k: "mutant-sha")
+    monkeypatch.setattr(mb, "synthetic_run_exists", lambda *a: True)
+    monkeypatch.setattr(
+        mb,
+        "run_mutant",
+        lambda *a, **k: pytest.fail("existing synthetic runs must not be reinterpreted"),
+    )
+
+    stats = invoke(repo, db, tmp_path, pairs_out=pairs_out)
+
+    rows = [json.loads(line) for line in outcomes.read_text(encoding="utf-8").splitlines()]
+    assert rows[-1]["status"] == "collection_error"
+    assert stats.n_collection_error == 1
+    assert stats.n_killed == 0
+
+
+def test_first_terminal_outcome_ignores_earlier_timeout(tmp_path):
+    pairs_out = tmp_path / "mutate_pairs.jsonl"
+    outcomes = pairs_out.with_name("mutate_outcomes.jsonl")
+    outcomes.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in (
+                {"pair": "C:0", "m_sha": "M", "status": "timeout"},
+                {"pair": "C:0", "m_sha": "M", "status": "collection_error"},
+                {"pair": "C:0", "m_sha": "M", "status": "complete", "killed": True},
+            )
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+    assert mb._load_first_outcomes(pairs_out)["C:0"]["status"] == "collection_error"
+
+
+def test_resume_synthetic_without_terminal_outcome_is_unknown_not_kill(tmp_path, monkeypatch):
+    repo, db, sha = setup_tasks(tmp_path, monkeypatch, count=1)
+    pairs_out = repo / ".testpilot/bootstrap/mutate_pairs.jsonl"
+    pairs_out.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(mb, "create_mutant_commit", lambda *a, **k: "mutant-sha")
+    monkeypatch.setattr(mb, "synthetic_run_exists", lambda *a: True)
+    monkeypatch.setattr(
+        mb,
+        "run_mutant",
+        lambda *a, **k: pytest.fail("unknown synthetic provenance must not be inferred as a kill"),
+    )
+
+    stats = invoke(repo, db, tmp_path, pairs_out=pairs_out)
+
+    row = json.loads(pairs_out.with_name("mutate_outcomes.jsonl").read_text(encoding="utf-8"))
+    assert row["status"] == "collection_error"
+    assert "no durable terminal outcome" in row["collect_note"]
+    assert stats.n_collection_error == 1
+    assert stats.n_killed == 0
 
 
 @pytest.mark.parametrize("failure", ["missing", "install"])

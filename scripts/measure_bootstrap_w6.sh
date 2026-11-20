@@ -13,6 +13,16 @@ esac
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Keep backfill, mutation workers and trainer on the same calibrated Python.
+MEASURE_PYTHON=${TESTPILOT_MEASURE_PYTHON:-"$ROOT/.venv-train/bin/python3"}
+if [[ ! -x "$MEASURE_PYTHON" ]]; then
+  echo "measurement Python is not executable: $MEASURE_PYTHON" >&2
+  exit 1
+fi
+export PATH="$(dirname "$MEASURE_PYTHON"):$PATH"
+export PYTHONPATH="$ROOT/python/pytest-testpilot/src:$ROOT/python/testpilot-train/src:$ROOT/scripts${PYTHONPATH:+:$PYTHONPATH}"
+echo "measurement_python=$($MEASURE_PYTHON -c 'import sys; print(sys.version.split()[0])') ($MEASURE_PYTHON)"
+
 PINS_CLICK_TAG=8.1.8
 PINS_CLICK_SHA=934813e4d421071a1b3db3973c02fe2721359a6e
 PINS_JINJA_TAG=3.1.6
