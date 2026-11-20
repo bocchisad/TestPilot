@@ -158,9 +158,13 @@ _NO_JUNIT_CONFTEST_RE = re.compile(
 _NO_JUNIT_PYTEST11_RE = re.compile(
     r"(?m)^Error while loading plugin ['\"]pytest11['\"]\.$"
 )
+_NO_JUNIT_HYPOTHESIS_PROFILE_RE = re.compile(
+    r"(?m)^INTERNALERROR> hypothesis\.errors\.InvalidArgument: "
+    r"Profile ['\"]patience['\"] is not registered\s*$"
+)
 _TRACEBACK_FRAME_RE = re.compile(
-    r"(?m)^\s*File ['\"](?P<path>.+?)['\"], line (?P<line>\d+),"
-    r"|^\s*(?:E\s+)?(?P<compact_path>.+?\.py):(?P<compact_line>\d+): in\b"
+    r"(?m)^\s*(?:(?:E|INTERNALERROR>)\s+)?File ['\"](?P<path>.+?)['\"], line (?P<line>\d+),"
+    r"|^\s*(?:E\s+|INTERNALERROR>\s+)?(?P<compact_path>.+?\.py):(?P<compact_line>\d+): in\b"
 )
 _DIFF_HUNK_RE = re.compile(
     r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@"
@@ -700,7 +704,10 @@ def run_mutant(
             if (
                 not no_junit_mutant_plugin_error
                 and rc in {1, 3}
-                and _NO_JUNIT_PYTEST11_RE.search(tail) is not None
+                and (
+                    _NO_JUNIT_PYTEST11_RE.search(tail) is not None
+                    or _NO_JUNIT_HYPOTHESIS_PROFILE_RE.search(tail) is not None
+                )
                 and _has_mutant_worktree_frame(tail, wt)
             ):
                 parent_ok, parent_note = _parent_control_collection(

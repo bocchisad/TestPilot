@@ -503,10 +503,12 @@ def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])
-def test_pytest11_plugin_failure_uses_same_worker_parent_control(
+@pytest.mark.parametrize("failure_kind", ["pytest11_plugin", "hypothesis_profile"])
+def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
+    failure_kind: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -537,13 +539,22 @@ def test_pytest11_plugin_failure_uses_same_worker_parent_control(
         "echo '1 test collected'\n"
         "exit 0\n"
     )
-    if not parent_collects:
-        parent_output = (
+    if failure_kind == "hypothesis_profile":
+        failure_output = (
+            "printf '%s\\n' 'INTERNALERROR> Traceback (most recent call last):' "
+            "'INTERNALERROR> src/attr/_make.py:1: in value' "
+            "\"INTERNALERROR> hypothesis.errors.InvalidArgument: Profile 'patience' is not registered\"\n"
+            "exit 3\n"
+        )
+    else:
+        failure_output = (
             "printf '%s\\n' 'Error while loading plugin \"pytest11\".' "
             "'E   src/attr/_make.py:1: in value' "
             "'E   TypeError: can only concatenate str (not \"bool\") to str'\n"
             "exit 3\n"
         )
+    if not parent_collects:
+        parent_output = failure_output
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"
@@ -551,10 +562,7 @@ def test_pytest11_plugin_failure_uses_same_worker_parent_control(
         "case \"$PWD\" in *wt-parent-*)\n"
         + parent_output
         + "esac\n"
-        "printf '%s\\n' 'Error while loading plugin \"pytest11\".' "
-        "'E   src/attr/_make.py:1: in value' "
-        "'E   TypeError: can only concatenate str (not \"bool\") to str'\n"
-        "exit 3\n",
+        + failure_output,
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
