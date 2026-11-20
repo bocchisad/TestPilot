@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import ast
 import shutil
 import signal
 import sqlite3
@@ -165,14 +166,21 @@ _NO_JUNIT_HYPOTHESIS_PROFILE_RE = re.compile(
 _NO_JUNIT_MUTANT_INIT_TYPEERROR_RE = re.compile(
     r"(?m)^TypeError: cannot unpack non-iterable NoneType object\s*$"
 )
+_NO_JUNIT_MUTANT_FROZEN_SETATTR_RE = re.compile(
+    r"(?m)^ValueError: Can't freeze a class with a custom __setattr__\.\s*$"
+)
+_NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE = re.compile(
+    r"(?m)^AttributeError: 'NoneType' object has no attribute 'redefine'\s*$"
+)
+_JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
+    r"jsonschema[/\\]_types\.py\", line \d+, in"
+)
 _PYTEST_OUTPUT_TRUNCATED_MARKER = "\n... pytest output truncated ...\n"
 _TRACEBACK_FRAME_RE = re.compile(
     r"(?m)^\s*(?:(?:E|INTERNALERROR>)\s+)?File ['\"](?P<path>.+?)['\"], line (?P<line>\d+),"
     r"|^\s*(?:E\s+|INTERNALERROR>\s+)?(?P<compact_path>.+?\.py):(?P<compact_line>\d+): in\b"
 )
-_DIFF_HUNK_RE = re.compile(
-    r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@"
-)
+_DIFF_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 _COLLECTED_COUNT_RE = re.compile(
     r"(?im)^\s*=*\s*(?:(?P<count_first>\d+)\s+(?:tests?|items?)\s+collected|"
     r"collected\s+(?P<count_last>\d+)\s+(?:tests?|items?))\b"
@@ -229,7 +237,9 @@ def _valid_junit(path: Path) -> bool:
     return root.tag == "testsuites" and any(child.tag == "testsuite" for child in root)
 
 
-def _no_junit_collection_error(returncode: int | None, tail: str, worktree: Path) -> bool:
+def _no_junit_collection_error(
+    returncode: int | None, tail: str, worktree: Path
+) -> bool:
     if returncode == 2:
         return bool(_COLLECTION_RE.search(tail))
     if returncode != 4:
@@ -259,10 +269,7 @@ def _no_junit_mutant_plugin_collection_error(
     mutant_sha: str,
 ) -> bool:
     """Accept pytest11 import failure only when its innermost frame is a changed line."""
-    if (
-        returncode not in {1, 3}
-        or _NO_JUNIT_PYTEST11_RE.search(tail) is None
-    ):
+    if returncode not in {1, 3} or _NO_JUNIT_PYTEST11_RE.search(tail) is None:
         return False
     traceback_tail = (
         tail.rsplit(_PYTEST_OUTPUT_TRUNCATED_MARKER, 1)[-1]
@@ -279,11 +286,22 @@ def _no_junit_mutant_plugin_collection_error(
         if not frame_path.is_absolute():
             frame_path = resolved_wt / frame_path
         resolved_source = frame_path.resolve(strict=True)
-        if not resolved_source.is_file() or not resolved_source.is_relative_to(resolved_wt):
+        if not resolved_source.is_file() or not resolved_source.is_relative_to(
+            resolved_wt
+        ):
             return False
         relpath = resolved_source.relative_to(resolved_wt).as_posix()
         result = subprocess.run(
-            ["git", "diff", "--unified=0", "--no-ext-diff", parent_sha, mutant_sha, "--", relpath],
+            [
+                "git",
+                "diff",
+                "--unified=0",
+                "--no-ext-diff",
+                parent_sha,
+                mutant_sha,
+                "--",
+                relpath,
+            ],
             cwd=repo,
             capture_output=True,
             text=True,
@@ -321,6 +339,48 @@ def _has_mutant_worktree_frame(tail: str, worktree: Path) -> bool:
     return False
 
 
+def _mutant_makes_attrs_evolve_return_none(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize the specific attrs mutation that breaks jsonschema import."""
+    path = "src/attr/_make.py"
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        parent_tree = ast.parse(parent_source)
+        mutant_tree = ast.parse(mutant_source)
+    except (OSError, subprocess.CalledProcessError, SyntaxError):
+        return False
+
+    def evolve_returns_none(tree: ast.Module) -> bool:
+        for node in tree.body:
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "evolve"
+            ):
+                return any(
+                    isinstance(child, ast.Return)
+                    and isinstance(child.value, ast.Constant)
+                    and child.value.value is None
+                    for child in ast.walk(node)
+                )
+        return False
+
+    return not evolve_returns_none(parent_tree) and evolve_returns_none(mutant_tree)
+
+
 def _collected_count(output: str) -> int:
     matches = list(_COLLECTED_COUNT_RE.finditer(output))
     if not matches:
@@ -343,7 +403,9 @@ def _parent_control_collection(
     """Use the same worker environment to verify parent C still collects."""
     control_wt = work_dir / f"wt-parent-{mutant_sha[:12]}"
     junit = work_dir / f"junit-parent-{mutant_sha[:12]}.xml"
-    _run(["git", "worktree", "remove", "--force", str(control_wt)], cwd=repo, check=False)
+    _run(
+        ["git", "worktree", "remove", "--force", str(control_wt)], cwd=repo, check=False
+    )
     if control_wt.exists():
         shutil.rmtree(control_wt, ignore_errors=True)
     junit.unlink(missing_ok=True)
@@ -353,10 +415,15 @@ def _parent_control_collection(
         check=False,
     )
     if add.returncode != 0:
-        return False, f"parent control worktree failed: {(add.stderr or add.stdout or '').strip()[-1000:]}"
+        return (
+            False,
+            f"parent control worktree failed: {(add.stderr or add.stdout or '').strip()[-1000:]}",
+        )
 
     control_env = dict(env)
-    control_env["PYTHONPATH"] = os.pathsep.join((str(control_wt), str(control_wt / "src")))
+    control_env["PYTHONPATH"] = os.pathsep.join(
+        (str(control_wt), str(control_wt / "src"))
+    )
     cmd = [
         str(pytest_bin),
         f"--junitxml={junit}",
@@ -393,7 +460,11 @@ def _parent_control_collection(
     except OSError as exc:
         return False, f"parent control collection could not run: {exc}"
     finally:
-        _run(["git", "worktree", "remove", "--force", str(control_wt)], cwd=repo, check=False)
+        _run(
+            ["git", "worktree", "remove", "--force", str(control_wt)],
+            cwd=repo,
+            check=False,
+        )
         if control_wt.exists():
             shutil.rmtree(control_wt, ignore_errors=True)
         junit.unlink(missing_ok=True)
@@ -469,7 +540,12 @@ def _run_pytest_group(
         try:
             out, _ = proc.communicate(timeout=timeout_sec)
             tail = _output_excerpt(out or "")
-            return proc.returncode if proc.returncode is not None else 1, False, tail, pgid
+            return (
+                proc.returncode if proc.returncode is not None else 1,
+                False,
+                tail,
+                pgid,
+            )
         except subprocess.TimeoutExpired:
             try:
                 if pgid is not None:
@@ -662,7 +738,9 @@ def run_mutant(
 
     for p in (wt, junit1, junit2, junit_merged):
         if p.exists() and p.is_dir():
-            _run(["git", "worktree", "remove", "--force", str(p)], cwd=repo, check=False)
+            _run(
+                ["git", "worktree", "remove", "--force", str(p)], cwd=repo, check=False
+            )
         elif p.is_file():
             p.unlink(missing_ok=True)
 
@@ -680,7 +758,9 @@ def run_mutant(
     env = {
         "LC_ALL": os.environ.get("LC_ALL", "en_US.UTF-8"),
         "LANG": os.environ.get("LANG", "en_US.UTF-8"),
-        "PYTHONPATH": os.pathsep.join((str(wt), str(wt / "src"))),  # own flat/src layout only
+        "PYTHONPATH": os.pathsep.join(
+            (str(wt), str(wt / "src"))
+        ),  # own flat/src layout only
     }
     extra = pytest_extra_args or []
     try:
@@ -721,6 +801,13 @@ def run_mutant(
                 rc, tail, wt, repo, parent_sha, mutant_sha
             )
             no_junit_note = f"pytest produced no JUnit report: {tail}"
+            has_local_mutant_frame = _has_mutant_worktree_frame(tail, wt)
+            attrs_evolve_jsonschema_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE.search(tail) is not None
+                and _JSONSCHEMA_TYPECHECKER_FRAME_RE.search(tail) is not None
+                and _mutant_makes_attrs_evolve_return_none(repo, parent_sha, mutant_sha)
+            )
             if (
                 not no_junit_mutant_control_error
                 and rc in {1, 3}
@@ -728,8 +815,9 @@ def run_mutant(
                     _NO_JUNIT_PYTEST11_RE.search(tail) is not None
                     or _NO_JUNIT_HYPOTHESIS_PROFILE_RE.search(tail) is not None
                     or _NO_JUNIT_MUTANT_INIT_TYPEERROR_RE.search(tail) is not None
+                    or _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE.search(tail) is not None
                 )
-                and _has_mutant_worktree_frame(tail, wt)
+                and has_local_mutant_frame
             ):
                 parent_ok, parent_note = _parent_control_collection(
                     repo,
@@ -744,6 +832,23 @@ def run_mutant(
                 )
                 no_junit_mutant_control_error = parent_ok
                 no_junit_note = f"{no_junit_note}\n{parent_note}"
+            elif not no_junit_mutant_control_error and attrs_evolve_jsonschema_failure:
+                parent_ok, parent_note = _parent_control_collection(
+                    repo,
+                    parent_sha,
+                    mutant_sha,
+                    work_dir,
+                    pytest_bin,
+                    warn_args,
+                    extra,
+                    timeout_sec,
+                    env,
+                )
+                no_junit_mutant_control_error = parent_ok
+                no_junit_note = (
+                    f"{no_junit_note}\nmutant changes attrs.evolve to return None; "
+                    f"{parent_note}"
+                )
             if no_junit_collection_error or no_junit_mutant_control_error:
                 return MutantRunResult(
                     ok=False,
@@ -785,7 +890,9 @@ def run_mutant(
                 *failed,
             ]
             if not pytest_bin.is_file() or not os.access(pytest_bin, os.X_OK):
-                raise OSError(f"pytest executable missing before flaky rerun: {pytest_bin}")
+                raise OSError(
+                    f"pytest executable missing before flaky rerun: {pytest_bin}"
+                )
             rc2, timed_out2, tail2, pgid2 = _run_pytest_group(
                 rerun, wt, env, timeout_sec
             )
@@ -869,7 +976,9 @@ def run_mutant(
             orphan_check_ok=orphan_ok,
         )
     except OSError as exc:
-        return MutantRunResult(ok=False, log_tail=f"cannot execute mutant pytest: {exc}")
+        return MutantRunResult(
+            ok=False, log_tail=f"cannot execute mutant pytest: {exc}"
+        )
     finally:
         _run(["git", "worktree", "remove", "--force", str(wt)], cwd=repo, check=False)
         if wt.exists():

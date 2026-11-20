@@ -118,7 +118,10 @@ def test_junit_normal_assertion_failure_not_collection(tmp_path: Path) -> None:
 
 def test_collected_count_accepts_pytest_terminal_summary_after_long_output() -> None:
     output = "collected 160 items\n" + ("collection detail\n" * 700)
-    output = output[-4000:] + "\n================ 160 tests collected in 0.02s ================\n"
+    output = (
+        output[-4000:]
+        + "\n================ 160 tests collected in 0.02s ================\n"
+    )
     assert _collected_count(output) == 160
 
 
@@ -132,7 +135,9 @@ def test_pytest_output_excerpt_keeps_header_and_terminal_traceback() -> None:
 
 
 @pytest.mark.parametrize("xml", ["<not-junit/>", "<testsuites/>", "<broken"])
-def test_parent_control_rejects_invalid_or_empty_junit_shape(tmp_path: Path, xml: str) -> None:
+def test_parent_control_rejects_invalid_or_empty_junit_shape(
+    tmp_path: Path, xml: str
+) -> None:
     from mutate.run_mutant import _valid_junit
 
     junit = tmp_path / "junit.xml"
@@ -200,7 +205,7 @@ def test_import_break_mutant_is_collection_error(tmp_path: Path) -> None:
 
     wrapper = tmp_path / "pytest_wrap"
     wrapper.write_text(
-        f"#!/bin/sh\nexec {sys.executable} -m pytest \"$@\"\n",
+        f'#!/bin/sh\nexec {sys.executable} -m pytest "$@"\n',
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
@@ -224,7 +229,8 @@ def test_import_break_mutant_is_collection_error(tmp_path: Path) -> None:
     os.environ.get("TP_SKIP_SLOW") == "1", reason="slow mutant integration"
 )
 def test_class_creation_collection_failure_without_junit_is_not_infrastructure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An import-time class decorator failure can stop pytest before JUnit exists."""
     bin_ = _testpilot()
@@ -273,6 +279,7 @@ def test_class_creation_collection_failure_without_junit_is_not_infrastructure(
     assert result.killed is False
     assert "Can only register classes" in result.log_tail
     from mutate_bootstrap import _append_outcome, _load_first_outcomes
+
     outcomes = tmp_path / "mutate_pairs.jsonl"
     _append_outcome(outcomes, "C:0", mutant_sha, result)
     persisted = _load_first_outcomes(outcomes)["C:0"]
@@ -295,7 +302,7 @@ def test_non_collection_pytest_exit_without_junit_stays_infrastructure(
     wrapper = tmp_path / "pytest_wrap"
     wrapper.write_text(
         "#!/bin/sh\n"
-        "printf '%s\\n' \"ImportError while loading conftest\" \"TypeError: Can only register classes\"\n"
+        'printf \'%s\\n\' "ImportError while loading conftest" "TypeError: Can only register classes"\n'
         f"exit {exit_code}\n",
         encoding="utf-8",
     )
@@ -392,9 +399,7 @@ def test_pytest_rc3_with_conftest_header_stays_infrastructure(tmp_path: Path) ->
     assert result.ok is False
 
 
-@pytest.mark.parametrize(
-    ("exit_code", "compact_traceback"), [(1, False), (3, True)]
-)
+@pytest.mark.parametrize(("exit_code", "compact_traceback"), [(1, False), (3, True)])
 def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -429,7 +434,7 @@ def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
         exception = 'TypeError: can only concatenate str (not "bool") to str'
     output = [
         'Error while loading plugin "pytest11".',
-        *( ["Traceback (most recent call last):"] if not compact_traceback else [] ),
+        *(["Traceback (most recent call last):"] if not compact_traceback else []),
         frame,
         "    return 2",
         exception,
@@ -508,9 +513,12 @@ def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
         "TypeError: can only concatenate str (not \"bool\") to str\n"
     )
 
-    assert _no_junit_mutant_plugin_collection_error(
-        1, tail, worktree, repo, parent, mutant
-    ) is False
+    assert (
+        _no_junit_mutant_plugin_collection_error(
+            1, tail, worktree, repo, parent, mutant
+        )
+        is False
+    )
 
     long_output = (
         'Error while loading plugin "pytest11".\n'
@@ -519,20 +527,27 @@ def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
         + ("middle detail " * 300)
         + "\n"
         '  File "/outside/site-packages/plugin.py", line 9, in load_plugin\n'
-        "TypeError: cannot unpack non-iterable NoneType object "
-        + ("x" * 5000)
+        "TypeError: cannot unpack non-iterable NoneType object " + ("x" * 5000)
     )
     excerpt = _output_excerpt(long_output)
     assert _PYTEST_OUTPUT_TRUNCATED_MARKER in excerpt
-    assert _no_junit_mutant_plugin_collection_error(
-        1, excerpt, worktree, repo, parent, mutant
-    ) is False
+    assert (
+        _no_junit_mutant_plugin_collection_error(
+            1, excerpt, worktree, repo, parent, mutant
+        )
+        is False
+    )
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])
 @pytest.mark.parametrize(
     "failure_kind",
-    ["pytest11_plugin", "hypothesis_profile", "generated_init_typeerror"],
+    [
+        "pytest11_plugin",
+        "hypothesis_profile",
+        "generated_init_typeerror",
+        "frozen_setattr",
+    ],
 )
 def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     tmp_path: Path,
@@ -561,9 +576,9 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     wrapper = tmp_path / "pytest_wrap"
     parent_output = (
         "cat > \"$junit\" <<'XML'\n"
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-        "<testsuites><testsuite name=\"tests\" tests=\"1\">"
-        "<testcase classname=\"tests.test_basic\" name=\"test_ok\"/>"
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<testsuites><testsuite name="tests" tests="1">'
+        '<testcase classname="tests.test_basic" name="test_ok"/>'
         "</testsuite></testsuites>\n"
         "XML\n"
         "echo '1 test collected'\n"
@@ -581,12 +596,20 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
             "printf '%s\\n' 'Traceback (most recent call last):'\n"
             "printf '%s\\n' 'src/attr/_make.py:2: in value'\n"
             "i=0\n"
-            "while [ \"$i\" -lt 2500 ]; do printf x; i=$((i + 1)); done\n"
+            'while [ "$i" -lt 2500 ]; do printf x; i=$((i + 1)); done\n'
             "printf '\\n'\n"
             "printf '%s\\n' '  File \"/outside/site-packages/plugin.py\", line 9, in load_plugin'\n"
             "i=0\n"
-            "while [ \"$i\" -lt 5000 ]; do printf x; i=$((i + 1)); done\n"
+            'while [ "$i" -lt 5000 ]; do printf x; i=$((i + 1)); done\n'
             "printf '\\n%s\\n' 'TypeError: cannot unpack non-iterable NoneType object'\n"
+            "exit 1\n"
+        )
+    elif failure_kind == "frozen_setattr":
+        failure_output = (
+            "printf '%s\\n' 'Traceback (most recent call last):'\n"
+            'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 2, in value"\n'
+            "printf '%s\\n' "
+            '"ValueError: Can\'t freeze a class with a custom __setattr__."\n'
             "exit 1\n"
         )
     else:
@@ -601,11 +624,8 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"
-        "for arg in \"$@\"; do case \"$arg\" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n"
-        "case \"$PWD\" in *wt-parent-*)\n"
-        + parent_output
-        + "esac\n"
-        + failure_output,
+        'for arg in "$@"; do case "$arg" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n'
+        'case "$PWD" in *wt-parent-*)\n' + parent_output + "esac\n" + failure_output,
         encoding="utf-8",
     )
     wrapper.chmod(0o755)
@@ -620,7 +640,9 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
         work_dir=tmp_path / "work",
         timeout_override=60,
     )
-    assert result.pytest_rc == (1 if failure_kind == "generated_init_typeerror" else 3)
+    assert result.pytest_rc == (
+        3 if failure_kind in {"pytest11_plugin", "hypothesis_profile"} else 1
+    )
     if parent_collects:
         assert result.collection_error is True, result.collect_note[-2000:]
         assert "parent control collection succeeded" in result.collect_note
@@ -629,3 +651,73 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     else:
         assert result.collection_error is False
         assert "parent control collection failed" in result.collect_note
+
+
+@pytest.mark.parametrize("parent_collects", [True, False])
+def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    parent_collects: bool,
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "def evolve(*args, **changes):\n    return args\n", encoding="utf-8"
+    )
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text(
+        "def evolve(*args, **changes):\n    return None\n", encoding="utf-8"
+    )
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant breaks evolve")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+
+    wrapper = tmp_path / "pytest_wrap"
+    parent_output = (
+        "cat > \"$junit\" <<'XML'\n"
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<testsuites><testsuite name="tests" tests="1">'
+        '<testcase classname="tests.test_basic" name="test_ok"/>'
+        "</testsuite></testsuites>\n"
+        "XML\n"
+        "echo '1 test collected'\n"
+        "exit 0\n"
+    )
+    if not parent_collects:
+        parent_output = "exit 1\n"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "junit=''\n"
+        'for arg in "$@"; do case "$arg" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n'
+        'case "$PWD" in *wt-parent-*)\n'
+        + parent_output
+        + "esac\n"
+        + "printf '%s\\n' 'Traceback (most recent call last):' "
+        + "'  File \"$PWD/venv/lib/python3.13/site-packages/jsonschema/_types.py\", line 195, in <module>' "
+        + "\"AttributeError: 'NoneType' object has no attribute 'redefine'\"\n"
+        + "exit 1\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.pytest_rc == 1
+    assert result.collection_error is parent_collects
