@@ -17,8 +17,10 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from mutate.run_mutant import (  # noqa: E402
+    _PYTEST_OUTPUT_TRUNCATED_MARKER,
     _collected_count,
     _no_junit_mutant_plugin_collection_error,
+    _output_excerpt,
     junit_collection_error,
     run_mutant,
 )
@@ -118,6 +120,15 @@ def test_collected_count_accepts_pytest_terminal_summary_after_long_output() -> 
     output = "collected 160 items\n" + ("collection detail\n" * 700)
     output = output[-4000:] + "\n================ 160 tests collected in 0.02s ================\n"
     assert _collected_count(output) == 160
+
+
+def test_pytest_output_excerpt_keeps_header_and_terminal_traceback() -> None:
+    output = 'Error while loading plugin "pytest11".\n' + ("detail\n" * 1000)
+    output += "TypeError: cannot unpack non-iterable NoneType object\n"
+    excerpt = _output_excerpt(output)
+    assert 'Error while loading plugin "pytest11".' in excerpt
+    assert "TypeError: cannot unpack non-iterable NoneType object" in excerpt
+    assert "output truncated" in excerpt
 
 
 @pytest.mark.parametrize("xml", ["<not-junit/>", "<testsuites/>", "<broken"])
@@ -501,9 +512,28 @@ def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
         1, tail, worktree, repo, parent, mutant
     ) is False
 
+    long_output = (
+        'Error while loading plugin "pytest11".\n'
+        "Traceback (most recent call last):\n"
+        f'  File "{worktree / "pkg" / "__init__.py"}", line 2, in <module>\n'
+        + ("middle detail " * 300)
+        + "\n"
+        '  File "/outside/site-packages/plugin.py", line 9, in load_plugin\n'
+        "TypeError: cannot unpack non-iterable NoneType object "
+        + ("x" * 5000)
+    )
+    excerpt = _output_excerpt(long_output)
+    assert _PYTEST_OUTPUT_TRUNCATED_MARKER in excerpt
+    assert _no_junit_mutant_plugin_collection_error(
+        1, excerpt, worktree, repo, parent, mutant
+    ) is False
+
 
 @pytest.mark.parametrize("parent_collects", [True, False])
-@pytest.mark.parametrize("failure_kind", ["pytest11_plugin", "hypothesis_profile"])
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["pytest11_plugin", "hypothesis_profile", "generated_init_typeerror"],
+)
 def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -546,6 +576,19 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
             "\"INTERNALERROR> hypothesis.errors.InvalidArgument: Profile 'patience' is not registered\"\n"
             "exit 3\n"
         )
+    elif failure_kind == "generated_init_typeerror":
+        failure_output = (
+            "printf '%s\\n' 'Error while loading plugin \"pytest11\".'\n"
+            "printf '%s\\n' 'src/attr/_make.py:2: in value'\n"
+            "i=0\n"
+            "while [ \"$i\" -lt 2500 ]; do printf x; i=$((i + 1)); done\n"
+            "printf '\\n'\n"
+            "printf '%s\\n' '  File \"/outside/site-packages/plugin.py\", line 9, in load_plugin'\n"
+            "i=0\n"
+            "while [ \"$i\" -lt 5000 ]; do printf x; i=$((i + 1)); done\n"
+            "printf '\\n%s\\n' 'TypeError: cannot unpack non-iterable NoneType object'\n"
+            "exit 1\n"
+        )
     else:
         failure_output = (
             "printf '%s\\n' 'Error while loading plugin \"pytest11\".' "
@@ -577,7 +620,7 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
         work_dir=tmp_path / "work",
         timeout_override=60,
     )
-    assert result.pytest_rc == 3
+    assert result.pytest_rc == (1 if failure_kind == "generated_init_typeerror" else 3)
     if parent_collects:
         assert result.collection_error is True, result.collect_note[-2000:]
         assert "parent control collection succeeded" in result.collect_note

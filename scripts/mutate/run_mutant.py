@@ -162,6 +162,7 @@ _NO_JUNIT_HYPOTHESIS_PROFILE_RE = re.compile(
     r"(?m)^INTERNALERROR> hypothesis\.errors\.InvalidArgument: "
     r"Profile ['\"]patience['\"] is not registered\s*$"
 )
+_PYTEST_OUTPUT_TRUNCATED_MARKER = "\n... pytest output truncated ...\n"
 _TRACEBACK_FRAME_RE = re.compile(
     r"(?m)^\s*(?:(?:E|INTERNALERROR>)\s+)?File ['\"](?P<path>.+?)['\"], line (?P<line>\d+),"
     r"|^\s*(?:E\s+|INTERNALERROR>\s+)?(?P<compact_path>.+?\.py):(?P<compact_line>\d+): in\b"
@@ -260,7 +261,12 @@ def _no_junit_mutant_plugin_collection_error(
         or _NO_JUNIT_PYTEST11_RE.search(tail) is None
     ):
         return False
-    frames = list(_TRACEBACK_FRAME_RE.finditer(tail))
+    traceback_tail = (
+        tail.rsplit(_PYTEST_OUTPUT_TRUNCATED_MARKER, 1)[-1]
+        if _PYTEST_OUTPUT_TRUNCATED_MARKER in tail
+        else tail
+    )
+    frames = list(_TRACEBACK_FRAME_RE.finditer(traceback_tail))
     if not frames:
         return False
     frame = frames[-1]
@@ -459,7 +465,7 @@ def _run_pytest_group(
     try:
         try:
             out, _ = proc.communicate(timeout=timeout_sec)
-            tail = (out or "")[-4000:]
+            tail = _output_excerpt(out or "")
             return proc.returncode if proc.returncode is not None else 1, False, tail, pgid
         except subprocess.TimeoutExpired:
             try:
@@ -471,12 +477,23 @@ def _run_pytest_group(
                 proc.kill()
             try:
                 out, _ = proc.communicate(timeout=5)
-                tail = (out or "")[-4000:]
+                tail = _output_excerpt(out or "")
             except subprocess.TimeoutExpired:
                 proc.kill()
             return 124, True, tail, pgid
     finally:
         unregister_pytest_pgid(pgid)
+
+
+def _output_excerpt(output: str, limit: int = 4000) -> str:
+    """Keep both pytest's opening error header and the end of its traceback."""
+    if len(output) <= limit:
+        return output
+    remaining = max(0, limit - len(_PYTEST_OUTPUT_TRUNCATED_MARKER))
+    head_size = (remaining + 1) // 2
+    tail_size = remaining - head_size
+    tail = output[-tail_size:] if tail_size else ""
+    return output[:head_size] + _PYTEST_OUTPUT_TRUNCATED_MARKER + tail
 
 
 def _pgid_alive(pgid: int | None) -> bool:
