@@ -1,0 +1,1785 @@
+{
+  "baselines": {
+    "best_for_paired_gate": "cov_lines",
+    "test": {
+      "cc_max": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.5265911399327334,
+            0.7996198600881125
+          ],
+          "mean": 0.6667402193601017
+        }
+      },
+      "cov_lines": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.7468660235116906,
+            0.9735729386892178
+          ],
+          "mean": 0.8695896473600615
+        }
+      },
+      "fail_per_day": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.025832859544731468,
+            0.1145199707444839
+          ],
+          "mean": 0.06594956810440858
+        }
+      },
+      "imp_dist": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.34140189035353874,
+            0.6501513113724563
+          ],
+          "mean": 0.4955304354073652
+        }
+      },
+      "random": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.09931731613421509,
+            0.09955563511179316
+          ],
+          "mean": 0.09943594771363616
+        }
+      },
+      "t_fail_rate": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.025832859544731468,
+            0.1145199707444839
+          ],
+          "mean": 0.06594956810440858
+        }
+      }
+    },
+    "test_synthetic": {
+      "cc_max": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.5310170883937778,
+            0.7941251326016155
+          ],
+          "mean": 0.6667402193601017
+        }
+      },
+      "cov_lines": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.7547669534535965,
+            0.9735729386892178
+          ],
+          "mean": 0.8695896473600615
+        }
+      },
+      "fail_per_day": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.027504906746960427,
+            0.10973200410515782
+          ],
+          "mean": 0.06594956810440858
+        }
+      },
+      "imp_dist": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.3411129724767353,
+            0.6403463298992919
+          ],
+          "mean": 0.4955304354073652
+        }
+      },
+      "random": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.09931669113756236,
+            0.09954671195251459
+          ],
+          "mean": 0.09943594771363616
+        }
+      },
+      "t_fail_rate": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.027504906746960427,
+            0.10973200410515782
+          ],
+          "mean": 0.06594956810440858
+        }
+      }
+    },
+    "val": {
+      "cc_max": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.05766326525876342,
+            0.4812054083720001
+          ],
+          "mean": 0.2335537895849505
+        }
+      },
+      "cov_lines": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.6947388878660086,
+            1.0
+          ],
+          "mean": 0.8973948698165537
+        }
+      },
+      "fail_per_day": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.16702885907910042,
+            0.6043872073188421
+          ],
+          "mean": 0.3732336524369643
+        }
+      },
+      "imp_dist": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.14575716304484557,
+            0.5635310412279879
+          ],
+          "mean": 0.33263053048565894
+        }
+      },
+      "random": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.09945296738114905,
+            0.09968662690014564
+          ],
+          "mean": 0.09955834675074245
+        }
+      },
+      "t_fail_rate": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.16702885907910042,
+            0.6043872073188421
+          ],
+          "mean": 0.3732336524369643
+        }
+      }
+    },
+    "val_synthetic": {
+      "cc_max": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.04325885392916857,
+            0.4603138571837987
+          ],
+          "mean": 0.2335537895849505
+        }
+      },
+      "cov_lines": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.6972293093219472,
+            1.0
+          ],
+          "mean": 0.8973948698165537
+        }
+      },
+      "fail_per_day": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.13812283476028067,
+            0.6198214882525792
+          ],
+          "mean": 0.3732336524369643
+        }
+      },
+      "imp_dist": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.161068687630571,
+            0.5490060689059345
+          ],
+          "mean": 0.33263053048565894
+        }
+      },
+      "random": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.09945296738114903,
+            0.09967862057282934
+          ],
+          "mean": 0.09955834675074245
+        }
+      },
+      "t_fail_rate": {
+        "n": 9,
+        "recall@10%": {
+          "ci95": [
+            0.13812283476028067,
+            0.6198214882525792
+          ],
+          "mean": 0.3732336524369643
+        }
+      }
+    }
+  },
+  "best_baseline_val": "cov_lines",
+  "best_iteration": 6,
+  "bootstrap": {
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "synth_test_ci_low_ge_0",
+    "verdict": "use_model"
+  },
+  "candidates": [
+    {
+      "best_iteration": 3,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "binary",
+      "stopping_metric": "auc",
+      "val_recall@10%_new_fail": 0.8431283124221413
+    },
+    {
+      "best_iteration": 6,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "lambdarank",
+      "stopping_metric": "ndcg",
+      "val_recall@10%_new_fail": 0.9006209316445687
+    }
+  ],
+  "constraints": {
+    "categorical": false,
+    "linear_tree": false,
+    "num_threads_train": 1,
+    "use_missing": true,
+    "zero_as_missing": false
+  },
+  "diagnostics": {
+    "always_broken_tests": [
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_attribute_map[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_attribute_map[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_reject[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_reject[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_select[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_select[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_filter"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_iteratable_filter[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_iteratable_filter[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_empty_map"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_first[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_first[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_multidot[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_multidot[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_tuple_index[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_tuple_index[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_attribute[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_attribute[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_env_int[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_env_int[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_string_list[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_string_list[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_map_sum"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_map[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_map[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_reject[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_reject[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select_attr[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select_attr[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_slice[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_slice[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes_nested"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes_tuple"
+      }
+    ],
+    "exclude_high_fail_rate": true,
+    "fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 56
+        },
+        {
+          "bin": "[1,2)",
+          "count": 103
+        },
+        {
+          "bin": "[2,5)",
+          "count": 42
+        },
+        {
+          "bin": "[5,10)",
+          "count": 16
+        },
+        {
+          "bin": "[10,20)",
+          "count": 7
+        },
+        {
+          "bin": "[20,50)",
+          "count": 20
+        },
+        {
+          "bin": "[50,100)",
+          "count": 90
+        },
+        {
+          "bin": "100+",
+          "count": 22
+        }
+      ],
+      "max": 344,
+      "min": 0,
+      "p50": 2.0,
+      "p90": 94.0
+    },
+    "fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 56
+        },
+        {
+          "bin": "[1,2)",
+          "count": 103
+        },
+        {
+          "bin": "[2,5)",
+          "count": 42
+        },
+        {
+          "bin": "[5,10)",
+          "count": 16
+        },
+        {
+          "bin": "[10,20)",
+          "count": 7
+        },
+        {
+          "bin": "[20,50)",
+          "count": 20
+        },
+        {
+          "bin": "[50,100)",
+          "count": 90
+        },
+        {
+          "bin": "100+",
+          "count": 33
+        }
+      ],
+      "max": 790,
+      "min": 0,
+      "p50": 2.0,
+      "p90": 95.0
+    },
+    "fail_per_change_mean": 36.502808988764045,
+    "fail_per_change_mean_including_high_fail": 57.119891008174385,
+    "mutant_test_distinct_base_change": 11,
+    "mutant_test_new_fail_changes": 22,
+    "n_always_broken_tests": 41,
+    "n_changes": 356,
+    "n_changes_with_new_fail": 114,
+    "n_flaky": 0,
+    "n_high_fail_rate_changes": 11,
+    "n_label1": 12995,
+    "n_orphan_vs_parent": 44,
+    "n_persistent": 10031,
+    "n_persistent_among_label1": 9373,
+    "n_rows_parent_missing": 1664,
+    "new_fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 242
+        },
+        {
+          "bin": "[1,2)",
+          "count": 24
+        },
+        {
+          "bin": "[2,5)",
+          "count": 21
+        },
+        {
+          "bin": "[5,10)",
+          "count": 13
+        },
+        {
+          "bin": "[10,20)",
+          "count": 11
+        },
+        {
+          "bin": "[20,50)",
+          "count": 25
+        },
+        {
+          "bin": "[50,100)",
+          "count": 9
+        },
+        {
+          "bin": "100+",
+          "count": 11
+        }
+      ],
+      "max": 344,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 24.0
+    },
+    "new_fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 242
+        },
+        {
+          "bin": "[1,2)",
+          "count": 24
+        },
+        {
+          "bin": "[2,5)",
+          "count": 21
+        },
+        {
+          "bin": "[5,10)",
+          "count": 13
+        },
+        {
+          "bin": "[10,20)",
+          "count": 11
+        },
+        {
+          "bin": "[20,50)",
+          "count": 25
+        },
+        {
+          "bin": "[50,100)",
+          "count": 9
+        },
+        {
+          "bin": "100+",
+          "count": 22
+        }
+      ],
+      "max": 790,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 42.0
+    },
+    "new_fail_per_change_mean": 9.794943820224718,
+    "new_fail_per_change_mean_including_high_fail": 29.419618528610354,
+    "persistent_share_among_label1": 0.72127741439015
+  },
+  "early_stopping_rounds": 50,
+  "feature_gain": [
+    {
+      "gain": 2807.9636895656586,
+      "name": "cov_lines"
+    },
+    {
+      "gain": 528.1078559160233,
+      "name": "cov_mod"
+    },
+    {
+      "gain": 429.7252731323242,
+      "name": "cov_func"
+    },
+    {
+      "gain": 326.0385093688965,
+      "name": "cov_file"
+    },
+    {
+      "gain": 197.41904002428055,
+      "name": "t_obs"
+    },
+    {
+      "gain": 167.53133976459503,
+      "name": "t_age_days"
+    },
+    {
+      "gain": 149.54973542690277,
+      "name": "cc_max"
+    },
+    {
+      "gain": 109.26496505737305,
+      "name": "cov_breadth"
+    },
+    {
+      "gain": 91.8265790939331,
+      "name": "pq_max"
+    },
+    {
+      "gain": 51.04244947433472,
+      "name": "name_file"
+    },
+    {
+      "gain": 48.87105941772461,
+      "name": "tfile_ntests"
+    },
+    {
+      "gain": 31.979249238967896,
+      "name": "ch_rm"
+    },
+    {
+      "gain": 28.919149935245514,
+      "name": "imp_dist"
+    },
+    {
+      "gain": 23.400140285491943,
+      "name": "t_fail_rate"
+    },
+    {
+      "gain": 16.82309913635254,
+      "name": "ch_nsrc"
+    },
+    {
+      "gain": 12.87962019443512,
+      "name": "dur"
+    },
+    {
+      "gain": 7.065390110015869,
+      "name": "ch_nfunc"
+    },
+    {
+      "gain": 3.0640299320220947,
+      "name": "cc_sum"
+    },
+    {
+      "gain": 2.659130096435547,
+      "name": "imp_direct"
+    },
+    {
+      "gain": 2.4102299213409424,
+      "name": "name_jac"
+    },
+    {
+      "gain": 2.129810094833374,
+      "name": "pf_max"
+    },
+    {
+      "gain": 0.0,
+      "name": "name_func"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_known"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_lag"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_fail_cnt"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_changed"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_flaky_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_nfiles"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_add"
+    }
+  ],
+  "feature_names": [
+    "cc_max",
+    "cc_sum",
+    "imp_dist",
+    "imp_direct",
+    "name_file",
+    "name_jac",
+    "name_func",
+    "cov_known",
+    "cov_file",
+    "cov_func",
+    "cov_lines",
+    "cov_breadth",
+    "cov_mod",
+    "cov_lag",
+    "t_fail_rate",
+    "t_fail_cnt",
+    "t_obs",
+    "pf_max",
+    "pq_max",
+    "t_age_days",
+    "dur",
+    "tfile_ntests",
+    "t_changed",
+    "t_flaky_rate",
+    "ch_nfiles",
+    "ch_nsrc",
+    "ch_add",
+    "ch_rm",
+    "ch_nfunc"
+  ],
+  "feature_value_stats_synthetic": [
+    {
+      "n_rows": 141037,
+      "n_unique": 1,
+      "name": "cov_lag",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 1,
+      "name": "t_changed",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 1,
+      "name": "t_flaky_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 1,
+      "name": "ch_nfiles",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 1,
+      "name": "ch_add",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "imp_direct",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "name_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "name_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "cov_known",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "cov_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "cov_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "cov_mod",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 2,
+      "name": "ch_nsrc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 4,
+      "name": "name_jac",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 4,
+      "name": "ch_nfunc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 6,
+      "name": "imp_dist",
+      "sentinel": 99,
+      "sentinel_share": 0.11045328530811063
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 6,
+      "name": "cov_lines",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 6,
+      "name": "ch_rm",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 33,
+      "name": "dur",
+      "sentinel": -1,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 37,
+      "name": "pq_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.17082751334756127
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 51,
+      "name": "tfile_ntests",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 59,
+      "name": "t_fail_cnt",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 76,
+      "name": "pf_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.011344540794259662
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 183,
+      "name": "t_fail_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 197,
+      "name": "t_obs",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 706,
+      "name": "cc_max",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 706,
+      "name": "cc_sum",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 867,
+      "name": "cov_breadth",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 141037,
+      "n_unique": 3023,
+      "name": "t_age_days",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    }
+  ],
+  "features_version": 2,
+  "foil_baseline_mutation_bootstrap": "cov_lines",
+  "lambdarank_truncation_level": 83,
+  "lightgbm_version": "4.5.0",
+  "loro": {
+    "reason": "need \u22652 repos",
+    "skipped": true
+  },
+  "metrics_test_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.007495552643052442,
+        0.21595345816453426
+      ],
+      "mean": 0.08417492062542596,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.8937942649407741,
+        0.9958640459032371
+      ],
+      "mean": 0.9581576635243315,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0014606884057213416,
+        0.012481483910931868
+      ],
+      "mean": 0.005767298130608462,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6277257572147762,
+        1.0
+      ],
+      "mean": 0.8702680669081797,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7731217099157229,
+        1.0
+      ],
+      "mean": 0.9209363534554793,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5200976700459533,
+        1.0
+      ],
+      "mean": 0.8140917284741807,
+      "n_changes": 22
+    }
+  },
+  "metrics_test_new_fail_excluding_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.007495552643052442,
+        0.21595345816453426
+      ],
+      "mean": 0.08417492062542596,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.8937942649407741,
+        0.9958640459032371
+      ],
+      "mean": 0.9581576635243315,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0014606884057213416,
+        0.012481483910931868
+      ],
+      "mean": 0.005767298130608462,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6277257572147762,
+        1.0
+      ],
+      "mean": 0.8702680669081797,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7731217099157229,
+        1.0
+      ],
+      "mean": 0.9209363534554793,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5200976700459533,
+        1.0
+      ],
+      "mean": 0.8140917284741807,
+      "n_changes": 22
+    }
+  },
+  "metrics_test_new_fail_including_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.008474993836170232,
+        0.2757354130873204
+      ],
+      "mean": 0.12356929091919008,
+      "n_changes": 23
+    },
+    "apfd": {
+      "ci95": [
+        0.8716855351937288,
+        0.9951327938941459
+      ],
+      "mean": 0.9410312548873958,
+      "n_changes": 23
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0012841468444168291,
+        0.011464340425058365
+      ],
+      "mean": 0.00556442958518649,
+      "n_changes": 23
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6220057320779953,
+        1.0
+      ],
+      "mean": 0.8373835444614288,
+      "n_changes": 23
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7489520219788884,
+        1.0
+      ],
+      "mean": 0.8908571173943989,
+      "n_changes": 23
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5170864002804754,
+        1.0
+      ],
+      "mean": 0.7811730457281925,
+      "n_changes": 23
+    }
+  },
+  "metrics_test_new_fail_real": {},
+  "metrics_test_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.006719061387777682,
+        0.19955029620529116
+      ],
+      "mean": 0.08417492062542596,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.9024105447429199,
+        0.9963082728775499
+      ],
+      "mean": 0.9581576635243315,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0014963842240912641,
+        0.011617960122053808
+      ],
+      "mean": 0.005767298130608462,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.657507696637594,
+        1.0
+      ],
+      "mean": 0.8702680669081797,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7912719731224649,
+        1.0
+      ],
+      "mean": 0.9209363534554793,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.55237954378365,
+        1.0
+      ],
+      "mean": 0.8140917284741807,
+      "n_changes": 22
+    }
+  },
+  "metrics_val_label_no_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.5037636728051006,
+        0.7600951820999645
+      ],
+      "mean": 0.6416987620620801,
+      "n_changes": 20
+    },
+    "apfd": {
+      "ci95": [
+        0.48152863229828113,
+        0.7278904613018273
+      ],
+      "mean": 0.6067358884376294,
+      "n_changes": 20
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.18821903220175973,
+        0.4737625591557118
+      ],
+      "mean": 0.32904485173099846,
+      "n_changes": 20
+    },
+    "recall@10%": {
+      "ci95": [
+        0.22306460508340636,
+        0.5812315386172786
+      ],
+      "mean": 0.4016183609497402,
+      "n_changes": 20
+    },
+    "recall@20%": {
+      "ci95": [
+        0.2826704116476103,
+        0.6176936561985635
+      ],
+      "mean": 0.44862402989248196,
+      "n_changes": 20
+    },
+    "recall@5%": {
+      "ci95": [
+        0.17463011618906926,
+        0.5298314357620065
+      ],
+      "mean": 0.3491069849577414,
+      "n_changes": 20
+    }
+  },
+  "metrics_val_label_with_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.5143710907771654,
+        0.7686347442675294
+      ],
+      "mean": 0.6416987620620801,
+      "n_changes": 20
+    },
+    "apfd": {
+      "ci95": [
+        0.46636432680003936,
+        0.7317576795989569
+      ],
+      "mean": 0.6067358884376294,
+      "n_changes": 20
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.1823690610408398,
+        0.48078718082181376
+      ],
+      "mean": 0.32904485173099846,
+      "n_changes": 20
+    },
+    "recall@10%": {
+      "ci95": [
+        0.22437549879209395,
+        0.5898337270482802
+      ],
+      "mean": 0.4016183609497402,
+      "n_changes": 20
+    },
+    "recall@20%": {
+      "ci95": [
+        0.27890814663550256,
+        0.6187093398419192
+      ],
+      "mean": 0.44862402989248196,
+      "n_changes": 20
+    },
+    "recall@5%": {
+      "ci95": [
+        0.17510903622151905,
+        0.5450260048976427
+      ],
+      "mean": 0.3491069849577414,
+      "n_changes": 20
+    }
+  },
+  "metrics_val_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.01649282791247234,
+        0.4147642622807494
+      ],
+      "mean": 0.12498980989231508,
+      "n_changes": 9
+    },
+    "apfd": {
+      "ci95": [
+        0.7955963995960296,
+        0.9913329708263432
+      ],
+      "mean": 0.9381094974909172,
+      "n_changes": 9
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0011493186550394787,
+        0.002362496374114048
+      ],
+      "mean": 0.0018283248172352206,
+      "n_changes": 9
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6090903254331342,
+        1.0
+      ],
+      "mean": 0.9006209316445687,
+      "n_changes": 9
+    },
+    "recall@20%": {
+      "ci95": [
+        0.6604391209439998,
+        1.0
+      ],
+      "mean": 0.9153742357492836,
+      "n_changes": 9
+    },
+    "recall@5%": {
+      "ci95": [
+        0.498074782536127,
+        0.991600790513834
+      ],
+      "mean": 0.8278967230712747,
+      "n_changes": 9
+    }
+  },
+  "metrics_val_new_fail_excluding_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.01649282791247234,
+        0.4147642622807494
+      ],
+      "mean": 0.12498980989231508,
+      "n_changes": 9
+    },
+    "apfd": {
+      "ci95": [
+        0.7955963995960296,
+        0.9913329708263432
+      ],
+      "mean": 0.9381094974909172,
+      "n_changes": 9
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0011493186550394787,
+        0.002362496374114048
+      ],
+      "mean": 0.0018283248172352206,
+      "n_changes": 9
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6090903254331342,
+        1.0
+      ],
+      "mean": 0.9006209316445687,
+      "n_changes": 9
+    },
+    "recall@20%": {
+      "ci95": [
+        0.6604391209439998,
+        1.0
+      ],
+      "mean": 0.9153742357492836,
+      "n_changes": 9
+    },
+    "recall@5%": {
+      "ci95": [
+        0.498074782536127,
+        0.991600790513834
+      ],
+      "mean": 0.8278967230712747,
+      "n_changes": 9
+    }
+  },
+  "metrics_val_new_fail_including_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.017376720958836783,
+        0.4563987749677055
+      ],
+      "mean": 0.12498980989231508,
+      "n_changes": 9
+    },
+    "apfd": {
+      "ci95": [
+        0.7757796504978393,
+        0.9908910243031609
+      ],
+      "mean": 0.9381094974909172,
+      "n_changes": 9
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0011493186550394787,
+        0.0023631335829892423
+      ],
+      "mean": 0.0018283248172352206,
+      "n_changes": 9
+    },
+    "recall@10%": {
+      "ci95": [
+        0.5644220993773034,
+        1.0
+      ],
+      "mean": 0.9006209316445687,
+      "n_changes": 9
+    },
+    "recall@20%": {
+      "ci95": [
+        0.6191840608717754,
+        1.0
+      ],
+      "mean": 0.9153742357492836,
+      "n_changes": 9
+    },
+    "recall@5%": {
+      "ci95": [
+        0.48078742462945667,
+        0.9932806324110672
+      ],
+      "mean": 0.8278967230712747,
+      "n_changes": 9
+    }
+  },
+  "metrics_val_new_fail_real": {},
+  "metrics_val_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.015128384691137725,
+        0.4490574376349494
+      ],
+      "mean": 0.12498980989231508,
+      "n_changes": 9
+    },
+    "apfd": {
+      "ci95": [
+        0.7792264608416622,
+        0.9921297828393811
+      ],
+      "mean": 0.9381094974909172,
+      "n_changes": 9
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0011493186550394787,
+        0.0023645579322396785
+      ],
+      "mean": 0.0018283248172352206,
+      "n_changes": 9
+    },
+    "recall@10%": {
+      "ci95": [
+        0.5644220993773034,
+        1.0
+      ],
+      "mean": 0.9006209316445687,
+      "n_changes": 9
+    },
+    "recall@20%": {
+      "ci95": [
+        0.6191840608717754,
+        1.0
+      ],
+      "mean": 0.9153742357492836,
+      "n_changes": 9
+    },
+    "recall@5%": {
+      "ci95": [
+        0.4983898037906606,
+        0.991600790513834
+      ],
+      "mean": 0.8278967230712747,
+      "n_changes": 9
+    }
+  },
+  "ndcg_eval_at": 83,
+  "note_gate": "bootstrap verdict=use_model ranker=model reason=synth_test_ci_low_ge_0 (accept on synth TEST cluster CI only; val is report-only)",
+  "note_real_gate": "useful_on_real_val=null: no real new_fail changes on val (data_insufficient for the real gate)",
+  "num_boost_round": 500,
+  "objective": "lambdarank",
+  "paired_delta_ci_synthetic_test_cov_lines": {
+    "ci95": [
+      0.0,
+      0.0018656537573250934
+    ],
+    "mean": 0.0006784195481182157,
+    "n": 22,
+    "n_C": 11,
+    "n_mutants": 22
+  },
+  "paired_delta_ci_synthetic_val_cov_lines": {
+    "ci95": [
+      -8.910273545396456e-05,
+      0.014606380961521436
+    ],
+    "mean": 0.003226061828014994,
+    "n": 9
+  },
+  "paired_delta_ci_test": {
+    "ci95": [
+      0.0,
+      0.0018656537573250934
+    ],
+    "mean": 0.0006784195481182157,
+    "n": 22
+  },
+  "paired_delta_ci_val": {
+    "ci95": [
+      -8.910273545396456e-05,
+      0.013060406641000282
+    ],
+    "mean": 0.003226061828014994,
+    "n": 9
+  },
+  "paired_delta_ci_val_cov_lines": {
+    "ci95": [
+      -8.910273545396456e-05,
+      0.014606380961521436
+    ],
+    "mean": 0.003226061828014994,
+    "n": 9
+  },
+  "params": {
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "bagging_seed": 21624,
+    "data_random_seed": 21624,
+    "deterministic": true,
+    "eval_at": [
+      83
+    ],
+    "feature_fraction": 0.8,
+    "feature_fraction_seed": 21624,
+    "force_col_wise": true,
+    "label_gain": [
+      0,
+      1
+    ],
+    "lambdarank_truncation_level": 83,
+    "learning_rate": 0.05,
+    "linear_tree": false,
+    "metric": "ndcg",
+    "min_data_in_leaf": 50,
+    "num_leaves": 31,
+    "num_threads": 1,
+    "objective": "lambdarank",
+    "seed": 21624,
+    "use_missing": true,
+    "verbosity": -1,
+    "zero_as_missing": false
+  },
+  "parent_for_new_fail": "first_parent",
+  "predict_raw_score": true,
+  "ranker": "model",
+  "schema_sha256": "9e5e9243326d8870bd33dcf8c59b49d34a76d60e921435f501638db23e2c5269",
+  "seed": 21624,
+  "sentinel_notes": {
+    "dur": -1,
+    "imp_dist": 99,
+    "pf_max": -1,
+    "pq_max": -1
+  },
+  "splits": {
+    "chrono": {
+      "jinja": {
+        "n_changes": {
+          "test": 58,
+          "train": 258,
+          "val": 40
+        },
+        "test": [
+          170,
+          199
+        ],
+        "train": [
+          1,
+          139
+        ],
+        "val": [
+          140,
+          169
+        ]
+      }
+    },
+    "n_changes_with_new_fail": {
+      "test": 22,
+      "train": 83,
+      "val": 9
+    }
+  },
+  "status": "ok",
+  "stopping_metric": "ndcg",
+  "useful_on_synthetic_test": true,
+  "useful_on_synthetic_test_label": "useful_on_synthetic_test",
+  "useful_on_synthetic_val": false,
+  "useful_on_synthetic_val_label": "useful_on_synthetic_val",
+  "useful_on_val": null,
+  "useful_on_val_label": "useful_on_real_val",
+  "provenance": {
+    "measurement_runner": {
+      "path": "scripts/measure_bootstrap_w6.sh",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "git_blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7"
+    },
+    "mutation_ledger": {
+      "path": "scripts/mutate_bootstrap.py",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "git_blob_sha1": "2f09ab29a91b597369cb7d76dfbade9dc397ecca"
+    },
+    "labeling_classifier": {
+      "path": "scripts/mutate/run_mutant.py",
+      "click": {
+        "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
+        "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81"
+      },
+      "jinja": {
+        "git_commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
+        "git_blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b"
+      },
+      "attrs_pairs": [
+        {
+          "count": 36,
+          "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+          "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+          "period": "last run"
+        },
+        {
+          "count": 76,
+          "git_commit": null,
+          "git_blob_sha1": null,
+          "period": "estimated early runs across classifier versions before 978b50b",
+          "ledger_committed": false
+        }
+      ]
+    },
+    "aggregator": {
+      "path": "scripts/aggregate_bootstrap_w6.py",
+      "git_commit": "092d6cc30a09f409aea1b1413ab62976d60430fd",
+      "git_blob_sha1": "0a7c3bb9ad7ebde626c75ae2266abd30ae254302"
+    }
+  }
+}

@@ -4,15 +4,46 @@ from __future__ import annotations
 
 import os
 import re
+import ast
 import shutil
 import signal
 import sqlite3
 import subprocess
+import threading
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from mutate.dbutil import test_runs_partial_gate
+
+# Process groups of in-flight pytest sessions (for SIGINT fan-out).
+_ACTIVE_PGIDS: set[int] = set()
+_ACTIVE_LOCK = threading.Lock()
+
+
+def register_pytest_pgid(pgid: int | None) -> None:
+    if pgid is None:
+        return
+    with _ACTIVE_LOCK:
+        _ACTIVE_PGIDS.add(pgid)
+
+
+def unregister_pytest_pgid(pgid: int | None) -> None:
+    if pgid is None:
+        return
+    with _ACTIVE_LOCK:
+        _ACTIVE_PGIDS.discard(pgid)
+
+
+def kill_active_pytest_groups(sig: int = signal.SIGINT) -> None:
+    """Forward signal to every registered pytest process group."""
+    with _ACTIVE_LOCK:
+        pgids = list(_ACTIVE_PGIDS)
+    for pgid in pgids:
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
 
 
 @dataclass
@@ -121,6 +152,63 @@ _COLLECTION_RE = re.compile(
     re.I,
 )
 
+_NO_JUNIT_CONFTEST_RE = re.compile(
+    r"(?m)^ImportError while loading conftest ['\"](?P<path>[^'\"]+)['\"]\.?\s*$"
+)
+
+_NO_JUNIT_PYTEST11_RE = re.compile(
+    r"(?m)^Error while loading plugin ['\"]pytest11['\"]\.$"
+)
+_NO_JUNIT_HYPOTHESIS_PROFILE_RE = re.compile(
+    r"(?m)^INTERNALERROR> hypothesis\.errors\.InvalidArgument: "
+    r"Profile ['\"]patience['\"] is not registered\s*$"
+)
+_NO_JUNIT_MUTANT_INIT_TYPEERROR_RE = re.compile(
+    r"(?m)^TypeError: cannot unpack non-iterable NoneType object\s*$"
+)
+_NO_JUNIT_MUTANT_FROZEN_SETATTR_RE = re.compile(
+    r"(?m)^ValueError: Can't freeze a class with a custom __setattr__\.\s*$"
+)
+_NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE = re.compile(
+    r"(?m)^AttributeError: 'NoneType' object has no attribute 'redefine'\s*$"
+)
+_NO_JUNIT_MUTANT_ANNOTATIONS_NONE_RE = re.compile(
+    r"(?m)^AttributeError: 'NoneType' object has no attribute 'get'\s*$"
+)
+_NO_JUNIT_MUTANT_METADATA_BOOL_RE = re.compile(
+    r"(?m)^TypeError: 'bool' object is not iterable\s*$"
+)
+_NO_JUNIT_ATTR_METADATA_FRAME_RE = re.compile(
+    r"(?m)^\s*File ['\"].*/src/attr/_make\.py['\"], line \d+, in __getstate__"
+)
+_NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE = re.compile(
+    r"(?m)^TypeError: Specification\.__init__\(\) got an unexpected keyword argument 'name'\s*$"
+)
+_NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE = re.compile(
+    r"(?m)^TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
+)
+_NO_JUNIT_ATTRS_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
+_NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE = re.compile(
+    r"(?m)^AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
+)
+_NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE = re.compile(
+    r"(?m)^SyntaxError: invalid syntax\. Perhaps you forgot a comma\?\s*$"
+)
+_JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
+    r"jsonschema[/\\]_types\.py\", line \d+, in"
+)
+_PYTEST_OUTPUT_TRUNCATED_MARKER = "\n... pytest output truncated ...\n"
+_TRACEBACK_FRAME_RE = re.compile(
+    r"(?m)^\s*(?:(?:E|INTERNALERROR>)\s+)?File ['\"](?P<path>.+?)['\"], line (?P<line>\d+),"
+    r"|^\s*(?:E\s+|INTERNALERROR>\s+)?(?P<compact_path>.+?\.py):(?P<compact_line>\d+): in\b"
+)
+_DIFF_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
+_COLLECTED_COUNT_RE = re.compile(
+    r"(?im)^\s*=*\s*(?:(?P<count_first>\d+)\s+(?:tests?|items?)\s+collected|"
+    r"collected\s+(?P<count_last>\d+)\s+(?:tests?|items?))\b"
+    r"(?:\s+in\s+[\d.]+\s*[a-z]+)?\s*=*\s*$"
+)
+
 _COLLECTION_MSG_RE = re.compile(
     r"(collection failure|ERROR collecting|failed to collect|ImportError while importing)",
     re.I,
@@ -156,6 +244,622 @@ def junit_collection_error(path: Path) -> bool:
             if classname == name or not classname:
                 return True
     return False
+
+
+def _valid_junit(path: Path) -> bool:
+    """Return whether path contains a minimal JUnit testsuite document."""
+    if not path.is_file():
+        return False
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    if root.tag == "testsuite":
+        return True
+    return root.tag == "testsuites" and any(child.tag == "testsuite" for child in root)
+
+
+def _no_junit_collection_error(
+    returncode: int | None, tail: str, worktree: Path
+) -> bool:
+    if returncode == 2:
+        return bool(_COLLECTION_RE.search(tail))
+    if returncode != 4:
+        return False
+    match = _NO_JUNIT_CONFTEST_RE.search(tail)
+    if match is None:
+        return False
+    conftest = Path(match.group("path"))
+    try:
+        resolved_wt = worktree.resolve()
+        resolved_conftest = conftest.resolve()
+        return (
+            resolved_conftest.name == "conftest.py"
+            and resolved_conftest.is_file()
+            and resolved_conftest.is_relative_to(resolved_wt)
+        )
+    except OSError:
+        return False
+
+
+def _no_junit_mutant_plugin_collection_error(
+    returncode: int | None,
+    tail: str,
+    worktree: Path,
+    repo: Path,
+    parent_sha: str,
+    mutant_sha: str,
+) -> bool:
+    """Accept pytest11 import failure only when its innermost frame is a changed line."""
+    if returncode not in {1, 3} or _NO_JUNIT_PYTEST11_RE.search(tail) is None:
+        return False
+    traceback_tail = (
+        tail.rsplit(_PYTEST_OUTPUT_TRUNCATED_MARKER, 1)[-1]
+        if _PYTEST_OUTPUT_TRUNCATED_MARKER in tail
+        else tail
+    )
+    frames = list(_TRACEBACK_FRAME_RE.finditer(traceback_tail))
+    if not frames:
+        return False
+    frame = frames[-1]
+    try:
+        resolved_wt = worktree.resolve(strict=True)
+        frame_path = Path(frame.group("path") or frame.group("compact_path"))
+        if not frame_path.is_absolute():
+            frame_path = resolved_wt / frame_path
+        resolved_source = frame_path.resolve(strict=True)
+        if not resolved_source.is_file() or not resolved_source.is_relative_to(
+            resolved_wt
+        ):
+            return False
+        relpath = resolved_source.relative_to(resolved_wt).as_posix()
+        result = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--unified=0",
+                "--no-ext-diff",
+                parent_sha,
+                mutant_sha,
+                "--",
+                relpath,
+            ],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return False
+        line = int(frame.group("line") or frame.group("compact_line"))
+        for hunk in result.stdout.splitlines():
+            match = _DIFF_HUNK_RE.match(hunk)
+            if match is None:
+                continue
+            start = int(match.group("start"))
+            count = int(match.group("count") or "1")
+            if count > 0 and start <= line < start + count:
+                return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def _has_mutant_worktree_frame(tail: str, worktree: Path) -> bool:
+    try:
+        resolved_wt = worktree.resolve(strict=True)
+        for frame in _TRACEBACK_FRAME_RE.finditer(tail):
+            raw_path = frame.group("path") or frame.group("compact_path")
+            frame_path = Path(raw_path)
+            if not frame_path.is_absolute():
+                frame_path = resolved_wt / frame_path
+            source = frame_path.resolve(strict=True)
+            if source.is_file() and source.is_relative_to(resolved_wt):
+                return True
+    except (OSError, ValueError):
+        return False
+    return False
+
+
+def _mutant_attrs_function_returns_none(
+    repo: Path, parent_sha: str, mutant_sha: str, function_name: str
+) -> bool:
+    """Recognize an attrs function changed to return None by this mutant."""
+
+    def function_returns_none(tree: ast.Module) -> bool:
+        def module_functions(statements: list[ast.stmt]):
+            for statement in statements:
+                if isinstance(
+                    statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
+                    if (
+                        isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and statement.name == function_name
+                    ):
+                        yield statement
+                    continue
+                for ast_field in ("body", "orelse", "finalbody"):
+                    nested = getattr(statement, ast_field, None)
+                    if isinstance(nested, list):
+                        yield from module_functions(nested)
+                for handler in getattr(statement, "handlers", ()):
+                    yield from module_functions(handler.body)
+
+        return any(
+            any(
+                isinstance(child, ast.Return)
+                and isinstance(child.value, ast.Constant)
+                and child.value.value is None
+                for child in ast.walk(node)
+            )
+            for node in module_functions(tree.body)
+        )
+
+    for path in ("src/attr/_make.py", "src/attr/_compat.py"):
+        try:
+            parent_source = subprocess.run(
+                ["git", "show", f"{parent_sha}:{path}"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            mutant_source = subprocess.run(
+                ["git", "show", f"{mutant_sha}:{path}"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            parent_tree = ast.parse(parent_source)
+            mutant_tree = ast.parse(mutant_source)
+        except (OSError, subprocess.CalledProcessError, SyntaxError):
+            continue
+        if not function_returns_none(parent_tree) and function_returns_none(
+            mutant_tree
+        ):
+            return True
+    return False
+
+
+def _mutant_negates_attrs_attribute_metadata(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize the metadata setter mutation that stores bool instead of a mapping."""
+    path = "src/attr/_make.py"
+
+    def negates_metadata_value(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for cls in tree.body:
+            if not isinstance(cls, ast.ClassDef) or cls.name != "Attribute":
+                continue
+            for method in cls.body:
+                if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if method.name != "_setattrs":
+                    continue
+                for node in ast.walk(method):
+                    if not isinstance(node, ast.If) or not isinstance(
+                        node.test, ast.Compare
+                    ):
+                        continue
+                    test = node.test
+                    if not (
+                        isinstance(test.left, ast.Name)
+                        and test.left.id == "name"
+                        and len(test.ops) == 1
+                        and isinstance(test.ops[0], ast.NotEq)
+                        and len(test.comparators) == 1
+                        and isinstance(test.comparators[0], ast.Constant)
+                        and test.comparators[0].value == "metadata"
+                    ):
+                        continue
+                    for statement in node.orelse:
+                        for call in ast.walk(statement):
+                            if not (
+                                isinstance(call, ast.Call)
+                                and isinstance(call.func, ast.Name)
+                                and call.func.id == "bound_setattr"
+                                and len(call.args) >= 2
+                            ):
+                                continue
+                            value = call.args[1]
+                            if isinstance(value, ast.UnaryOp) and isinstance(
+                                value.op, ast.Not
+                            ):
+                                return isinstance(value.operand, ast.IfExp)
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not negates_metadata_value(parent_source) and negates_metadata_value(
+        mutant_source
+    )
+
+
+def _mutant_inverts_attrs_own_attribute_sentinel(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize the sentinel inversion that breaks attrs-generated constructors."""
+    path = "src/attr/_make.py"
+
+    def has_inverted_check(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != "_has_own_attribute":
+                continue
+            for condition in ast.walk(node):
+                if not isinstance(condition, ast.If):
+                    continue
+                test = condition.test
+                if not (
+                    isinstance(test, ast.UnaryOp)
+                    and isinstance(test.op, ast.Not)
+                    and isinstance(test.operand, ast.Compare)
+                ):
+                    continue
+                comparison = test.operand
+                if (
+                    isinstance(comparison.left, ast.Name)
+                    and comparison.left.id == "attr"
+                    and len(comparison.ops) == 1
+                    and isinstance(comparison.ops[0], ast.Is)
+                    and len(comparison.comparators) == 1
+                    and isinstance(comparison.comparators[0], ast.Name)
+                    and comparison.comparators[0].id == "_SENTINEL"
+                ):
+                    return True
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not has_inverted_check(parent_source) and has_inverted_check(mutant_source)
+
+
+def _mutant_negates_attrs_generated_init_expression(
+    repo: Path, parent_sha: str, mutant_sha: str, expression_kind: str
+) -> bool:
+    """Recognize bool-flip mutations that corrupt attrs' generated init source."""
+    path = "src/attr/_make.py"
+
+    def has_negated_fstring_condition(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != "_attrs_to_init_script":
+                continue
+            for child in ast.walk(node):
+                if not isinstance(child, ast.FormattedValue):
+                    continue
+                value = child.value
+                if (
+                    isinstance(value, ast.UnaryOp)
+                    and isinstance(value.op, ast.Not)
+                    and isinstance(value.operand, ast.IfExp)
+                ):
+                    conditional = value.operand
+                    if expression_kind == "kw_only_separator":
+                        if (
+                            isinstance(conditional.test, ast.Name)
+                            and conditional.test.id == "args"
+                            and isinstance(conditional.body, ast.Constant)
+                            and conditional.body.value == ", "
+                            and isinstance(conditional.orelse, ast.Constant)
+                            and conditional.orelse.value == ""
+                        ):
+                            return True
+                    elif expression_kind == "generated_body":
+                        if (
+                            isinstance(conditional.test, ast.Name)
+                            and conditional.test.id == "lines"
+                            and isinstance(conditional.body, ast.Call)
+                            and isinstance(conditional.body.func, ast.Attribute)
+                            and conditional.body.func.attr == "join"
+                            and isinstance(conditional.orelse, ast.Constant)
+                            and conditional.orelse.value == "pass"
+                        ):
+                            return True
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not has_negated_fstring_condition(
+        parent_source
+    ) and has_negated_fstring_condition(mutant_source)
+
+
+def _mutant_breaks_attrs_generated_eq_expression(
+    repo: Path, parent_sha: str, mutant_sha: str, *, generated_header: bool = False
+) -> bool:
+    """Recognize mutations that break attrs' generated equality expression."""
+    path = "src/attr/_make.py"
+
+    def has_broken_final_attribute_check(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+
+        def attrs_index(node: ast.expr, index: int) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "attrs"
+            ):
+                return False
+            try:
+                value = ast.literal_eval(node.slice)
+            except (ValueError, TypeError):
+                slice_node = node.slice
+                if not (
+                    isinstance(slice_node, ast.UnaryOp)
+                    and isinstance(slice_node.op, ast.Not)
+                ):
+                    return False
+                try:
+                    value = not ast.literal_eval(slice_node.operand)
+                except (ValueError, TypeError):
+                    return False
+            return value == index
+
+        def attrs_not_minus_one_index(node: ast.expr) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "attrs"
+                and isinstance(node.slice, ast.UnaryOp)
+                and isinstance(node.slice.op, ast.Not)
+            ):
+                return False
+            try:
+                return ast.literal_eval(node.slice.operand) == -1
+            except (ValueError, TypeError):
+                return False
+
+        def lines_not_minus_one_index(node: ast.expr) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "lines"
+                and isinstance(node.slice, ast.UnaryOp)
+                and isinstance(node.slice.op, ast.Not)
+            ):
+                return False
+            try:
+                return ast.literal_eval(node.slice.operand) == -1
+            except (ValueError, TypeError):
+                return False
+
+        def is_final_line_assignment(node: ast.expr) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "lines"
+            ):
+                return False
+            try:
+                return ast.literal_eval(node.slice) == -1
+            except (ValueError, TypeError):
+                return False
+
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != "_make_eq":
+                continue
+            for child in ast.walk(node):
+                if generated_header:
+                    if (
+                        isinstance(child, ast.Assign)
+                        and any(
+                            is_final_line_assignment(target) for target in child.targets
+                        )
+                        and any(
+                            lines_not_minus_one_index(value)
+                            for value in ast.walk(child.value)
+                        )
+                    ):
+                        return True
+                    continue
+                if not isinstance(child, ast.If):
+                    continue
+                test = child.test
+                if (
+                    isinstance(test, ast.Compare)
+                    and isinstance(test.left, ast.Name)
+                    and test.left.id == "a"
+                    and len(test.ops) == 1
+                    and isinstance(test.ops[0], ast.IsNot)
+                    and len(test.comparators) == 1
+                    and (
+                        attrs_index(test.comparators[0], -2)
+                        or attrs_not_minus_one_index(test.comparators[0])
+                    )
+                ):
+                    return True
+                if (
+                    isinstance(test, ast.UnaryOp)
+                    and isinstance(test.op, ast.Not)
+                    and isinstance(test.operand, ast.Compare)
+                ):
+                    comparison = test.operand
+                    if (
+                        isinstance(comparison.left, ast.Name)
+                        and comparison.left.id == "a"
+                        and len(comparison.ops) == 1
+                        and isinstance(comparison.ops[0], ast.IsNot)
+                        and len(comparison.comparators) == 1
+                        and attrs_index(comparison.comparators[0], -1)
+                    ):
+                        return True
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not has_broken_final_attribute_check(
+        parent_source
+    ) and has_broken_final_attribute_check(mutant_source)
+
+
+def _collected_count(output: str) -> int:
+    matches = list(_COLLECTED_COUNT_RE.finditer(output))
+    if not matches:
+        return 0
+    match = matches[-1]
+    return int(match.group("count_first") or match.group("count_last"))
+
+
+def _parent_control_collection(
+    repo: Path,
+    parent_sha: str,
+    mutant_sha: str,
+    work_dir: Path,
+    pytest_bin: Path,
+    warn_args: list[str],
+    extra: list[str],
+    timeout_sec: int,
+    env: dict[str, str],
+) -> tuple[bool, str]:
+    """Use the same worker environment to verify parent C still collects."""
+    control_wt = work_dir / f"wt-parent-{mutant_sha[:12]}"
+    junit = work_dir / f"junit-parent-{mutant_sha[:12]}.xml"
+    _run(
+        ["git", "worktree", "remove", "--force", str(control_wt)], cwd=repo, check=False
+    )
+    if control_wt.exists():
+        shutil.rmtree(control_wt, ignore_errors=True)
+    junit.unlink(missing_ok=True)
+    add = _run(
+        ["git", "worktree", "add", "--detach", str(control_wt), parent_sha],
+        cwd=repo,
+        check=False,
+    )
+    if add.returncode != 0:
+        return (
+            False,
+            f"parent control worktree failed: {(add.stderr or add.stdout or '').strip()[-1000:]}",
+        )
+
+    control_env = dict(env)
+    control_env["PYTHONPATH"] = os.pathsep.join(
+        (str(control_wt), str(control_wt / "src"))
+    )
+    cmd = [
+        str(pytest_bin),
+        f"--junitxml={junit}",
+        *warn_args,
+        "--collect-only",
+        *extra,
+    ]
+    try:
+        rc, timed_out, tail, pgid = _run_pytest_group(
+            cmd, control_wt, control_env, timeout_sec
+        )
+        orphan_ok = not _pgid_alive(pgid)
+        # pytest --collect-only creates a valid JUnit shell with tests=0; its
+        # collection summary is the source of the nonzero collected-test count.
+        valid_junit = _valid_junit(junit)
+        n_tests = _collected_count(tail)
+        ok = (
+            rc == 0
+            and not timed_out
+            and orphan_ok
+            and n_tests > 0
+            and valid_junit
+            and not junit_collection_error(junit)
+        )
+        if ok:
+            return True, (
+                f"parent control collection succeeded: pytest_rc={rc} n_tests={n_tests}; "
+                "same worker environment, no dependency reinstall"
+            )
+        return False, (
+            f"parent control collection failed: pytest_rc={rc} timed_out={timed_out} "
+            f"orphan_check_ok={orphan_ok} n_tests={n_tests}; {tail[-1200:]}"
+        )
+    except OSError as exc:
+        return False, f"parent control collection could not run: {exc}"
+    finally:
+        _run(
+            ["git", "worktree", "remove", "--force", str(control_wt)],
+            cwd=repo,
+            check=False,
+        )
+        if control_wt.exists():
+            shutil.rmtree(control_wt, ignore_errors=True)
+        junit.unlink(missing_ok=True)
 
 
 def run_test_count(db: Path, sha: str, *, synthetic: bool) -> int:
@@ -223,24 +927,44 @@ def _run_pytest_group(
         pgid = os.getpgid(proc.pid)
     except ProcessLookupError:
         pgid = None
+    register_pytest_pgid(pgid)
     try:
-        out, _ = proc.communicate(timeout=timeout_sec)
-        tail = (out or "")[-4000:]
-        return proc.returncode if proc.returncode is not None else 1, False, tail, pgid
-    except subprocess.TimeoutExpired:
         try:
-            if pgid is not None:
-                os.killpg(pgid, signal.SIGKILL)
-            else:
-                proc.kill()
-        except ProcessLookupError:
-            proc.kill()
-        try:
-            out, _ = proc.communicate(timeout=5)
-            tail = (out or "")[-4000:]
+            out, _ = proc.communicate(timeout=timeout_sec)
+            tail = _output_excerpt(out or "")
+            return (
+                proc.returncode if proc.returncode is not None else 1,
+                False,
+                tail,
+                pgid,
+            )
         except subprocess.TimeoutExpired:
-            proc.kill()
-        return 124, True, tail, pgid
+            try:
+                if pgid is not None:
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    proc.kill()
+            except ProcessLookupError:
+                proc.kill()
+            try:
+                out, _ = proc.communicate(timeout=5)
+                tail = _output_excerpt(out or "")
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            return 124, True, tail, pgid
+    finally:
+        unregister_pytest_pgid(pgid)
+
+
+def _output_excerpt(output: str, limit: int = 4000) -> str:
+    """Keep both pytest's opening error header and the end of its traceback."""
+    if len(output) <= limit:
+        return output
+    remaining = max(0, limit - len(_PYTEST_OUTPUT_TRUNCATED_MARKER))
+    head_size = (remaining + 1) // 2
+    tail_size = remaining - head_size
+    tail = output[-tail_size:] if tail_size else ""
+    return output[:head_size] + _PYTEST_OUTPUT_TRUNCATED_MARKER + tail
 
 
 def _pgid_alive(pgid: int | None) -> bool:
@@ -302,13 +1026,34 @@ def new_fail_count(fails_m: set[str], fails_c: set[str]) -> int:
     return len(fails_m - fails_c)
 
 
+def synthetic_run_exists(db: Path, sha: str) -> bool:
+    """True if a synthetic finished run with results already exists for sha."""
+    if not db.is_file():
+        return False
+    con = sqlite3.connect(str(db))
+    try:
+        gate = test_runs_partial_gate(con, "r")
+        row = con.execute(
+            f"""
+            SELECT 1 FROM test_runs r
+            WHERE r.sha=? AND r.dirty=0 AND IFNULL(r.synthetic,0)=1 {gate}
+              AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id=r.id)
+            LIMIT 1
+            """,
+            (sha,),
+        ).fetchone()
+        return row is not None
+    finally:
+        con.close()
+
+
 def collect_junit_synthetic(
     repo: Path,
     db: Path,
     sha: str,
     junit_glob: str,
     *,
-    force: bool = True,
+    force: bool = False,
     cwd: Path | None = None,
 ) -> tuple[bool, str]:
     testpilot = os.environ.get("TESTPILOT_BIN", "testpilot")
@@ -349,9 +1094,28 @@ def run_mutant(
     pip_bin: Path | None = None,
     install_project_cb: object | None = None,
     mutant_index: int | None = None,
+    db_lock: object | None = None,
 ) -> MutantRunResult:
     """Checkout M in a worktree, pytest+junit (no coverage), optional flaky rerun."""
+    from contextlib import nullcontext
+
     from mutate.git_mutant import delete_mutant_ref
+
+    lock = db_lock if db_lock is not None else nullcontext()
+
+    # Already ingested (resume): do not re-pytest / re-insert.
+    with lock:
+        if synthetic_run_exists(db, mutant_sha):
+            fails_c = parent_fail_set(db, parent_sha)
+            fails_m = run_fail_set(db, mutant_sha, synthetic=True)
+            n_new = new_fail_count(fails_m, fails_c)
+            return MutantRunResult(
+                ok=True,
+                collect_ok=True,
+                collect_note="reuse existing synthetic run",
+                n_new_fail=n_new,
+                killed=n_new >= 1,
+            )
 
     timeout_sec = default_timeout_sec(duration_sec, timeout_override)
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -366,7 +1130,9 @@ def run_mutant(
 
     for p in (wt, junit1, junit2, junit_merged):
         if p.exists() and p.is_dir():
-            _run(["git", "worktree", "remove", "--force", str(p)], cwd=repo, check=False)
+            _run(
+                ["git", "worktree", "remove", "--force", str(p)], cwd=repo, check=False
+            )
         elif p.is_file():
             p.unlink(missing_ok=True)
 
@@ -384,19 +1150,23 @@ def run_mutant(
     env = {
         "LC_ALL": os.environ.get("LC_ALL", "en_US.UTF-8"),
         "LANG": os.environ.get("LANG", "en_US.UTF-8"),
+        "PYTHONPATH": os.pathsep.join(
+            (str(wt), str(wt / "src"))
+        ),  # own flat/src layout only
     }
     extra = pytest_extra_args or []
-    warn_args = _pytest_warn_args(python_bin)
-
-    if pip_bin is not None and install_project_cb is not None:
-        ok, log = install_project_cb(pip_bin, wt)  # type: ignore[misc]
-        if not ok:
-            return MutantRunResult(
-                ok=False,
-                log_tail=str(log)[-2000:],
-            )
-
     try:
+        if pip_bin is not None and install_project_cb is not None:
+            ok, log = install_project_cb(pip_bin, wt)  # type: ignore[misc]
+            if not ok:
+                return MutantRunResult(
+                    ok=False,
+                    log_tail=str(log)[-2000:],
+                )
+        # Project requirements can replace pytest; probe warning classes only afterwards.
+        warn_args = _pytest_warn_args(python_bin)
+        if not pytest_bin.is_file() or not os.access(pytest_bin, os.X_OK):
+            raise OSError(f"pytest executable missing or not executable: {pytest_bin}")
         cmd = [
             str(pytest_bin),
             f"--junitxml={junit1}",
@@ -417,6 +1187,180 @@ def run_mutant(
                 orphan_check_ok=orphan_ok,
             )
 
+        if not junit1.is_file():
+            no_junit_collection_error = _no_junit_collection_error(rc, tail, wt)
+            no_junit_mutant_control_error = _no_junit_mutant_plugin_collection_error(
+                rc, tail, wt, repo, parent_sha, mutant_sha
+            )
+            no_junit_note = f"pytest produced no JUnit report: {tail}"
+            has_local_mutant_frame = _has_mutant_worktree_frame(tail, wt)
+            attrs_evolve_jsonschema_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE.search(tail) is not None
+                and _JSONSCHEMA_TYPECHECKER_FRAME_RE.search(tail) is not None
+                and _mutant_attrs_function_returns_none(
+                    repo, parent_sha, mutant_sha, "evolve"
+                )
+            )
+            attrs_annotations_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_MUTANT_ANNOTATIONS_NONE_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_attrs_function_returns_none(
+                    repo, parent_sha, mutant_sha, "_get_annotations"
+                )
+            )
+            attrs_metadata_bool_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_MUTANT_METADATA_BOOL_RE.search(tail) is not None
+                and _NO_JUNIT_ATTR_METADATA_FRAME_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_negates_attrs_attribute_metadata(
+                    repo, parent_sha, mutant_sha
+                )
+            )
+            attrs_specification_import_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE.search(tail) is not None
+                and _mutant_inverts_attrs_own_attribute_sentinel(
+                    repo, parent_sha, mutant_sha
+                )
+            )
+            attrs_class_var_import_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE.search(tail) is not None
+                and _mutant_attrs_function_returns_none(
+                    repo, parent_sha, mutant_sha, "_is_class_var"
+                )
+            )
+            attrs_generated_init_syntax_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_SYNTAX_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_negates_attrs_generated_init_expression(
+                    repo, parent_sha, mutant_sha, "kw_only_separator"
+                )
+            )
+            attrs_generated_init_typechecker_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE.search(tail) is not None
+                and _mutant_negates_attrs_generated_init_expression(
+                    repo, parent_sha, mutant_sha, "generated_body"
+                )
+            )
+            attrs_generated_eq_header_syntax_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_SYNTAX_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_breaks_attrs_generated_eq_expression(
+                    repo, parent_sha, mutant_sha, generated_header=True
+                )
+            )
+            attrs_generated_eq_trailing_and_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_breaks_attrs_generated_eq_expression(
+                    repo, parent_sha, mutant_sha
+                )
+            )
+            if (
+                not no_junit_mutant_control_error
+                and rc in {1, 3}
+                and (
+                    _NO_JUNIT_PYTEST11_RE.search(tail) is not None
+                    or _NO_JUNIT_HYPOTHESIS_PROFILE_RE.search(tail) is not None
+                    or _NO_JUNIT_MUTANT_INIT_TYPEERROR_RE.search(tail) is not None
+                    or _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE.search(tail) is not None
+                    or attrs_annotations_failure
+                    or attrs_metadata_bool_failure
+                    or attrs_specification_import_failure
+                    or attrs_class_var_import_failure
+                    or attrs_generated_init_syntax_failure
+                    or attrs_generated_init_typechecker_failure
+                    or attrs_generated_eq_header_syntax_failure
+                    or attrs_generated_eq_trailing_and_failure
+                )
+                and (
+                    has_local_mutant_frame
+                    or attrs_specification_import_failure
+                    or attrs_class_var_import_failure
+                    or attrs_generated_init_typechecker_failure
+                )
+            ):
+                parent_ok, parent_note = _parent_control_collection(
+                    repo,
+                    parent_sha,
+                    mutant_sha,
+                    work_dir,
+                    pytest_bin,
+                    warn_args,
+                    extra,
+                    timeout_sec,
+                    env,
+                )
+                no_junit_mutant_control_error = parent_ok
+                cause_note = (
+                    "mutant negates Attribute.metadata in _setattrs; "
+                    if attrs_metadata_bool_failure
+                    else (
+                        "mutant inverts _has_own_attribute sentinel test; "
+                        if attrs_specification_import_failure
+                        else (
+                            "mutant changes _is_class_var to return None; "
+                            if attrs_class_var_import_failure
+                            else (
+                                "mutant negates an attrs generated-init f-string expression; "
+                                if attrs_generated_init_syntax_failure
+                                else (
+                                    "mutant negates the generated attrs initializer body; "
+                                    if attrs_generated_init_typechecker_failure
+                                    else (
+                                        "mutant breaks the attrs generated equality expression; "
+                                        if (
+                                            attrs_generated_eq_header_syntax_failure
+                                            or attrs_generated_eq_trailing_and_failure
+                                        )
+                                        else ""
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+                no_junit_note = f"{no_junit_note}\n{cause_note}{parent_note}"
+            elif not no_junit_mutant_control_error and attrs_evolve_jsonschema_failure:
+                parent_ok, parent_note = _parent_control_collection(
+                    repo,
+                    parent_sha,
+                    mutant_sha,
+                    work_dir,
+                    pytest_bin,
+                    warn_args,
+                    extra,
+                    timeout_sec,
+                    env,
+                )
+                no_junit_mutant_control_error = parent_ok
+                no_junit_note = (
+                    f"{no_junit_note}\nmutant changes attrs.evolve to return None; "
+                    f"{parent_note}"
+                )
+            if no_junit_collection_error or no_junit_mutant_control_error:
+                return MutantRunResult(
+                    ok=False,
+                    collection_error=True,
+                    high_fail_rate=True,
+                    pytest_rc=rc,
+                    collect_note=no_junit_note,
+                    log_tail=no_junit_note,
+                )
+            return MutantRunResult(
+                ok=False,
+                pytest_rc=rc,
+                collect_note=no_junit_note,
+                log_tail=no_junit_note,
+            )
         collection_error = bool(_COLLECTION_RE.search(tail)) or (
             rc == 2 and not junit1.is_file()
         )
@@ -428,7 +1372,8 @@ def run_mutant(
 
         failed = _failed_from_junit(junit1)
         all_tests = _all_tests_from_junit(junit1)
-        n_parent = run_test_count(db, parent_sha, synthetic=False)
+        with lock:
+            n_parent = run_test_count(db, parent_sha, synthetic=False)
         if n_parent > 0 and len(all_tests) * 2 < n_parent:
             collection_error = True
 
@@ -441,6 +1386,10 @@ def run_mutant(
                 *warn_args,
                 *failed,
             ]
+            if not pytest_bin.is_file() or not os.access(pytest_bin, os.X_OK):
+                raise OSError(
+                    f"pytest executable missing before flaky rerun: {pytest_bin}"
+                )
             rc2, timed_out2, tail2, pgid2 = _run_pytest_group(
                 rerun, wt, env, timeout_sec
             )
@@ -474,23 +1423,29 @@ def run_mutant(
             _merge_junit_with_flaky(
                 junit1, junit2 if junit2.is_file() else None, flaky, junit_merged
             )
-            collect_ok, collect_msg = collect_junit_synthetic(
-                repo,
-                db,
-                mutant_sha,
-                str(junit_merged),
-                force=True,
-                cwd=repo,
-            )
+            with lock:
+                # Never --force: resume must not duplicate synthetic runs.
+                if synthetic_run_exists(db, mutant_sha):
+                    collect_ok, collect_msg = True, "reuse existing synthetic run"
+                else:
+                    collect_ok, collect_msg = collect_junit_synthetic(
+                        repo,
+                        db,
+                        mutant_sha,
+                        str(junit_merged),
+                        force=False,
+                        cwd=repo,
+                    )
         else:
             collect_ok, collect_msg = False, "no junit produced"
 
         # Kill = ≥1 new_fail vs C using DB IDs (same normalize path as Rust collect).
         # Collection-error mutants are never kills (phantom module-level cases).
-        fails_c = parent_fail_set(db, parent_sha)
-        fails_m = (
-            run_fail_set(db, mutant_sha, synthetic=True) if collect_ok else set()
-        )
+        with lock:
+            fails_c = parent_fail_set(db, parent_sha)
+            fails_m = (
+                run_fail_set(db, mutant_sha, synthetic=True) if collect_ok else set()
+            )
         n_new_fail = 0 if collection_error else new_fail_count(fails_m, fails_c)
 
         n_failed = len(failed)
@@ -516,6 +1471,10 @@ def run_mutant(
             collect_note=collect_msg,
             log_tail=tail,
             orphan_check_ok=orphan_ok,
+        )
+    except OSError as exc:
+        return MutantRunResult(
+            ok=False, log_tail=f"cannot execute mutant pytest: {exc}"
         )
     finally:
         _run(["git", "worktree", "remove", "--force", str(wt)], cwd=repo, check=False)

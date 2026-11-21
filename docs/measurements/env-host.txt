@@ -1,0 +1,4 @@
+date_utc=2026-11-18T20:57:55Z
+nproc=8
+cpu=Apple M2
+less=/usr/bin/less

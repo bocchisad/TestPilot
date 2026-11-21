@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# Local-only Week-6 bootstrap measurements (NOT CI). Spec §7.3 / §8 / T6.
+# Pins tip SHAs, dry-runs first; aborts if estimated wall > 4h.
+set -euo pipefail
+export PYTHONUNBUFFERED=1
+MODE=${1:---dry-run-only}
+case "$MODE" in
+  --dry-run-only|--full) ;;
+  *) echo "usage: $0 [--dry-run-only|--full]" >&2; exit 2 ;;
+esac
+# --full is only for use after the user's separate verdict on estimates.
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+# Keep backfill, mutation workers and trainer on the same calibrated Python.
+MEASURE_PYTHON=${TESTPILOT_MEASURE_PYTHON:-"$ROOT/.venv-train/bin/python3"}
+if [[ ! -x "$MEASURE_PYTHON" ]]; then
+  echo "measurement Python is not executable: $MEASURE_PYTHON" >&2
+  exit 1
+fi
+export PATH="$(dirname "$MEASURE_PYTHON"):$PATH"
+export PYTHONPATH="$ROOT/python/pytest-testpilot/src:$ROOT/python/testpilot-train/src:$ROOT/scripts${PYTHONPATH:+:$PYTHONPATH}"
+echo "measurement_python=$($MEASURE_PYTHON -c 'import sys; print(sys.version.split()[0])') ($MEASURE_PYTHON)"
+
+PINS_CLICK_TAG=8.1.8
+PINS_CLICK_SHA=934813e4d421071a1b3db3973c02fe2721359a6e
+PINS_JINJA_TAG=3.1.6
+PINS_JINJA_SHA=15206881c006c79667fe5154fe80c01c65410679
+PINS_ATTRS_TAG=24.3.0
+PINS_ATTRS_SHA=598494a618410490cfbe0c896b7a544f6d23e0d9
+
+URL_CLICK=https://github.com/pallets/click.git
+URL_JINJA=https://github.com/pallets/jinja.git
+URL_ATTRS=https://github.com/python-attrs/attrs.git
+
+mkdir -p "$ROOT/.cache/measurements"
+MEASURE_ROOT=$(mktemp -d "$ROOT/.cache/measurements/w6.XXXXXX")
+MEASURE_REPOS="$MEASURE_ROOT/repos"
+mkdir -p "$MEASURE_REPOS"
+# Keep DBs, ledgers and environment snapshots for independent audit/resume.
+echo "measurement_work_root=$MEASURE_ROOT"
+trap 'echo "Retained measurement data: $MEASURE_ROOT"' EXIT
+N=200
+K=4
+JOBS=2
+SEED=42
+MAX_EST_S=14400  # 4h for 3×full + 2nd click level-b
+
+# Portable wall timing (bash builtin; avoid GNU/BSD /usr/bin/time differences).
+TIMEFORMAT='%R'
+
+ensure_repo() {
+  local name="$1" url="$2" sha="$3"
+  local source=".cache/repos/$name"
+  local dest="$MEASURE_REPOS/$name"
+  mkdir -p .cache/repos
+  if [[ ! -d "$dest/.git" ]]; then
+    # Full clone — blob:none partial clones break historical pytest checkouts.
+    if [[ -d "$source/.git" ]]; then
+      git clone --no-checkout --no-hardlinks "$source" "$dest"
+    else
+      git clone --no-checkout "$url" "$dest"
+    fi
+  fi
+  # A local source clone can itself be partial; --no-hardlinks does not hydrate it.
+  local missing
+  missing=$(git -C "$dest" rev-list --objects --missing=print "$sha" | awk '/^\?/{n++} END{print n+0}')
+  if [[ "$missing" -gt 0 ]]; then
+    echo "Hydrating $name: $missing missing objects from upstream"
+    git -C "$dest" remote set-url origin "$url"
+    git -C "$dest" fetch --refetch --no-filter origin "$sha"
+    missing=$(git -C "$dest" rev-list --objects --missing=print "$sha" | awk '/^\?/{n++} END{print n+0}')
+    if [[ "$missing" -ne 0 ]]; then
+      echo "incomplete $name history after hydration" >&2; exit 1
+    fi
+  fi
+  git -C "$dest" checkout --force "$sha"
+  local got
+  got="$(git -C "$dest" rev-parse HEAD)"
+  if [[ "$got" != "$sha" ]]; then
+    echo "pin mismatch $name: want $sha got $got" >&2
+    exit 1
+  fi
+}
+
+parse_dry_total() {
+  local log="$1"
+  if grep -E '^total_s=' "$log" >/dev/null 2>&1; then
+    grep -E '^total_s=' "$log" | tail -1 | cut -d= -f2
+  else
+    python3 - "$log" <<'PY'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+m = re.search(r"total_s=([0-9.]+)", text)
+if m:
+    print(m.group(1))
+else:
+    m = re.search(r"total[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*s", text, re.I)
+    if not m:
+        raise SystemExit("missing total_s in dry-run output")
+    print(m.group(1))
+PY
+  fi
+}
+
+echo "=== env fingerprint ==="
+{
+  echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "nproc=$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo unknown )"
+  if [[ "$(uname)" == Darwin ]]; then
+    echo "cpu=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo unknown)"
+  else
+    echo "cpu=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | xargs || echo unknown)"
+  fi
+  if ! command -v less >/dev/null 2>&1; then
+    echo "WARN: less not on PATH — click pager tests fail every commit (persistent, not new_fail)" >&2
+  else
+    echo "less=$(command -v less)"
+  fi
+} | tee docs/measurements/env-host.txt
+python3 scripts/measurement_environment.py \
+  --freeze-out docs/measurements/env-pip-freeze.txt \
+  --versions-out docs/measurements/env-training-versions.json
+
+echo "=== ensure pinned clones ==="
+ensure_repo click "$URL_CLICK" "$PINS_CLICK_SHA"
+ensure_repo jinja "$URL_JINJA" "$PINS_JINJA_SHA"
+ensure_repo attrs "$URL_ATTRS" "$PINS_ATTRS_SHA"
+
+echo "=== build release ==="
+cargo build -p testpilot-cli --release --locked
+BIN="$ROOT/target/release/testpilot"
+export TESTPILOT_BIN="$BIN"
+
+echo "=== dry-run estimates ==="
+mkdir -p docs/measurements
+EST_CLICK=0 EST_JINJA=0 EST_ATTRS=0
+for R in click jinja attrs; do
+  suite_flag=(--suite "$R")
+  "$BIN" bootstrap --repo "$MEASURE_REPOS/$R" --out "docs/measurements/bootstrap-$R" \
+    --max-commits "$N" --mutants-per-commit "$K" --jobs "$JOBS" --seed "$SEED" \
+    "${suite_flag[@]}" --train-threads 1 --dry-run | tee "docs/measurements/dry-run-$R.txt"
+  case "$R" in
+    click) EST_CLICK="$(parse_dry_total docs/measurements/dry-run-click.txt)" ;;
+    jinja) EST_JINJA="$(parse_dry_total docs/measurements/dry-run-jinja.txt)" ;;
+    attrs) EST_ATTRS="$(parse_dry_total docs/measurements/dry-run-attrs.txt)" ;;
+  esac
+done
+
+python3 - <<PY
+click, jinja, attrs = float("$EST_CLICK"), float("$EST_JINJA"), float("$EST_ATTRS")
+# 3 full runs + second click for level-b
+total = click + jinja + attrs + click
+print(f"dry_run_estimates_s click={click} jinja={jinja} attrs={attrs}")
+print(f"estimated_total_s={total} (3×full + 2nd click level-b)")
+open("docs/measurements/dry-run-estimates.json", "w").write(
+    __import__("json").dumps({
+        "click": click, "jinja": jinja, "attrs": attrs,
+        "estimated_total_s": total,
+        "max_est_s": $MAX_EST_S,
+        "actual_s": None, "reason": "dry_run_only" if "$MODE" == "--dry-run-only" else "full_runs_in_progress",
+        "N": $N, "K": $K, "jobs": $JOBS, "seed": $SEED,
+        "assumptions": "n_samples=attempted; n_new_cal=20; worker-local venv setup unmeasured",
+        "binary_version": __import__("subprocess").check_output(["$BIN", "--version"], text=True).strip(),
+        "components": {r: {"raw": "docs/measurements/dry-run-"+r+".txt", "lines": [line for line in open("docs/measurements/dry-run-"+r+".txt").read().splitlines() if line.startswith(("components_s:", "attempted_hat=", "priors:"))]} for r in ("click", "jinja", "attrs")},
+        "pins": {"click": "$PINS_CLICK_SHA", "jinja": "$PINS_JINJA_SHA", "attrs": "$PINS_ATTRS_SHA"},
+    }, indent=2) + "\\n"
+)
+if total > $MAX_EST_S:
+    print("ABORT: estimated wall > 4h — send estimates to mell before full runs.", flush=True)
+    raise SystemExit(42)
+PY
+
+if [[ "$MODE" == --dry-run-only ]]; then
+  echo "Dry-run only: full runs require a separate user verdict and --full."
+  exit 0
+fi
+
+run_one() {
+  local R="$1" OUT="$2"
+  if [[ -e "$MEASURE_REPOS/$R/.testpilot" ]]; then
+    echo "refuse non-clean measurement checkout: $R" >&2; exit 1
+  fi
+  mkdir -p "$OUT"
+  OUT="$(cd "$OUT" && pwd)"
+  # attrs: exclude mypy suite (16.926 s/commit calibration; 17.139 was WITH mypy).
+  unset PYTEST_ADDOPTS
+  if [[ "$R" == attrs ]]; then
+    export PYTEST_ADDOPTS="--ignore=tests/test_mypy.yml"
+  fi
+  {
+    time "$BIN" bootstrap --repo "$MEASURE_REPOS/$R" --out "$OUT" \
+      --max-commits "$N" --mutants-per-commit "$K" --jobs "$JOBS" --seed "$SEED" \
+      --suite "$R" --force --train-threads 1
+  } 2>&1 | tee "$OUT/measure.log"
+  python3 - <<PY
+import json
+from pathlib import Path
+rep = json.loads(Path("$OUT/bootstrap_report.json").read_text())
+assert rep.get("n_backfill_reused", 1) == 0, rep
+assert rep.get("n_mutants_attempted", 0) > 0, "full measurement produced no mutation attempts"
+state = json.loads(Path("$MEASURE_REPOS/$R/.testpilot/bootstrap/state.json").read_text())
+assert (state.get("dump_fingerprint") or {}).get("n_synthetic_runs", 0) > 0, "full measurement produced no synthetic results"
+print("ok n_backfill_reused=0 n_new=", rep.get("n_backfill_new"))
+PY
+}
+
+echo "=== full bootstrap runs ==="
+START=$(date +%s)
+run_one click docs/measurements/bootstrap-click
+# Snapshot level-b gold before second click overwrites the DB.
+python3 - "$MEASURE_REPOS/click" <<'PY'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, "scripts")
+from aggregate_bootstrap_w6 import collect_mutants
+gold = collect_mutants(Path(sys.argv[1]))
+Path("docs/measurements/bootstrap-click/level_b_gold.json").write_text(
+    json.dumps(gold, indent=2, sort_keys=True) + "\n"
+)
+print("level_b gold mutants", len(gold.get("m_shas_non_timeout") or []))
+PY
+run_one jinja docs/measurements/bootstrap-jinja
+run_one attrs docs/measurements/bootstrap-attrs
+
+echo "=== level-b second click ==="
+# Preserve first click DB/ledger; clone a separate clean checkout for run b.
+mv "$MEASURE_REPOS/click" "$MEASURE_ROOT/click-first"
+ensure_repo click "$URL_CLICK" "$PINS_CLICK_SHA"
+LEVEL_B_OUT="$MEASURE_ROOT/click-b-out"
+run_one click "$LEVEL_B_OUT"
+
+BOOTSTRAP_END=$(date +%s)
+echo "=== LORO ×3 + summary ==="
+python3 "$ROOT/scripts/aggregate_bootstrap_w6.py" \
+  --root "$ROOT" --repos-root "$MEASURE_REPOS" \
+  --level-b-out "$LEVEL_B_OUT" --bootstrap-wall-s "$((BOOTSTRAP_END - START))" \
+  --pins-click "$PINS_CLICK_SHA:$PINS_CLICK_TAG" \
+  --pins-jinja "$PINS_JINJA_SHA:$PINS_JINJA_TAG" \
+  --pins-attrs "$PINS_ATTRS_SHA:$PINS_ATTRS_TAG"
+
+END=$(date +%s)
+echo "measure_bootstrap_w6 wall_s=$((END - START))"
+python3 - "$((END - START))" <<'PYACT'
+import json, sys
+from pathlib import Path
+path = Path("docs/measurements/dry-run-estimates.json")
+value = json.loads(path.read_text())
+value.update(actual_pipeline_wall_s=int(sys.argv[1]))
+path.write_text(json.dumps(value, indent=2) + "\n")
+summary_path = Path("docs/measurements/bootstrap-w6-click-jinja-attrs.json")
+summary = json.loads(summary_path.read_text())
+summary["dry_run_estimates"] = value
+summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\n")
+PYACT

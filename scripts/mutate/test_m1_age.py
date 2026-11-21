@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from mutate.testpilot_bin import resolve_testpilot_bin  # noqa: E402
+
 _SCRIPTS = Path(__file__).resolve().parents[1]
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
@@ -19,13 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _testpilot() -> str:
-    for cand in (
-        ROOT / "target" / "debug" / "testpilot",
-        ROOT / "target" / "release" / "testpilot",
-    ):
-        if cand.is_file():
-            return str(cand)
-    pytest.skip("testpilot binary not built")
+    return resolve_testpilot_bin()
 
 
 def _git(repo: Path, *args: str, env: dict | None = None) -> str:

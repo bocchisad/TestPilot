@@ -1,17 +1,10 @@
-use std::process::Command;
+#[path = "build_git_sha.rs"]
+mod build_git_sha;
+
+use std::env;
+use std::path::Path;
 
 fn main() {
-    let sha = Command::new("git")
-        .args(["rev-parse", "--short=12", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
-    println!("cargo:rustc-env=TESTPILOT_GIT_SHA={sha}");
-    // Rebuild when HEAD moves (best-effort; missing .git is fine).
-    println!("cargo:rerun-if-changed=../../.git/HEAD");
-    println!("cargo:rerun-if-env-changed=TESTPILOT_GIT_SHA");
+    let manifest = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    build_git_sha::emit_cargo_git_sha(Path::new(&manifest));
 }

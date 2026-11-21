@@ -1,0 +1,10 @@
+{
+  "python": "3.13.18",
+  "pytest": "8.3.4",
+  "lightgbm": "4.5.0",
+  "local_source_packages": {
+    "pytest-testpilot": "python/pytest-testpilot",
+    "testpilot-train": "python/testpilot-train"
+  },
+  "freeze_note": "Local file URLs normalized to name==installed-version; source paths are repository-relative."
+}

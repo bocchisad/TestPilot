@@ -1,0 +1,595 @@
+{
+  "backfill_s_per_commit": 6.171390503351759,
+  "backfill_s_per_commit_reason": null,
+  "bootstrap": {
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "synth_test_ci_low_ge_0",
+    "verdict": "use_model"
+  },
+  "diagnostics": {
+    "always_broken_tests": [
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_attribute_map[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_attribute_map[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_reject[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_reject[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_select[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_select[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_filter"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_iteratable_filter[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_iteratable_filter[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_empty_map"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_first[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_first[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_multidot[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_multidot[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_tuple_index[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_tuple_index[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_attribute[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_attribute[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_env_int[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_env_int[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_string_list[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_string_list[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_map_sum"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_map[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_map[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_reject[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_reject[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select_attr[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select_attr[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_slice[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_slice[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes_nested"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes_tuple"
+      }
+    ],
+    "exclude_high_fail_rate": true,
+    "fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 56
+        },
+        {
+          "bin": "[1,2)",
+          "count": 103
+        },
+        {
+          "bin": "[2,5)",
+          "count": 42
+        },
+        {
+          "bin": "[5,10)",
+          "count": 16
+        },
+        {
+          "bin": "[10,20)",
+          "count": 7
+        },
+        {
+          "bin": "[20,50)",
+          "count": 20
+        },
+        {
+          "bin": "[50,100)",
+          "count": 90
+        },
+        {
+          "bin": "100+",
+          "count": 22
+        }
+      ],
+      "max": 344,
+      "min": 0,
+      "p50": 2.0,
+      "p90": 94.0
+    },
+    "fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 56
+        },
+        {
+          "bin": "[1,2)",
+          "count": 103
+        },
+        {
+          "bin": "[2,5)",
+          "count": 42
+        },
+        {
+          "bin": "[5,10)",
+          "count": 16
+        },
+        {
+          "bin": "[10,20)",
+          "count": 7
+        },
+        {
+          "bin": "[20,50)",
+          "count": 20
+        },
+        {
+          "bin": "[50,100)",
+          "count": 90
+        },
+        {
+          "bin": "100+",
+          "count": 33
+        }
+      ],
+      "max": 790,
+      "min": 0,
+      "p50": 2.0,
+      "p90": 95.0
+    },
+    "fail_per_change_mean": 36.502808988764045,
+    "fail_per_change_mean_including_high_fail": 57.119891008174385,
+    "mutant_test_distinct_base_change": 11,
+    "mutant_test_new_fail_changes": 22,
+    "n_always_broken_tests": 41,
+    "n_changes": 356,
+    "n_changes_with_new_fail": 114,
+    "n_flaky": 0,
+    "n_high_fail_rate_changes": 11,
+    "n_label1": 12995,
+    "n_orphan_vs_parent": 44,
+    "n_persistent": 10031,
+    "n_persistent_among_label1": 9373,
+    "n_rows_parent_missing": 1664,
+    "new_fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 242
+        },
+        {
+          "bin": "[1,2)",
+          "count": 24
+        },
+        {
+          "bin": "[2,5)",
+          "count": 21
+        },
+        {
+          "bin": "[5,10)",
+          "count": 13
+        },
+        {
+          "bin": "[10,20)",
+          "count": 11
+        },
+        {
+          "bin": "[20,50)",
+          "count": 25
+        },
+        {
+          "bin": "[50,100)",
+          "count": 9
+        },
+        {
+          "bin": "100+",
+          "count": 11
+        }
+      ],
+      "max": 344,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 24.0
+    },
+    "new_fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 242
+        },
+        {
+          "bin": "[1,2)",
+          "count": 24
+        },
+        {
+          "bin": "[2,5)",
+          "count": 21
+        },
+        {
+          "bin": "[5,10)",
+          "count": 13
+        },
+        {
+          "bin": "[10,20)",
+          "count": 11
+        },
+        {
+          "bin": "[20,50)",
+          "count": 25
+        },
+        {
+          "bin": "[50,100)",
+          "count": 9
+        },
+        {
+          "bin": "100+",
+          "count": 22
+        }
+      ],
+      "max": 790,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 42.0
+    },
+    "new_fail_per_change_mean": 9.794943820224718,
+    "new_fail_per_change_mean_including_high_fail": 29.419618528610354,
+    "persistent_share_among_label1": 0.72127741439015
+  },
+  "fingerprint": {
+    "B_override": null,
+    "B_policy": "cold_last_max_N_20_fp_then_sample",
+    "K": 4,
+    "N": 200,
+    "bin_version": "0.1.0 (b4d5bfaf9e18)",
+    "head_sha": "15206881c006c79667fe5154fe80c01c65410679",
+    "schema_sql_sha256": "72ab32cb61d6e460419e4d46bd3b8fe2032e01f8c6f76ce6ba4bb2db675a9b32",
+    "schema_version": 7,
+    "seed": 42
+  },
+  "jobs": 2,
+  "mutate_completed_pairs": 169,
+  "mutate_counters_scope": "last_successful_invocation",
+  "mutate_environments": {
+    "venv-0": {
+      "pytest": "8.3.4",
+      "python": "3.13.18"
+    },
+    "venv-1": {
+      "pytest": "8.3.4",
+      "python": "3.13.18"
+    }
+  },
+  "mutate_s_per_mutant": 3.648142669130178,
+  "mutate_s_per_mutant_reason": null,
+  "mutate_skip_reason": null,
+  "n_actual": 109,
+  "n_backfill_new": 199,
+  "n_backfill_reused": 0,
+  "n_backfill_unavailable": 1,
+  "n_eligible": 109,
+  "n_mutants_attempted": 169,
+  "n_timeout": 0,
+  "out": "docs/measurements/bootstrap-jinja",
+  "paired_delta_ci_synthetic_test_cov_lines": {
+    "ci95": [
+      0.0,
+      0.0018656537573250936
+    ],
+    "mean": 0.0006784195481182157,
+    "n": 22,
+    "n_C": 11,
+    "n_mutants": 22
+  },
+  "ranker": "model",
+  "repo": ".cache/measurements/w6.r6lRQZ/repos/jinja",
+  "seed": 42,
+  "status": "ok",
+  "step_timings_s": {
+    "backfill": 1228.106710167,
+    "cleanup": 0.020001875,
+    "collect_git": 2.647851916,
+    "features_dump": 560.621166333,
+    "finalize": 3.75e-07,
+    "gate": 0.000153333,
+    "init": 0.014387208,
+    "mutate": 616.536111083,
+    "train": 7.075118125
+  },
+  "steps": {
+    "backfill": "done",
+    "cleanup": "done",
+    "collect_git": "done",
+    "features_dump": "done",
+    "finalize": "done",
+    "gate": "done",
+    "init": "done",
+    "mutate": "done",
+    "train": "done"
+  },
+  "steps_resumed": [],
+  "timeout_rate": 0.0,
+  "train_threads": 1,
+  "provenance": {
+    "measurement_runner": {
+      "path": "scripts/measure_bootstrap_w6.sh",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "git_blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7"
+    },
+    "mutation_ledger": {
+      "path": "scripts/mutate_bootstrap.py",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "git_blob_sha1": "2f09ab29a91b597369cb7d76dfbade9dc397ecca"
+    },
+    "labeling_classifier": {
+      "path": "scripts/mutate/run_mutant.py",
+      "click": {
+        "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
+        "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81"
+      },
+      "jinja": {
+        "git_commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
+        "git_blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b"
+      },
+      "attrs_pairs": [
+        {
+          "count": 36,
+          "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+          "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+          "period": "last run"
+        },
+        {
+          "count": 76,
+          "git_commit": null,
+          "git_blob_sha1": null,
+          "period": "estimated early runs across classifier versions before 978b50b",
+          "ledger_committed": false
+        }
+      ]
+    },
+    "aggregator": {
+      "path": "scripts/aggregate_bootstrap_w6.py",
+      "git_commit": "092d6cc30a09f409aea1b1413ab62976d60430fd",
+      "git_blob_sha1": "0a7c3bb9ad7ebde626c75ae2266abd30ae254302"
+    }
+  }
+}

@@ -1,0 +1,2175 @@
+{
+  "baselines": {
+    "best_for_paired_gate": "cov_lines",
+    "test": {
+      "cc_max": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.35283315145898964,
+            0.5934734339939235
+          ],
+          "mean": 0.4716614814101125
+        }
+      },
+      "cov_lines": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.6723072923530307,
+            0.8659969246555856
+          ],
+          "mean": 0.7709631114911151
+        }
+      },
+      "fail_per_day": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.0623385443545403,
+            0.1039837751543274
+          ],
+          "mean": 0.08177599127312221
+        }
+      },
+      "imp_dist": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.30519337587823053,
+            0.5122803705389243
+          ],
+          "mean": 0.4071578755969174
+        }
+      },
+      "random": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.0994528832905931,
+            0.09963787892459709
+          ],
+          "mean": 0.09954449534039499
+        }
+      },
+      "t_fail_rate": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.0623385443545403,
+            0.1039837751543274
+          ],
+          "mean": 0.08177599127312221
+        }
+      }
+    },
+    "test_synthetic": {
+      "cc_max": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.3519152587522905,
+            0.5863279310393722
+          ],
+          "mean": 0.4716614814101125
+        }
+      },
+      "cov_lines": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.6634227038604498,
+            0.8652115584976456
+          ],
+          "mean": 0.7709631114911151
+        }
+      },
+      "fail_per_day": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.06289287448575899,
+            0.10352046853759238
+          ],
+          "mean": 0.08177599127312221
+        }
+      },
+      "imp_dist": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.3017239635948434,
+            0.5137017958638755
+          ],
+          "mean": 0.4071578755969174
+        }
+      },
+      "random": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.099454019470398,
+            0.09963873808650765
+          ],
+          "mean": 0.09954449534039499
+        }
+      },
+      "t_fail_rate": {
+        "n": 48,
+        "recall@10%": {
+          "ci95": [
+            0.06289287448575899,
+            0.10352046853759238
+          ],
+          "mean": 0.08177599127312221
+        }
+      }
+    },
+    "val": {
+      "cc_max": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.07726892270280541,
+            0.3105845783234922
+          ],
+          "mean": 0.18793706266471855
+        }
+      },
+      "cov_lines": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.693198641195793,
+            0.9403787231409148
+          ],
+          "mean": 0.829125960626262
+        }
+      },
+      "fail_per_day": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.13263493880998603,
+            0.38988750225872104
+          ],
+          "mean": 0.24953045185007472
+        }
+      },
+      "imp_dist": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.07630419483989755,
+            0.2845382768733253
+          ],
+          "mean": 0.16857200161008123
+        }
+      },
+      "random": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.09954594870989929,
+            0.09971487748673617
+          ],
+          "mean": 0.09962519411973828
+        }
+      },
+      "t_fail_rate": {
+        "n": 22,
+        "recall@10%": {
+          "ci95": [
+            0.13263493880998603,
+            0.38988750225872104
+          ],
+          "mean": 0.24953045185007472
+        }
+      }
+    },
+    "val_synthetic": {
+      "cc_max": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.08748404725511341,
+            0.31230903827858814
+          ],
+          "mean": 0.19688644660113375
+        }
+      },
+      "cov_lines": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.7476587793699468,
+            0.9597144116521595
+          ],
+          "mean": 0.8638540380904226
+        }
+      },
+      "fail_per_day": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.10771518557981104,
+            0.33490702776840897
+          ],
+          "mean": 0.21379380670007828
+        }
+      },
+      "imp_dist": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.07605645179861001,
+            0.28500109273931973
+          ],
+          "mean": 0.17659923978198983
+        }
+      },
+      "random": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.0995307109742763,
+            0.09970934060260318
+          ],
+          "mean": 0.0996151398454931
+        }
+      },
+      "t_fail_rate": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.10771518557981104,
+            0.33490702776840897
+          ],
+          "mean": 0.21379380670007828
+        }
+      }
+    }
+  },
+  "best_baseline_val": "cov_lines",
+  "best_iteration": 26,
+  "bootstrap": {
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "synth_test_ci_low_ge_0",
+    "verdict": "use_model"
+  },
+  "candidates": [
+    {
+      "best_iteration": 38,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "binary",
+      "stopping_metric": "auc",
+      "val_recall@10%_new_fail": 0.9050678488608356
+    },
+    {
+      "best_iteration": 26,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "lambdarank",
+      "stopping_metric": "ndcg",
+      "val_recall@10%_new_fail": 0.930252647860345
+    }
+  ],
+  "constraints": {
+    "categorical": false,
+    "linear_tree": false,
+    "num_threads_train": 1,
+    "use_missing": true,
+    "zero_as_missing": false
+  },
+  "diagnostics": {
+    "always_broken_tests": [
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None2]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None3]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None4]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddRepr::test_repr_works[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddRepr::test_repr_works[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_equal[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_equal[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_frozen_instance[None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[2-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[3-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[4-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[5-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[2-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[3-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[4-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[5-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_attribute_map[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_attribute_map[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_reject[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_reject[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_select[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_bool_select[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_filter"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_iteratable_filter[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_custom_async_iteratable_filter[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_empty_map"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_first[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_first[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_multidot[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_multidot[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_tuple_index[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_groupby_tuple_index[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_attribute[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_attribute[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_env_int[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_env_int[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_string_list[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_join_string_list[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_map_sum"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_map[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_map[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_reject[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_reject[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select_attr[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_simple_select_attr[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_slice[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_slice[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes[<lambda>0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes[<lambda>1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes_nested"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 55,
+        "n_fail": 55,
+        "repo": "jinja",
+        "test": "tests/test_asyncfilters.py::test_sum_attributes_tuple"
+      }
+    ],
+    "exclude_high_fail_rate": true,
+    "fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 301
+        },
+        {
+          "bin": "[1,2)",
+          "count": 116
+        },
+        {
+          "bin": "[2,5)",
+          "count": 271
+        },
+        {
+          "bin": "[5,10)",
+          "count": 72
+        },
+        {
+          "bin": "[10,20)",
+          "count": 23
+        },
+        {
+          "bin": "[20,50)",
+          "count": 40
+        },
+        {
+          "bin": "[50,100)",
+          "count": 104
+        },
+        {
+          "bin": "100+",
+          "count": 36
+        }
+      ],
+      "max": 344,
+      "min": 0,
+      "p50": 3.0,
+      "p90": 94.0
+    },
+    "fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 301
+        },
+        {
+          "bin": "[1,2)",
+          "count": 116
+        },
+        {
+          "bin": "[2,5)",
+          "count": 271
+        },
+        {
+          "bin": "[5,10)",
+          "count": 72
+        },
+        {
+          "bin": "[10,20)",
+          "count": 23
+        },
+        {
+          "bin": "[20,50)",
+          "count": 40
+        },
+        {
+          "bin": "[50,100)",
+          "count": 104
+        },
+        {
+          "bin": "100+",
+          "count": 49
+        }
+      ],
+      "max": 790,
+      "min": 0,
+      "p50": 3.0,
+      "p90": 94.0
+    },
+    "fail_per_change_mean": 19.77673935617861,
+    "fail_per_change_mean_including_high_fail": 28.335040983606557,
+    "mutant_test_distinct_base_change": 21,
+    "mutant_test_new_fail_changes": 48,
+    "n_always_broken_tests": 79,
+    "n_changes": 963,
+    "n_changes_with_new_fail": 286,
+    "n_flaky": 76,
+    "n_high_fail_rate_changes": 13,
+    "n_label1": 19045,
+    "n_orphan_vs_parent": 82,
+    "n_persistent": 11033,
+    "n_persistent_among_label1": 10372,
+    "n_rows_parent_missing": 3499,
+    "new_fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 677
+        },
+        {
+          "bin": "[1,2)",
+          "count": 54
+        },
+        {
+          "bin": "[2,5)",
+          "count": 69
+        },
+        {
+          "bin": "[5,10)",
+          "count": 44
+        },
+        {
+          "bin": "[10,20)",
+          "count": 30
+        },
+        {
+          "bin": "[20,50)",
+          "count": 43
+        },
+        {
+          "bin": "[50,100)",
+          "count": 22
+        },
+        {
+          "bin": "100+",
+          "count": 24
+        }
+      ],
+      "max": 344,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 16.0
+    },
+    "new_fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 677
+        },
+        {
+          "bin": "[1,2)",
+          "count": 54
+        },
+        {
+          "bin": "[2,5)",
+          "count": 69
+        },
+        {
+          "bin": "[5,10)",
+          "count": 44
+        },
+        {
+          "bin": "[10,20)",
+          "count": 30
+        },
+        {
+          "bin": "[20,50)",
+          "count": 43
+        },
+        {
+          "bin": "[50,100)",
+          "count": 22
+        },
+        {
+          "bin": "100+",
+          "count": 37
+        }
+      ],
+      "max": 790,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 21.0
+    },
+    "new_fail_per_change_mean": 8.818276220145378,
+    "new_fail_per_change_mean_including_high_fail": 16.8452868852459,
+    "persistent_share_among_label1": 0.5446048831714361
+  },
+  "early_stopping_rounds": 50,
+  "feature_gain": [
+    {
+      "gain": 22049.184993743896,
+      "name": "cov_lines"
+    },
+    {
+      "gain": 884.9757597446442,
+      "name": "cov_breadth"
+    },
+    {
+      "gain": 788.2666447162628,
+      "name": "tfile_ntests"
+    },
+    {
+      "gain": 708.50475025177,
+      "name": "cov_file"
+    },
+    {
+      "gain": 628.1296616792679,
+      "name": "cov_func"
+    },
+    {
+      "gain": 610.446410536766,
+      "name": "t_age_days"
+    },
+    {
+      "gain": 496.09431862831116,
+      "name": "t_obs"
+    },
+    {
+      "gain": 431.0036063194275,
+      "name": "cov_mod"
+    },
+    {
+      "gain": 361.8449196815491,
+      "name": "cc_max"
+    },
+    {
+      "gain": 340.01341915130615,
+      "name": "ch_nsrc"
+    },
+    {
+      "gain": 202.74793195724487,
+      "name": "name_file"
+    },
+    {
+      "gain": 192.79509925842285,
+      "name": "ch_nfiles"
+    },
+    {
+      "gain": 175.94149947166443,
+      "name": "dur"
+    },
+    {
+      "gain": 175.60547924041748,
+      "name": "pq_max"
+    },
+    {
+      "gain": 164.4714789390564,
+      "name": "name_jac"
+    },
+    {
+      "gain": 153.96877002716064,
+      "name": "ch_nfunc"
+    },
+    {
+      "gain": 133.53306078910828,
+      "name": "imp_dist"
+    },
+    {
+      "gain": 117.36489939689636,
+      "name": "cc_sum"
+    },
+    {
+      "gain": 101.1911404132843,
+      "name": "ch_rm"
+    },
+    {
+      "gain": 28.680561065673828,
+      "name": "imp_direct"
+    },
+    {
+      "gain": 28.29834008216858,
+      "name": "ch_add"
+    },
+    {
+      "gain": 17.885870099067688,
+      "name": "pf_max"
+    },
+    {
+      "gain": 13.478500366210938,
+      "name": "t_fail_cnt"
+    },
+    {
+      "gain": 8.330450057983398,
+      "name": "t_fail_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "name_func"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_known"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_lag"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_changed"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_flaky_rate"
+    }
+  ],
+  "feature_names": [
+    "cc_max",
+    "cc_sum",
+    "imp_dist",
+    "imp_direct",
+    "name_file",
+    "name_jac",
+    "name_func",
+    "cov_known",
+    "cov_file",
+    "cov_func",
+    "cov_lines",
+    "cov_breadth",
+    "cov_mod",
+    "cov_lag",
+    "t_fail_rate",
+    "t_fail_cnt",
+    "t_obs",
+    "pf_max",
+    "pq_max",
+    "t_age_days",
+    "dur",
+    "tfile_ntests",
+    "t_changed",
+    "t_flaky_rate",
+    "ch_nfiles",
+    "ch_nsrc",
+    "ch_add",
+    "ch_rm",
+    "ch_nfunc"
+  ],
+  "feature_value_stats_synthetic": [
+    {
+      "n_rows": 320346,
+      "n_unique": 1,
+      "name": "cov_lag",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 1,
+      "name": "t_changed",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 1,
+      "name": "t_flaky_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "imp_direct",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "name_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "name_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "cov_known",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "cov_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "cov_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "cov_mod",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "ch_nfiles",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "ch_nsrc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 2,
+      "name": "ch_add",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 4,
+      "name": "ch_nfunc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 6,
+      "name": "imp_dist",
+      "sentinel": 99,
+      "sentinel_share": 0.15780749564533347
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 6,
+      "name": "name_jac",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 9,
+      "name": "cov_lines",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 9,
+      "name": "ch_rm",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 49,
+      "name": "pq_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.14311400797887283
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 87,
+      "name": "t_fail_cnt",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 93,
+      "name": "tfile_ntests",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 108,
+      "name": "pf_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.037159820943604725
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 199,
+      "name": "t_obs",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 279,
+      "name": "t_fail_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 346,
+      "name": "dur",
+      "sentinel": -1,
+      "sentinel_share": 0.00011862174024336186
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 1123,
+      "name": "cov_breadth",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 1710,
+      "name": "cc_max",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 1710,
+      "name": "cc_sum",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 320346,
+      "n_unique": 6347,
+      "name": "t_age_days",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    }
+  ],
+  "features_version": 2,
+  "foil_baseline_mutation_bootstrap": "cov_lines",
+  "lambdarank_truncation_level": 82,
+  "lightgbm_version": "4.5.0",
+  "loro": {
+    "macro_recall@10%": 0.7098951204632825,
+    "per_repo": [
+      {
+        "baselines": {
+          "cc_max": 0.3962356171873058,
+          "cov_lines": 0.849752390987194,
+          "random": 0.09978527279271918
+        },
+        "best_iteration": 22,
+        "held_out": "attrs",
+        "n_changes": 16,
+        "objective": "binary",
+        "recall@10%": 0.8542713567839196
+      },
+      {
+        "baselines": {
+          "cc_max": 0.16316964067662662,
+          "cov_lines": 0.42792188538570725,
+          "random": 0.09939805619554568
+        },
+        "best_iteration": 16,
+        "held_out": "click",
+        "n_changes": 10,
+        "objective": "lambdarank",
+        "recall@10%": 0.4073467590446098
+      },
+      {
+        "baselines": {
+          "cc_max": 0.6667402193601016,
+          "cov_lines": 0.8695896473600615,
+          "random": 0.09943594771363616
+        },
+        "best_iteration": 33,
+        "held_out": "jinja",
+        "n_changes": 22,
+        "objective": "lambdarank",
+        "recall@10%": 0.8680672455613184
+      }
+    ],
+    "skipped": false
+  },
+  "metrics_test_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.040395275642409224,
+        0.21650408304785895
+      ],
+      "mean": 0.1241805357388821,
+      "n_changes": 48
+    },
+    "apfd": {
+      "ci95": [
+        0.8971747027095623,
+        0.9810165803957376
+      ],
+      "mean": 0.9398101842102635,
+      "n_changes": 48
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0017300262051347004,
+        0.01620668068192364
+      ],
+      "mean": 0.007377745230196352,
+      "n_changes": 48
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6442153211268875,
+        0.9453238195797053
+      ],
+      "mean": 0.7975310183386609,
+      "n_changes": 48
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8170567669265872,
+        0.9751773049645389
+      ],
+      "mean": 0.8984099249015317,
+      "n_changes": 48
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5443454218297814,
+        0.9133598042801624
+      ],
+      "mean": 0.7363125292727425,
+      "n_changes": 48
+    }
+  },
+  "metrics_test_new_fail_excluding_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.040395275642409224,
+        0.21650408304785895
+      ],
+      "mean": 0.1241805357388821,
+      "n_changes": 48
+    },
+    "apfd": {
+      "ci95": [
+        0.8971747027095623,
+        0.9810165803957376
+      ],
+      "mean": 0.9398101842102635,
+      "n_changes": 48
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0017300262051347004,
+        0.01620668068192364
+      ],
+      "mean": 0.007377745230196352,
+      "n_changes": 48
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6442153211268875,
+        0.9453238195797053
+      ],
+      "mean": 0.7975310183386609,
+      "n_changes": 48
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8170567669265872,
+        0.9751773049645389
+      ],
+      "mean": 0.8984099249015317,
+      "n_changes": 48
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5443454218297814,
+        0.9133598042801624
+      ],
+      "mean": 0.7363125292727425,
+      "n_changes": 48
+    }
+  },
+  "metrics_test_new_fail_including_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.06835150736652487,
+        0.26297930720231716
+      ],
+      "mean": 0.15179661398974367,
+      "n_changes": 50
+    },
+    "apfd": {
+      "ci95": [
+        0.8774219590096896,
+        0.9662448526291786
+      ],
+      "mean": 0.9276072221343997,
+      "n_changes": 50
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.002069592135830427,
+        0.015904051325277817
+      ],
+      "mean": 0.00723495501231568,
+      "n_changes": 50
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6044307886186184,
+        0.9023663988023611
+      ],
+      "mean": 0.7712218680852281,
+      "n_changes": 50
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7716116194197671,
+        0.9510710758555427
+      ],
+      "mean": 0.8736238537237611,
+      "n_changes": 50
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5153429297694824,
+        0.8627762107268513
+      ],
+      "mean": 0.7095377301466236,
+      "n_changes": 50
+    }
+  },
+  "metrics_test_new_fail_real": {},
+  "metrics_test_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.0424476150999877,
+        0.214759093280595
+      ],
+      "mean": 0.1241805357388821,
+      "n_changes": 48
+    },
+    "apfd": {
+      "ci95": [
+        0.894772353861257,
+        0.9793165290071172
+      ],
+      "mean": 0.9398101842102635,
+      "n_changes": 48
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.00189106529373338,
+        0.01563010363382067
+      ],
+      "mean": 0.007377745230196352,
+      "n_changes": 48
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6389960931776235,
+        0.937312096151259
+      ],
+      "mean": 0.7975310183386609,
+      "n_changes": 48
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8103980974140028,
+        0.9748894562090191
+      ],
+      "mean": 0.8984099249015317,
+      "n_changes": 48
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5460113687844688,
+        0.9093283834539787
+      ],
+      "mean": 0.7363125292727425,
+      "n_changes": 48
+    }
+  },
+  "metrics_val_label_no_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.5262129041267432,
+        0.7007913535815217
+      ],
+      "mean": 0.6160293825290769,
+      "n_changes": 52
+    },
+    "apfd": {
+      "ci95": [
+        0.5014469309486456,
+        0.6625577269906271
+      ],
+      "mean": 0.5807818341235488,
+      "n_changes": 52
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.2267781144535482,
+        0.3944698824869982
+      ],
+      "mean": 0.31026993524087065,
+      "n_changes": 52
+    },
+    "recall@10%": {
+      "ci95": [
+        0.26787285276769646,
+        0.4913529942801746
+      ],
+      "mean": 0.3713463688628854,
+      "n_changes": 52
+    },
+    "recall@20%": {
+      "ci95": [
+        0.3045205959642837,
+        0.5182207876597283
+      ],
+      "mean": 0.40406575352092966,
+      "n_changes": 52
+    },
+    "recall@5%": {
+      "ci95": [
+        0.22650290873074883,
+        0.4412080082726429
+      ],
+      "mean": 0.32833786949105814,
+      "n_changes": 52
+    }
+  },
+  "metrics_val_label_with_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.5248521940775016,
+        0.6996829966713284
+      ],
+      "mean": 0.6160293825290769,
+      "n_changes": 52
+    },
+    "apfd": {
+      "ci95": [
+        0.5033146990661648,
+        0.6614072582648383
+      ],
+      "mean": 0.5807818341235488,
+      "n_changes": 52
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.22945396977209243,
+        0.39475746075265317
+      ],
+      "mean": 0.31026993524087065,
+      "n_changes": 52
+    },
+    "recall@10%": {
+      "ci95": [
+        0.25762040555811594,
+        0.4883848864308856
+      ],
+      "mean": 0.3713463688628854,
+      "n_changes": 52
+    },
+    "recall@20%": {
+      "ci95": [
+        0.29570731771104247,
+        0.5187768201167893
+      ],
+      "mean": 0.40406575352092966,
+      "n_changes": 52
+    },
+    "recall@5%": {
+      "ci95": [
+        0.21771212074833443,
+        0.4459536844619971
+      ],
+      "mean": 0.32833786949105814,
+      "n_changes": 52
+    }
+  },
+  "metrics_val_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.01298115522753352,
+        0.19305986450309803
+      ],
+      "mean": 0.07718174152972314,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.9133142587279888,
+        0.9934415900117615
+      ],
+      "mean": 0.9658806700727783,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0013195982957498029,
+        0.0031985869264961847
+      ],
+      "mean": 0.0021044119487192313,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.8142283423335007,
+        1.0
+      ],
+      "mean": 0.9304944273574436,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8604157830871091,
+        1.0
+      ],
+      "mean": 0.949842602350643,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.7365037509390779,
+        0.99277950310559
+      ],
+      "mean": 0.8903913925109422,
+      "n_changes": 22
+    }
+  },
+  "metrics_val_new_fail_excluding_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.01298115522753352,
+        0.19305986450309803
+      ],
+      "mean": 0.07718174152972314,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.9133142587279888,
+        0.9934415900117615
+      ],
+      "mean": 0.9658806700727783,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0013195982957498029,
+        0.0031985869264961847
+      ],
+      "mean": 0.0021044119487192313,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.8142283423335007,
+        1.0
+      ],
+      "mean": 0.9304944273574436,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8604157830871091,
+        1.0
+      ],
+      "mean": 0.949842602350643,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.7365037509390779,
+        0.99277950310559
+      ],
+      "mean": 0.8903913925109422,
+      "n_changes": 22
+    }
+  },
+  "metrics_val_new_fail_including_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.014719298478988322,
+        0.18803900024949555
+      ],
+      "mean": 0.07718174152972314,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.9136479681461942,
+        0.9925993064299851
+      ],
+      "mean": 0.9658806700727783,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0013182244575210029,
+        0.0031940540249435585
+      ],
+      "mean": 0.0021044119487192313,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.814180607062956,
+        0.9991055456171735
+      ],
+      "mean": 0.9304944273574436,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8601027401338739,
+        1.0
+      ],
+      "mean": 0.949842602350643,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.7472254370038913,
+        0.9790697674418604
+      ],
+      "mean": 0.8903913925109422,
+      "n_changes": 22
+    }
+  },
+  "metrics_val_new_fail_real": {
+    "all_fail_frac": {
+      "ci95": [
+        0.0016366612111292963,
+        0.0016366612111292963
+      ],
+      "mean": 0.0016366612111292963,
+      "n_changes": 1
+    },
+    "apfd": {
+      "ci95": [
+        0.9991816693944354,
+        0.9991816693944354
+      ],
+      "mean": 0.9991816693944354,
+      "n_changes": 1
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0016366612111292963,
+        0.0016366612111292963
+      ],
+      "mean": 0.0016366612111292963,
+      "n_changes": 1
+    },
+    "recall@10%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 1
+    },
+    "recall@20%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 1
+    },
+    "recall@5%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 1
+    }
+  },
+  "metrics_val_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.014191601051419573,
+        0.1960690056796354
+      ],
+      "mean": 0.08077912630679905,
+      "n_changes": 21
+    },
+    "apfd": {
+      "ci95": [
+        0.9126269467147105,
+        0.9928000386423829
+      ],
+      "mean": 0.9642949082003186,
+      "n_changes": 21
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0013095476411263264,
+        0.0032503936642639484
+      ],
+      "mean": 0.0021266857933663705,
+      "n_changes": 21
+    },
+    "recall@10%": {
+      "ci95": [
+        0.8011553037990423,
+        1.0
+      ],
+      "mean": 0.9271846381839886,
+      "n_changes": 21
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8521917885067254,
+        1.0
+      ],
+      "mean": 0.9474541548435307,
+      "n_changes": 21
+    },
+    "recall@5%": {
+      "ci95": [
+        0.728032158469496,
+        0.9863168296234658
+      ],
+      "mean": 0.8851719350114633,
+      "n_changes": 21
+    }
+  },
+  "ndcg_eval_at": 82,
+  "note_gate": "bootstrap verdict=use_model ranker=model reason=synth_test_ci_low_ge_0 (accept on synth TEST cluster CI only; val is report-only)",
+  "num_boost_round": 500,
+  "objective": "lambdarank",
+  "paired_delta_ci_synthetic_test_cov_lines": {
+    "ci95": [
+      0.00486235355699223,
+      0.05086344155495714
+    ],
+    "mean": 0.026567906847545734,
+    "n": 48,
+    "n_C": 21,
+    "n_mutants": 48
+  },
+  "paired_delta_ci_synthetic_val_cov_lines": {
+    "ci95": [
+      0.0,
+      0.1656325881452237
+    ],
+    "mean": 0.0633306000935661,
+    "n": 21
+  },
+  "paired_delta_ci_test": {
+    "ci95": [
+      0.004897452006012426,
+      0.053819629480489704
+    ],
+    "mean": 0.026567906847545734,
+    "n": 48
+  },
+  "paired_delta_ci_val": {
+    "ci95": [
+      0.0008611300894788722,
+      0.2282015554068978
+    ],
+    "mean": 0.10136846673118187,
+    "n": 22
+  },
+  "paired_delta_ci_val_cov_lines": {
+    "ci95": [
+      0.0008620671189559983,
+      0.21978380593292182
+    ],
+    "mean": 0.10136846673118187,
+    "n": 22
+  },
+  "params": {
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "bagging_seed": 42,
+    "data_random_seed": 42,
+    "deterministic": true,
+    "eval_at": [
+      82
+    ],
+    "feature_fraction": 0.8,
+    "feature_fraction_seed": 42,
+    "force_col_wise": true,
+    "label_gain": [
+      0,
+      1
+    ],
+    "lambdarank_truncation_level": 82,
+    "learning_rate": 0.05,
+    "linear_tree": false,
+    "metric": "ndcg",
+    "min_data_in_leaf": 50,
+    "num_leaves": 31,
+    "num_threads": 1,
+    "objective": "lambdarank",
+    "seed": 42,
+    "use_missing": true,
+    "verbosity": -1,
+    "zero_as_missing": false
+  },
+  "parent_for_new_fail": "first_parent",
+  "predict_raw_score": true,
+  "ranker": "model",
+  "schema_sha256": "9e5e9243326d8870bd33dcf8c59b49d34a76d60e921435f501638db23e2c5269",
+  "seed": 42,
+  "sentinel_notes": {
+    "dur": -1,
+    "imp_dist": 99,
+    "pf_max": -1,
+    "pq_max": -1
+  },
+  "splits": {
+    "chrono": {
+      "attrs": {
+        "n_changes": {
+          "test": 49,
+          "train": 194,
+          "val": 34
+        },
+        "test": [
+          171,
+          200
+        ],
+        "train": [
+          1,
+          140
+        ],
+        "val": [
+          141,
+          170
+        ]
+      },
+      "click": {
+        "n_changes": {
+          "test": 47,
+          "train": 241,
+          "val": 42
+        },
+        "test": [
+          171,
+          200
+        ],
+        "train": [
+          1,
+          140
+        ],
+        "val": [
+          141,
+          170
+        ]
+      },
+      "jinja": {
+        "n_changes": {
+          "test": 58,
+          "train": 258,
+          "val": 40
+        },
+        "test": [
+          170,
+          199
+        ],
+        "train": [
+          1,
+          139
+        ],
+        "val": [
+          140,
+          169
+        ]
+      }
+    },
+    "n_changes_with_new_fail": {
+      "test": 48,
+      "train": 216,
+      "val": 22
+    }
+  },
+  "status": "ok",
+  "stopping_metric": "ndcg",
+  "useful_on_synthetic_test": true,
+  "useful_on_synthetic_test_label": "useful_on_synthetic_test",
+  "useful_on_synthetic_val": true,
+  "useful_on_synthetic_val_label": "useful_on_synthetic_val",
+  "useful_on_val": true,
+  "useful_on_val_label": "useful_on_real_val",
+  "provenance": {
+    "measurement_runner": {
+      "path": "scripts/measure_bootstrap_w6.sh",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "git_blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7"
+    },
+    "mutation_ledger": {
+      "path": "scripts/mutate_bootstrap.py",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "git_blob_sha1": "2f09ab29a91b597369cb7d76dfbade9dc397ecca"
+    },
+    "labeling_classifier": {
+      "path": "scripts/mutate/run_mutant.py",
+      "click": {
+        "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
+        "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81"
+      },
+      "jinja": {
+        "git_commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
+        "git_blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b"
+      },
+      "attrs_pairs": [
+        {
+          "count": 36,
+          "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+          "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+          "period": "last run"
+        },
+        {
+          "count": 76,
+          "git_commit": null,
+          "git_blob_sha1": null,
+          "period": "estimated early runs across classifier versions before 978b50b",
+          "ledger_committed": false
+        }
+      ]
+    },
+    "aggregator": {
+      "path": "scripts/aggregate_bootstrap_w6.py",
+      "git_commit": "092d6cc30a09f409aea1b1413ab62976d60430fd",
+      "git_blob_sha1": "0a7c3bb9ad7ebde626c75ae2266abd30ae254302"
+    }
+  }
+}

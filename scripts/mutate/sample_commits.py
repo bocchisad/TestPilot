@@ -4,11 +4,26 @@ from __future__ import annotations
 
 import random
 import sqlite3
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from mutate.dbutil import test_runs_partial_gate
 from mutate.hunks import is_source_py
+
+
+def has_first_parent(repo: Path, sha: str) -> bool:
+    """True iff ``sha`` has a first-parent (root commits are excluded)."""
+    out = subprocess.run(
+        ["git", "-C", str(repo), "rev-list", "--parents", "-n", "1", sha],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if out.returncode != 0:
+        return False
+    parts = out.stdout.strip().split()
+    return len(parts) >= 2
 
 
 @dataclass(frozen=True)
@@ -30,6 +45,7 @@ def _has_clean_nonsynthetic_run(con: sqlite3.Connection, sha: str) -> bool:
         f"""
         SELECT 1 FROM test_runs r
         WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 {gate}
+          AND r.finished_at IS NOT NULL
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         LIMIT 1
         """,
@@ -59,6 +75,7 @@ def _duration_sec(con: sqlite3.Connection, sha: str) -> float | None:
         SELECT r.finished_at, r.started_at
         FROM test_runs r
         WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 {gate}
+          AND r.finished_at IS NOT NULL
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         ORDER BY r.id DESC
         LIMIT 1
@@ -74,6 +91,7 @@ def _duration_sec(con: sqlite3.Connection, sha: str) -> float | None:
         f"""
         SELECT r.id FROM test_runs r
         WHERE r.sha = ? AND r.dirty = 0 AND r.synthetic = 0 {gate}
+          AND r.finished_at IS NOT NULL
           AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
         ORDER BY r.id DESC
         LIMIT 1
@@ -89,7 +107,10 @@ def _duration_sec(con: sqlite3.Connection, sha: str) -> float | None:
     return float(total_ms) / 1000.0 if total_ms else None
 
 
-def list_eligible_commits(db: Path) -> list[EligibleCommit]:
+def list_eligible_commits(
+    db: Path, *, repo: Path | None = None
+) -> list[EligibleCommit]:
+    """List eligible C. When ``repo`` is set, drop SHAs with no first-parent."""
     con = sqlite3.connect(str(db))
     try:
         shas = [
@@ -108,14 +129,18 @@ def list_eligible_commits(db: Path) -> list[EligibleCommit]:
                 continue
             if not _has_source_py_change(con, sha):
                 continue
+            if repo is not None and not has_first_parent(repo, sha):
+                continue
             out.append(EligibleCommit(sha=sha, duration_sec=_duration_sec(con, sha)))
         return out
     finally:
         con.close()
 
 
-def sample_commits(db: Path, n: int, seed: int) -> SampleResult:
-    eligible = list_eligible_commits(db)
+def sample_commits(
+    db: Path, n: int, seed: int, *, repo: Path | None = None
+) -> SampleResult:
+    eligible = list_eligible_commits(db, repo=repo)
     n_eligible = len(eligible)
     if n <= 0 or n_eligible == 0:
         return SampleResult(eligible=eligible, n_eligible_C=n_eligible, sampled=[])

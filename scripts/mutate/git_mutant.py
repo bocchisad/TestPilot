@@ -92,10 +92,20 @@ def create_mutant_commit(
     *,
     message: str | None = None,
 ) -> str:
-    """Commit M with parent=C; author=author(C)+i, committer=committer(C)+i."""
+    """Commit M with parent=C; author=author(C)+i, committer=committer(C)+i.
+
+    Idempotent: if the mutant ref already points at the same tree, reuse that SHA.
+    """
     if not file_updates:
         raise ValueError("file_updates must not be empty")
     tree = _build_tree(repo, parent_sha, file_updates)
+    ref = mutant_ref(parent_sha, index)
+    existing = _run(repo, ["rev-parse", "-q", "--verify", ref], check=False)
+    if existing.returncode == 0:
+        old_sha = existing.stdout.strip()
+        old_tree = _run(repo, ["rev-parse", f"{old_sha}^{{tree}}"], check=False)
+        if old_tree.returncode == 0 and old_tree.stdout.strip() == tree:
+            return old_sha
     a_ts = author_ts(repo, parent_sha) + index
     c_ts = committer_ts(repo, parent_sha) + index
     env = {
@@ -110,7 +120,6 @@ def create_mutant_commit(
         env=env,
     )
     new_sha = p.stdout.strip()
-    ref = mutant_ref(parent_sha, index)
     _run(repo, ["update-ref", ref, new_sha])
     return new_sha
 

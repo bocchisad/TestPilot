@@ -5,11 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
+import os
+import signal
 import shutil
 import sys
 import tempfile
+import threading
+import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -32,8 +36,23 @@ from mutate.git_mutant import (  # noqa: E402
     first_parent,
 )
 from mutate.hunks import is_source_py, parse_hunks, show_blob  # noqa: E402
-from mutate.run_mutant import run_mutant  # noqa: E402
+from mutate.run_mutant import (  # noqa: E402
+    MutantRunResult,
+    kill_active_pytest_groups,
+    run_mutant,
+    synthetic_run_exists,
+)
 from mutate.sample_commits import sample_commits  # noqa: E402
+
+_STOP = threading.Event()
+_HARD_STOP = threading.Event()  # SIGINT/SIGTERM: kill children now
+_PAIR_IO_LOCK = threading.Lock()
+
+
+def install_project_serialized(lock, pip: Path, wt: Path) -> tuple[bool, str]:
+    """All project installs share one lock, including failure/exception paths."""
+    with lock:
+        return install_project(pip, wt)
 
 
 @dataclass
@@ -52,6 +71,11 @@ class BootstrapStats:
     kill_by_operator: dict[str, int] = field(default_factory=dict)
     n_collect_git_failed: int = 0
     n_collect_junit_failed: int = 0
+    n_skipped_completed: int = 0
+    interrupted: bool = False
+    failure: str | None = None
+    environments: dict[str, dict] = field(default_factory=dict)
+    completed_pairs: list[str] = field(default_factory=list)
 
 
 def _commit_seed(base_seed: int, sha: str) -> int:
@@ -108,6 +132,130 @@ def _candidate_mutants(
     return chosen, n_invalid
 
 
+def _pair_key(c_sha: str, i: int) -> str:
+    return f"{c_sha}:{i}"
+
+
+def _append_pair(pairs_out: Path | None, pair: str, m_sha: str) -> None:
+    if pairs_out is None:
+        return
+    pairs_out.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps({"pair": pair, "m_sha": m_sha}) + "\n"
+    with _PAIR_IO_LOCK:
+        with pairs_out.open("a", encoding="utf-8") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())
+
+
+def _append_outcome(pairs_out: Path | None, pair: str, m_sha: str, result) -> None:
+    if pairs_out is None:
+        return
+    path = pairs_out.with_name("mutate_outcomes.jsonl")
+    status = ("timeout" if result.timed_out else "collection_error" if result.collection_error
+              else "complete" if result.ok and result.collect_ok else "infrastructure_failure")
+    row = {"pair": pair, "m_sha": m_sha, "status": status,
+           "killed": result.killed, "n_new_fail": result.n_new_fail,
+           "flaky_tests": sorted(result.flaky_tests)}
+    if result.pytest_rc is not None:
+        row["pytest_rc"] = result.pytest_rc
+    if result.collect_note:
+        row["collect_note"] = result.collect_note
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _PAIR_IO_LOCK:
+        with path.open("a", encoding="utf-8") as out:
+            out.write(json.dumps(row, sort_keys=True) + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+
+
+def _load_first_outcomes(pairs_out: Path | None) -> dict[str, dict]:
+    """Read the original outcome for each pair before appending resumed results."""
+    if pairs_out is None:
+        return {}
+    path = pairs_out.with_name("mutate_outcomes.jsonl")
+    outcomes: dict[str, dict] = {}
+    if not path.is_file():
+        return outcomes
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            pair = row.get("pair")
+            if isinstance(pair, str) and row.get("status") in {"complete", "collection_error"}:
+                outcomes.setdefault(pair, row)
+    return outcomes
+
+
+def _result_from_stored_outcome(row: dict | None, m_sha: str) -> MutantRunResult | None:
+    """Reuse a durable outcome without turning a collection error into a kill."""
+    if row is None or row.get("m_sha") != m_sha:
+        return None
+    pytest_rc = row.get("pytest_rc")
+    if not isinstance(pytest_rc, int) or isinstance(pytest_rc, bool):
+        pytest_rc = None
+    status = row.get("status")
+    if status == "complete":
+        n_new_fail = int(row.get("n_new_fail", 0))
+        return MutantRunResult(
+            ok=True,
+            collect_ok=True,
+            pytest_rc=pytest_rc,
+            n_new_fail=n_new_fail,
+            killed=bool(row.get("killed", n_new_fail > 0)),
+            flaky_tests=set(row.get("flaky_tests") or ()),
+            collect_note="reused persisted synthetic outcome",
+        )
+    if status == "collection_error":
+        return MutantRunResult(
+            ok=True,
+            collect_ok=False,
+            collection_error=True,
+            pytest_rc=pytest_rc,
+            collect_note=row.get("collect_note") or "reused persisted collection error",
+        )
+    return None
+
+
+_PAUSE_ENV = "TESTPILOT_TEST_PAUSE_AFTER_PAIRS"
+_PAUSE_MARKER_NAME = "TESTPILOT_PAUSE_AFTER_PAIRS"
+
+
+def _pause_marker_path(repo: Path) -> Path:
+    return repo / ".testpilot" / "bootstrap" / _PAUSE_MARKER_NAME
+
+
+def maybe_test_pause_after_pairs(repo: Path, n_completed: int) -> None:
+    """Test-only: after N completed pairs, write a marker and sleep until removed/SIGINT.
+
+    No-op unless ``TESTPILOT_TEST_PAUSE_AFTER_PAIRS`` is set to a positive int.
+
+    When the marker is removed (e2e handshake), set ``_STOP``/``_HARD_STOP`` so
+    mutate exits 130 without relying on SIGINT reaching the Rust parent — ctrlc
+    does not reliably fire for background processes on CI runners.
+    """
+    raw = os.environ.get(_PAUSE_ENV)
+    if raw is None or raw.strip() == "":
+        return
+    try:
+        n = int(raw)
+    except ValueError:
+        return
+    if n <= 0 or n_completed < n:
+        return
+    marker = _pause_marker_path(repo)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(f"paused after {n_completed} pairs\n", encoding="utf-8")
+    # Sleep until marker deleted (tests) or process interrupted.
+    while marker.is_file() and not _STOP.is_set() and not _HARD_STOP.is_set():
+        time.sleep(0.05)
+    if not marker.is_file():
+        _STOP.set()
+        _HARD_STOP.set()
+
+
 def run_bootstrap(
     repo: Path,
     db: Path,
@@ -120,9 +268,15 @@ def run_bootstrap(
     plugin: Path | None,
     pytest_args: str,
     work_root: Path | None,
+    jobs: int = 1,
+    completed_pairs: set[str] | None = None,
+    pairs_out: Path | None = None,
+    deadline_unix: float | None = None,
 ) -> BootstrapStats:
     stats = BootstrapStats()
-    sample = sample_commits(db, commits_n, seed)
+    done = set(completed_pairs or ())
+    previous_outcomes = _load_first_outcomes(pairs_out)
+    sample = sample_commits(db, commits_n, seed, repo=repo)
     stats.n_eligible_C = sample.n_eligible_C
     stats.n_commits_sampled = len(sample.sampled)
 
@@ -131,60 +285,141 @@ def run_bootstrap(
 
     plugin_path = resolve_plugin(plugin)
     temp_root = work_root is None
-    owning = work_root or Path(tempfile.mkdtemp(prefix="tp-mutate-"))
-    venv = owning / "venv"
+    if work_root is None:
+        boot = repo / ".testpilot" / "bootstrap"
+        boot.mkdir(parents=True, exist_ok=True)
+        owning = Path(tempfile.mkdtemp(prefix="wt-mutate-", dir=str(boot)))
+    else:
+        owning = work_root
+        owning.mkdir(parents=True, exist_ok=True)
     run_root = owning / "runs"
     run_root.mkdir(parents=True, exist_ok=True)
 
+    jobs = max(1, min(int(jobs), 4))
+    git_lock = threading.Lock()
+    db_lock = threading.Lock()
+    stats_lock = threading.Lock()
+    install_lock = threading.Lock()
+    worker = threading.local()
+    next_worker = iter(range(jobs))
+    failed = threading.Event()
+
+    def _should_stop() -> bool:
+        if failed.is_set() or _STOP.is_set() or _HARD_STOP.is_set():
+            return True
+        if deadline_unix is not None and time.time() >= deadline_unix:
+            return True
+        return False
+
+    def _budget_hit() -> bool:
+        return deadline_unix is not None and time.time() >= deadline_unix
+
     try:
-        run([str(python), "-m", "venv", str(venv)])
-        pip = venv / "bin" / "pip"
-        pytest = venv / "bin" / "pytest"
-        vpy = venv / "bin" / "python"
-        run([str(pip), "install", "-U", "pip", "wheel"], check=False)
-        run([str(pip), "install", "-e", str(plugin_path)], check=False)
-        run([str(pip), "install", "pytest>=8,<10"], check=False)
+        def worker_environment() -> tuple[Path, Path, Path]:
+            if not hasattr(worker, "venv"):
+                with install_lock:
+                    venv = owning / f"venv-{next(next_worker)}"
+                    run([str(python), "-m", "venv", str(venv)])
+                    pip = venv / "bin" / "pip"
+                    for args in (["install", "-U", "pip", "wheel"],
+                                 ["install", str(plugin_path)],
+                                 ["install", "pytest>=8,<10"]):
+                        run([str(pip), *args])
+                    worker.venv = venv
+            return tuple(worker.venv / "bin" / name for name in ("pip", "pytest", "python"))
+
+        def install_serial(pip: Path, wt: Path) -> tuple[bool, str]:
+            ok, log = install_project_serialized(install_lock, pip, wt)
+            if ok:
+                # Snapshot the actual interpreter after project requirements may pin pytest.
+                vpy = pip.parent / "python"
+                versions = run([str(vpy), "-c", "import sys, json, importlib.metadata as m; print(json.dumps({'python':sys.version.split()[0], 'pytest':m.version('pytest')}))"], check=False)
+                freeze = run([str(pip), "freeze"], check=False)
+                env_dir = repo / ".testpilot" / "bootstrap" / "environment"
+                env_dir.mkdir(parents=True, exist_ok=True)
+                name = pip.parent.parent.name
+                (env_dir / f"{name}-pip-freeze.txt").write_text(freeze.stdout or "", encoding="utf-8")
+                if versions.returncode == 0 and versions.stdout.strip():
+                    with stats_lock:
+                        stats.environments[name] = json.loads(versions.stdout)
+            return ok, log
 
         extra = pytest_args.split() if pytest_args else ["-q"]
 
+        # Build work items (C, i, path, site, src) sequentially.
+        tasks: list[tuple[str, int, str, MutationSite, str, float | None]] = []
         for item in sample.sampled:
+            if _should_stop():
+                stats.interrupted = True
+                break
             c_sha = item.sha
             parent = first_parent(repo, c_sha)
             if not parent:
                 continue
             c_seed = _commit_seed(seed, c_sha)
-            chosen, n_inv = _candidate_mutants(
-                repo, parent, c_sha, c_seed, mutants_k
-            )
-            stats.n_invalid += n_inv
+            chosen, n_inv = _candidate_mutants(repo, parent, c_sha, c_seed, mutants_k)
+            with stats_lock:
+                stats.n_invalid += n_inv
             if not chosen:
                 continue
-
             for i, (path, site, new_src) in enumerate(chosen):
+                key = _pair_key(c_sha, i)
+                if key in done:
+                    with stats_lock:
+                        stats.n_skipped_completed += 1
+                        if key not in stats.completed_pairs:
+                            stats.completed_pairs.append(key)
+                    continue
+                tasks.append((c_sha, i, path, site, new_src, item.duration_sec))
+
+        def _process(
+            task: tuple[str, int, str, MutationSite, str, float | None],
+        ) -> None:
+            if _should_stop():
+                return
+            c_sha, i, path, site, new_src, duration_sec = task
+            key = _pair_key(c_sha, i)
+            with stats_lock:
                 stats.n_mutants_attempted += 1
                 stats.attempts_by_operator[site.op_id] = (
                     stats.attempts_by_operator.get(site.op_id, 0) + 1
                 )
-                try:
+            try:
+                with git_lock:
                     m_sha = create_mutant_commit(
                         repo,
                         c_sha,
                         i,
                         {path: new_src},
                     )
-                except Exception as exc:  # noqa: BLE001
-                    print(
-                        f"commit mutant failed C={c_sha[:12]} i={i}: {exc}",
-                        file=sys.stderr,
-                    )
-                    stats.n_invalid += 1
-                    continue
+                    cg = collect_git_sha(repo, db, m_sha)
+            except Exception as exc:
+                raise RuntimeError(f"cannot create/index mutant C={c_sha} i={i}: {exc}") from exc
 
-                cg = collect_git_sha(repo, db, m_sha)
-                if not cg.ok:
+            if not cg.ok:
+                with stats_lock:
                     stats.n_collect_git_failed += 1
-                    print(cg.note or cg.stderr, file=sys.stderr)
+                raise RuntimeError(f"cannot index mutant C={c_sha} i={i}: {cg.note or cg.stderr}")
 
+            # Reuse existing synthetic results while preserving their original
+            # typed outcome. The DB run alone cannot distinguish a complete test
+            # result from one whose JUnit collection was incomplete.
+            with db_lock:
+                already = synthetic_run_exists(db, m_sha)
+            if already:
+                result = _result_from_stored_outcome(previous_outcomes.get(key), m_sha)
+                if result is None:
+                    result = MutantRunResult(
+                        ok=True,
+                        collect_ok=False,
+                        collection_error=True,
+                        collect_note=(
+                            "existing synthetic run has no durable terminal outcome; "
+                            "cannot safely infer its label"
+                        ),
+                    )
+            else:
+                pip, pytest, vpy = worker_environment()
                 result = run_mutant(
                     repo,
                     db,
@@ -193,18 +428,25 @@ def run_bootstrap(
                     pytest_bin=pytest,
                     python_bin=vpy,
                     work_dir=run_root,
-                    duration_sec=item.duration_sec,
+                    duration_sec=duration_sec,
                     timeout_override=timeout_sec,
                     pytest_extra_args=extra,
                     pip_bin=pip,
-                    install_project_cb=install_project,
+                    install_project_cb=install_serial,
                     mutant_index=i,
+                    db_lock=db_lock,
                 )
 
+            _append_outcome(pairs_out, key, m_sha, result)
+            if not result.ok and not result.timed_out and not result.collection_error:
+                raise RuntimeError(f"mutant C={c_sha} i={i}: {result.log_tail or result.collect_note or 'infrastructure failure'}")
+            if not result.collect_ok and not result.timed_out and not result.collection_error:
+                raise RuntimeError(f"mutant C={c_sha} i={i}: JUnit ingestion failed: {result.collect_note}")
+            with stats_lock:
                 if result.timed_out:
                     stats.n_timeout += 1
-                    continue
-
+                    # timeouts are not completed pairs (may retry)
+                    return
                 stats.n_flaky_rerun += result.n_flaky_rerun
                 if not result.collect_ok:
                     stats.n_collect_junit_failed += 1
@@ -212,7 +454,6 @@ def run_bootstrap(
                     stats.n_collection_error += 1
                 if result.high_fail_rate:
                     stats.n_high_fail_rate += 1
-
                 if result.killed:
                     stats.n_killed += 1
                     stats.kill_by_operator[site.op_id] = (
@@ -220,9 +461,57 @@ def run_bootstrap(
                     )
                 elif result.n_new_fail == 0 and not result.collection_error:
                     stats.n_equivalent += 1
+                if key not in stats.completed_pairs:
+                    stats.completed_pairs.append(key)
+                n_done = len(stats.completed_pairs)
+            _append_pair(pairs_out, key, m_sha)
+            maybe_test_pause_after_pairs(repo, n_done)
+
+        process_unchecked = _process
+
+        def _process(task):
+            if failed.is_set():
+                return
+            try:
+                process_unchecked(task)
+            except Exception as exc:  # retain successful sibling pairs for resume
+                with stats_lock:
+                    if stats.failure is None:
+                        stats.failure = str(exc)
+                failed.set()
+
+        if jobs <= 1:
+            for task in tasks:
+                if _should_stop():
+                    stats.interrupted = not failed.is_set()
+                    break
+                _process(task)
+                if _should_stop():
+                    stats.interrupted = not failed.is_set()
+                    break
+        else:
+            with ThreadPoolExecutor(max_workers=jobs) as pool:
+                futs = []
+                for task in tasks:
+                    if _should_stop():
+                        stats.interrupted = not failed.is_set()
+                        break
+                    futs.append(pool.submit(_process, task))
+                for fut in as_completed(futs):
+                    fut.result()
+                    if _HARD_STOP.is_set() or _budget_hit() or _STOP.is_set():
+                        stats.interrupted = True
+                        for f in futs:
+                            f.cancel()
+                        # Soft budget: in-flight finish via executor shutdown(wait=True).
+                        # Hard SIGINT: children already signalled in handler.
+                        break
     finally:
         if temp_root:
             shutil.rmtree(owning, ignore_errors=True)
+
+    if _STOP.is_set() or _HARD_STOP.is_set() or _budget_hit():
+        stats.interrupted = True
 
     return stats
 
@@ -251,6 +540,11 @@ def stats_to_report(stats: BootstrapStats) -> dict:
         },
         "n_collect_git_failed": stats.n_collect_git_failed,
         "n_collect_junit_failed": stats.n_collect_junit_failed,
+        "n_skipped_completed": stats.n_skipped_completed,
+        "interrupted": stats.interrupted,
+        "failure": stats.failure,
+        "environments": stats.environments,
+        "completed_pairs": list(stats.completed_pairs),
     }
 
 
@@ -271,11 +565,50 @@ def main() -> int:
     ap.add_argument("--plugin", type=Path, default=None, help="pytest-testpilot path")
     ap.add_argument("--pytest-args", default="-q")
     ap.add_argument("--json", action="store_true", help="print stats JSON on stdout")
+    ap.add_argument("--jobs", type=int, default=1, help="parallel mutant pytest (1–4)")
+    ap.add_argument(
+        "--work-root",
+        type=Path,
+        default=None,
+        help="worktree/venv root (default: <repo>/.testpilot/bootstrap/wt-mutate-*)",
+    )
+    ap.add_argument(
+        "--completed-pairs",
+        type=Path,
+        default=None,
+        help="JSON file with list of already-done \"C_sha:i\" pairs",
+    )
+    ap.add_argument(
+        "--pairs-out",
+        type=Path,
+        default=None,
+        help="append JSONL of completed pairs as they finish",
+    )
+    ap.add_argument(
+        "--deadline-unix",
+        type=float,
+        default=None,
+        help="unix timestamp; stop after current mutant when reached",
+    )
     args = ap.parse_args()
+
+    def _handle_sig(_signum: int, _frame: object) -> None:
+        _STOP.set()
+        _HARD_STOP.set()
+        kill_active_pytest_groups(signal.SIGINT)
+
+    signal.signal(signal.SIGINT, _handle_sig)
+    signal.signal(signal.SIGTERM, _handle_sig)
 
     py = Path(args.python or sys.executable).resolve()
     repo = args.repo.resolve()
     db = args.db.resolve()
+
+    done: set[str] = set()
+    if args.completed_pairs and args.completed_pairs.is_file():
+        raw = json.loads(args.completed_pairs.read_text(encoding="utf-8"))
+        if isinstance(raw, list):
+            done = {str(x) for x in raw}
 
     stats = run_bootstrap(
         repo,
@@ -287,7 +620,11 @@ def main() -> int:
         python=py,
         plugin=args.plugin,
         pytest_args=args.pytest_args,
-        work_root=None,
+        work_root=args.work_root.resolve() if args.work_root else None,
+        jobs=args.jobs,
+        completed_pairs=done,
+        pairs_out=args.pairs_out,
+        deadline_unix=args.deadline_unix,
     )
 
     report = stats_to_report(stats)
@@ -298,6 +635,12 @@ def main() -> int:
         for key, val in report.items():
             print(f"{key}={val}")
 
+    # 130 = interrupted (Ctrl-C / deadline); nonzero so Rust can flush status.
+    if stats.interrupted:
+        return 130
+    if stats.failure:
+        print(stats.failure, file=sys.stderr)
+        return 1
     return 0
 
 

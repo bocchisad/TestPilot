@@ -13,7 +13,9 @@ CI environment (not a bare `pip install .`).
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import signal
 import shutil
 import sqlite3
 import subprocess
@@ -21,6 +23,13 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
+
+_STOP = False
+
+
+def _handle_stop(_signum: int, _frame: object) -> None:
+    global _STOP
+    _STOP = True
 
 DEFAULT_PLUGIN = Path(__file__).resolve().parents[1] / "python" / "pytest-testpilot"
 
@@ -106,12 +115,14 @@ def install_project(pip: Path, wt: Path) -> tuple[bool, str]:
         )
         return r
 
-    # Base package (editable preferred).
-    base = pip_run(["install", "-e", "."])
-    if base.returncode != 0:
-        base = pip_run(["install", "."])
+    # Source-only repositories need no package installation. Still load test requirements.
+    if (wt / "pyproject.toml").is_file() or (wt / "setup.py").is_file():
+        # Base package (editable preferred).
+        base = pip_run(["install", "-e", "."])
         if base.returncode != 0:
-            return False, "\n".join(logs)[-4000:]
+            base = pip_run(["install", "."])
+            if base.returncode != 0:
+                return False, "\n".join(logs)[-4000:]
 
     extras = _declared_extras(wt)
     for name in _EXTRA_CANDIDATES:
@@ -134,6 +145,23 @@ def install_project(pip: Path, wt: Path) -> tuple[bool, str]:
         if req.is_file():
             pip_run(["install", "-r", str(req)])
 
+    # Historical lockfiles may downgrade pytest/pluggy below the plugin's
+    # supported runner, or make pytest unimportable on the selected Python.
+    # Preserve compatible historical pins (e.g. click's 8.3.4); repair only an
+    # incompatible runner, after ALL dependency installs and under install-lock.
+    vpy = pip.with_name("python")
+    probe = run([str(vpy), "-c",
+                 "import pytest; major=int(pytest.__version__.split('.')[0]); "
+                 "raise SystemExit(0 if 8 <= major < 10 else 1)"], check=False)
+    if probe.returncode != 0:
+        logs.append("runner override: historical pytest is incompatible; restoring pytest==8.3.4")
+        restored = pip_run(["install", "pytest==8.3.4", "pluggy>=1.5,<2", "py>=1.11,<2"])
+        if restored.returncode != 0:
+            return False, "\n".join(logs)[-4000:]
+        probe = run([str(vpy), "-c", "import pytest; assert pytest.__version__ == '8.3.4'"], check=False)
+        if probe.returncode != 0:
+            logs.append(probe.stderr or "pytest validation failed")
+            return False, "\n".join(logs)[-4000:]
     return True, "\n".join(logs)[-2000:]
 
 
@@ -215,12 +243,50 @@ def warn_always_failing(db: Path, threshold: float = 0.9) -> list[dict]:
     return out
 
 
+def _has_reusable_real_run(db: Path, sha: str) -> bool:
+    """True if sha already has a clean real finished run with ≥1 test_results (R6 reuse)."""
+    if not db.is_file():
+        return False
+    con = sqlite3.connect(str(db))
+    try:
+        gate = _test_runs_partial_gate(con, "r")
+        row = con.execute(
+            f"""
+            SELECT 1 FROM test_runs r
+            WHERE r.sha = ? AND r.dirty = 0 AND IFNULL(r.synthetic, 0) = 0 {gate}
+              AND r.finished_at IS NOT NULL
+              AND EXISTS (SELECT 1 FROM test_results tr WHERE tr.run_id = r.id)
+            LIMIT 1
+            """,
+            (sha,),
+        ).fetchone()
+        return row is not None
+    finally:
+        con.close()
+
+
+def backfill_result_ok(returncode: int, db: Path, sha: str) -> bool:
+    return returncode in (0, 1) and _has_reusable_real_run(db, sha)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="Backfill TestPilot runs; installs plugin from --plugin (local path)."
     )
     ap.add_argument("--repo", type=Path, required=True)
-    ap.add_argument("--last", type=int, required=True)
+    ap.add_argument(
+        "--last",
+        type=int,
+        default=None,
+        help="backfill the last N first-parent commits (ignored if --sha is set)",
+    )
+    ap.add_argument(
+        "--sha",
+        action="append",
+        default=[],
+        help="explicit commit SHA to backfill (repeatable). Skips SHAs that already "
+        "have a clean real (synthetic=0, partial=0) finished run with results.",
+    )
     ap.add_argument(
         "--db",
         type=Path,
@@ -254,13 +320,19 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    signal.signal(signal.SIGINT, _handle_stop)
+    signal.signal(signal.SIGTERM, _handle_stop)
+
     repo = args.repo.resolve()
     db = args.db.resolve()
     plugin = resolve_plugin(args.plugin)
     py = Path(args.python).resolve() if args.python else Path(sys.executable)
     print(f"plugin={plugin}")
-    print(f"repo={repo} db={db} last={args.last}")
+    print(f"repo={repo} db={db} last={args.last} shas={len(args.sha)}")
     print(f"python={py}")
+
+    if not args.sha and args.last is None:
+        raise SystemExit("pass --last N and/or --sha SHA")
 
     if args.dry_run:
         assert "pytest-testpilot" not in str(repo) or plugin != repo, plugin
@@ -272,14 +344,30 @@ def main() -> int:
     if not db.parent.exists():
         db.parent.mkdir(parents=True, exist_ok=True)
 
-    shas = (
-        run(["git", "rev-list", f"-n{args.last}", "HEAD"], cwd=repo)
-        .stdout.strip()
-        .splitlines()
-    )
-    shas = list(reversed(shas))
+    if args.sha:
+        # Preserve order, drop duplicates.
+        seen: set[str] = set()
+        shas: list[str] = []
+        for s in args.sha:
+            s = s.strip()
+            if s and s not in seen:
+                seen.add(s)
+                shas.append(s)
+    else:
+        shas = (
+            run(
+                ["git", "rev-list", "--first-parent", f"-n{args.last}", "HEAD"],
+                cwd=repo,
+            )
+            .stdout.strip()
+            .splitlines()
+        )
+        shas = list(reversed(shas))
 
-    work_root = Path(tempfile.mkdtemp(prefix="tp-backfill-"))
+    # Prefer repo-local bootstrap wt dir so startup cleanup can find orphans.
+    boot_wt = repo / ".testpilot" / "bootstrap"
+    boot_wt.mkdir(parents=True, exist_ok=True)
+    work_root = Path(tempfile.mkdtemp(prefix="wt-backfill-", dir=str(boot_wt)))
     venv = work_root / "venv"
     print(f"work_root={work_root} venv={venv} commits={len(shas)}")
 
@@ -288,7 +376,7 @@ def main() -> int:
         pip = venv / "bin" / "pip"
         pytest = venv / "bin" / "pytest"
         run([str(pip), "install", "-U", "pip", "wheel"], check=False)
-        r_plugin = run([str(pip), "install", "-e", str(plugin)], check=False)
+        r_plugin = run([str(pip), "install", str(plugin)], check=False)
         if r_plugin.returncode != 0:
             print("plugin install failed:", r_plugin.stderr[-2000:])
             return 1
@@ -296,8 +384,17 @@ def main() -> int:
         # trees that raise PytestRemovedIn10Warning are handled via -W ignore below.
         run([str(pip), "install", "pytest>=8,<10", "coverage"], check=False)
 
-        ok = skip = 0
+        ok = skip = reused = 0
+        interrupted = False
         for sha in shas:
+            if _STOP:
+                interrupted = True
+                break
+            if _has_reusable_real_run(db, sha):
+                print(f"== {sha[:12]} == reuse existing clean real run")
+                reused += 1
+                ok += 1
+                continue
             wt = work_root / f"wt-{sha[:12]}"
             print(f"== {sha[:12]} ==")
             try:
@@ -317,6 +414,15 @@ def main() -> int:
                     skip += 1
                     continue
 
+                logs_dir = boot_wt / "backfill_logs"
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                versions = run([str(venv / "bin" / "python"), "-c",
+                    "import json, sys, pytest, importlib.metadata as m; "
+                    "print(json.dumps({'python':sys.version.split()[0], 'pytest':pytest.__version__, "
+                    "'pluggy':m.version('pluggy')}))"], check=False)
+                if versions.returncode == 0 and versions.stdout.strip():
+                    (logs_dir / f"{sha}.environment.json").write_text(
+                        json.dumps(json.loads(versions.stdout), indent=2) + "\n", encoding="utf-8")
                 env = {"COVERAGE_CORE": "ctrace"}
                 # Prefer UTF-8 locale so tests that assert on encoding don't flake.
                 env.setdefault("LC_ALL", os.environ.get("LC_ALL", "en_US.UTF-8"))
@@ -347,9 +453,14 @@ def main() -> int:
                     *args.pytest_args.split(),
                 ]
                 r = run(cmd, cwd=wt, env=env, check=False)
+                logs_dir = boot_wt / "backfill_logs"
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                (logs_dir / f"{sha}.stdout.log").write_text(r.stdout or "", encoding="utf-8")
+                (logs_dir / f"{sha}.stderr.log").write_text(r.stderr or "", encoding="utf-8")
                 head = run(["git", "rev-parse", "HEAD"], cwd=wt).stdout.strip()
                 print(f"HEAD={head} pytest_rc={r.returncode}")
-                if r.returncode not in (0, 1):
+                if not backfill_result_ok(r.returncode, db, sha):
+                    print("no reusable finished real run; see backfill_logs" if r.returncode in (0,1) else "pytest failed before completing tests")
                     print(r.stdout[-2000:] if r.stdout else "")
                     print(r.stderr[-2000:] if r.stderr else "")
                     skip += 1
@@ -363,13 +474,25 @@ def main() -> int:
                 )
                 if wt.exists():
                     shutil.rmtree(wt, ignore_errors=True)
+            if _STOP:
+                interrupted = True
+                break
 
-        print(f"done ok={ok} skip={skip}")
+        if interrupted or _STOP:
+            print(f"done ok={ok} reused={reused} skip={skip}")
+            print("interrupted=1", flush=True)
+            return 130
         warn_always_failing(db, threshold=args.always_fail_threshold)
+        # Keep the machine-readable completion record terminal so callers can
+        # reject a later traceback or conflicting completion output.
+        print(f"done ok={ok} reused={reused} skip={skip}", flush=True)
         return 0 if ok else 1
     finally:
         shutil.rmtree(work_root, ignore_errors=True)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None

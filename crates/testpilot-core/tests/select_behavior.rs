@@ -809,11 +809,13 @@ fn no_safe_json_week4_keys_plus_safe_block_only() {
     for k in week4_keys {
         assert!(obj.contains_key(k), "missing week-4 key {k}");
     }
-    let allowed_extra = ["safe", "n_safe_added", "n_ranked"];
+    // Week-5/6 additive: safe block + ranker/bootstrap (R10); must not drop week-4 keys.
+    let allowed_extra = ["safe", "n_safe_added", "n_ranked", "ranker", "bootstrap"];
     for k in obj.keys() {
         let ok = week4_keys.contains(&k.as_str()) || allowed_extra.contains(&k.as_str());
         assert!(ok, "unexpected JSON key {k}");
     }
+    assert_eq!(obj.get("ranker").and_then(|x| x.as_str()), Some("model"));
 }
 
 #[test]
@@ -980,6 +982,49 @@ fn root_pre_commit_yaml_not_non_py_source() {
             .safe
             .reasons
             .contains(&"non_py_source".to_string())
+    );
+}
+
+#[test]
+fn examples_html_not_non_py_source_even_with_py_sibling() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (mut repo, store) = seed_snapshot_repo(120);
+    // examples/ often ships helper .py next to HTML; must not count as source package.
+    repo.insert_file("0100", "examples/rwbench/index.html", "<html/>\n");
+    repo.insert_file("0100", "examples/rwbench/helper.py", "x = 1\n");
+    repo.insert_file("0100", "src/pkg/__init__.py", "");
+    let hunks = vec![
+        DiffHunk {
+            path: "examples/rwbench/index.html".into(),
+            old_path: None,
+            change_type: 'M',
+            old_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            new_line_ranges: vec![LineRange { start: 1, end: 1 }],
+            is_binary: false,
+        },
+        pkg_a_hunk(),
+    ];
+    let out = run_fixture_select(
+        &repo,
+        &store,
+        &booster,
+        &Sha::from_hex("0099"),
+        &Sha::from_hex("0100"),
+        &hunks,
+        &Budget::Count(5),
+        &SafeOpts {
+            min_candidates: 1,
+            src_frac_threshold: 1.0,
+            ..SafeOpts::default()
+        },
+    );
+    assert!(
+        !out.payload
+            .safe
+            .reasons
+            .contains(&"non_py_source".to_string()),
+        "examples/ must be denylisted: {:?}",
+        out.payload.safe.reasons
     );
 }
 
