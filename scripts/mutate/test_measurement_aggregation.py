@@ -5,11 +5,19 @@ import sqlite3
 
 import pytest
 
-from aggregate_bootstrap_w6 import collect_mutants, compare_level_b, paired_ci, test_nc as counts, run_loro
+from aggregate_bootstrap_w6 import collect_mutants, compare_level_b, git_blob_sha1, paired_ci, test_nc as counts, run_loro
 from mutate.run_mutant import MutantRunResult
 from mutate_bootstrap import _append_outcome
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_git_blob_sha1_matches_git_object_format(tmp_path):
+    script = tmp_path / "scripts" / "label.py"
+    script.parent.mkdir()
+    script.write_text("run()\n")
+
+    assert git_blob_sha1(tmp_path, Path("scripts/label.py")) == "d9c4f76a18ecc684ce8e79b6c9557901e3fd2f60"
 
 
 def test_synthetic_ci_is_not_replaced_by_unrelated_metrics_and_zeros_survive():

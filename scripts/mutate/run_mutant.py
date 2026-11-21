@@ -187,11 +187,10 @@ _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE = re.compile(
 _NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE = re.compile(
     r"(?m)^TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
 )
-_NO_JUNIT_ATTRS_INIT_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
+_NO_JUNIT_ATTRS_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
 _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE = re.compile(
     r"(?m)^AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
 )
-_NO_JUNIT_ATTRS_EQ_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
 _NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE = re.compile(
     r"(?m)^SyntaxError: invalid syntax\. Perhaps you forgot a comma\?\s*$"
 )
@@ -1236,7 +1235,7 @@ def run_mutant(
             )
             attrs_generated_init_syntax_failure = (
                 rc == 1
-                and _NO_JUNIT_ATTRS_INIT_SYNTAX_RE.search(tail) is not None
+                and _NO_JUNIT_ATTRS_SYNTAX_RE.search(tail) is not None
                 and has_local_mutant_frame
                 and _mutant_negates_attrs_generated_init_expression(
                     repo, parent_sha, mutant_sha, "kw_only_separator"
@@ -1251,7 +1250,7 @@ def run_mutant(
             )
             attrs_generated_eq_header_syntax_failure = (
                 rc == 1
-                and _NO_JUNIT_ATTRS_EQ_SYNTAX_RE.search(tail) is not None
+                and _NO_JUNIT_ATTRS_SYNTAX_RE.search(tail) is not None
                 and has_local_mutant_frame
                 and _mutant_breaks_attrs_generated_eq_expression(
                     repo, parent_sha, mutant_sha, generated_header=True

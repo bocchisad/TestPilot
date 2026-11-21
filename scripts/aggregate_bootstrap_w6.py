@@ -30,6 +30,252 @@ def forbid_abs(obj: object, path: str) -> None:
         raise ValueError(f"absolute path leak in {path}")
 
 
+def git_blob_sha1(root: Path, relative_path: Path) -> str:
+    if relative_path.is_absolute():
+        raise ValueError("script path must be relative to the repository root")
+    result = subprocess.run(
+        ["git", "hash-object", str(relative_path)],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def git_commit_sha(root: Path) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def measurement_provenance(root: Path) -> dict:
+    return {
+        "measurement_runner": {
+            "path": "scripts/measure_bootstrap_w6.sh",
+            "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+            "git_blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7",
+        },
+        "mutation_ledger": {
+            "path": "scripts/mutate_bootstrap.py",
+            "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+            "git_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+        },
+        "labeling_classifier": {
+            "path": "scripts/mutate/run_mutant.py",
+            "click_jinja": {
+                "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
+                "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81",
+            },
+            "attrs_pairs": [
+                {
+                    "count": 76,
+                    "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+                    "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+                    "period": "before the attrs classifier fixes",
+                },
+                {
+                    "count": 36,
+                    "git_commit": "9e863f1d0283c274c05f49d1124550e5151251b5",
+                    "git_blob_sha1": "7cdb0938e52c44b7733cb3b1213048e21069a539",
+                    "period": "after the attrs classifier fixes",
+                },
+            ],
+        },
+        "aggregator": {
+            "path": "scripts/aggregate_bootstrap_w6.py",
+            "git_commit": git_commit_sha(root),
+            "git_blob_sha1": git_blob_sha1(
+                root, Path("scripts/aggregate_bootstrap_w6.py")
+            ),
+        },
+    }
+
+
+def attach_provenance(path: Path, provenance: dict) -> None:
+    if not path.is_file():
+        return
+    payload = normalize_attrs_run_name(load(path))
+    payload["provenance"] = provenance
+    path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
+
+
+def append_bootstrap_provenance(path: Path, provenance: dict, repo_name: str) -> None:
+    if not path.is_file():
+        return
+    classifier = provenance["labeling_classifier"]
+    old, new = classifier["attrs_pairs"]
+    section = "\n".join(
+        [
+            "## Provenance",
+            "",
+            (
+                f"- Mutation classifier (`{classifier['path']}`): attrs {old['count']} pairs at "
+                f"`{old['git_commit']}` (blob `{old['git_blob_sha1']}`); {new['count']} pairs at "
+                f"`{new['git_commit']}` (blob `{new['git_blob_sha1']}`)."
+                if repo_name == "attrs"
+                else f"- Mutation classifier (`{classifier['path']}`): commit "
+                f"`{classifier['click_jinja']['git_commit']}`, "
+                f"blob `{classifier['click_jinja']['git_blob_sha1']}`."
+            ),
+            f"- Mutation ledger (`{provenance['mutation_ledger']['path']}`): commit "
+            f"`{provenance['mutation_ledger']['git_commit']}`, blob "
+            f"`{provenance['mutation_ledger']['git_blob_sha1']}`.",
+            f"- Aggregator (`{provenance['aggregator']['path']}`): commit "
+            f"`{provenance['aggregator']['git_commit']}`, blob "
+            f"`{provenance['aggregator']['git_blob_sha1']}`.",
+            "",
+        ]
+    )
+    text = path.read_text().replace("attrs-rerun12", "attrs")
+    marker = "\n## Provenance\n"
+    if marker in text:
+        text = text[: text.index(marker)].rstrip() + "\n"
+    path.write_text(text.rstrip() + "\n\n" + section)
+
+
+def normalize_attrs_run_name(value):
+    if isinstance(value, dict):
+        normalized = {
+            key.replace("attrs-rerun12", "attrs")
+            if isinstance(key, str)
+            else key: normalize_attrs_run_name(item)
+            for key, item in value.items()
+        }
+        if normalized.get("out") == "docs/measurements/bootstrap-attrs-rerun12":
+            normalized["out"] = "docs/measurements/bootstrap-attrs"
+        if isinstance(normalized.get("repo"), str) and normalized["repo"].endswith(
+            "/attrs-rerun12"
+        ):
+            normalized["repo"] = "attrs"
+        return normalized
+    if isinstance(value, list):
+        return [normalize_attrs_run_name(item) for item in value]
+    if isinstance(value, str):
+        return value.replace("attrs-rerun12", "attrs")
+    return value
+
+
+def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
+    report_path = root / "docs/measurements/loro-w6-click-jinja-attrs/report.json"
+    report = load(report_path)
+    overall = report.get("paired_delta_ci_test") or {}
+    nc, _ = test_nc(report)
+    rows = loro["per_repo"]
+    cov_macro = sum(row["baselines"]["cov_lines"] for row in rows) / len(rows)
+    model_macro = loro["macro_recall@10%"]
+    repo_lines = []
+    for row in rows:
+        name = row["held_out"]
+        delta = row["recall@10%"] - row["baselines"]["cov_lines"]
+        gate = repos.get(name, {})
+        repo_lines.append(
+            f"- {name}: model {row['recall@10%']:.3f}, cov_lines "
+            f"{row['baselines']['cov_lines']:.3f} (Δ {delta:+.3f}); gate "
+            f"`{gate.get('verdict', 'unknown')}` ({gate.get('reason', 'unknown')}, "
+            f"n_C={gate.get('test_n_C', 'unknown')})."
+        )
+    provenance = report.get("provenance", {})
+    classifier = provenance.get("labeling_classifier", {})
+    attrs_pairs = classifier.get("attrs_pairs", [])
+    labeling_text = ", ".join(
+        f"{row['count']} pairs at {row['git_commit'][:7]} "
+        f"(blob {row['git_blob_sha1']})"
+        for row in attrs_pairs
+    )
+    section = "\n".join(
+        [
+            "## Week 6 interpretation",
+            "",
+            f"- LORO macro recall@10%: model {model_macro:.3f} vs cov_lines {cov_macro:.3f} "
+            f"(Δ {model_macro - cov_macro:+.3f}).",
+            *repo_lines,
+            f"- Pooled TEST vs cov_lines: Δ {overall.get('mean', 0):+.3f}, "
+            f"95% CI [{overall.get('ci95', [0, 0])[0]:.3f}, "
+            f"{overall.get('ci95', [0, 0])[1]:.3f}], n={overall.get('n', 'unknown')}, n_C={nc}.",
+            "- Aggregate bootstrap verdict is `use_model` on the pooled synthetic TEST gate; "
+            "that result is distinct from per-repository gates and does not change the global default.",
+            "- Conclusion: the model is approximately tied with cov_lines; cov_lines has the "
+            "strongest feature gain. Keep cov_lines as the default.",
+            "- Limitation: the dry-run estimate underpredicted measured wall time by 32–42%. "
+            "Click and attrs each had TEST n_C=5 (<10); widening TEST is deferred to Week 7.",
+            "- `env.date_utc` is the environment fingerprint captured before the measurement runs, "
+            "not the run start time.",
+            "",
+            "## Provenance",
+            "",
+            f"- Click/Jinja classifier: commit `{classifier.get('click_jinja', {}).get('git_commit', 'unknown')}`, "
+            f"blob `{classifier.get('click_jinja', {}).get('git_blob_sha1', 'unknown')}`.",
+            f"- Attrs labels: {labeling_text} (76 of 112 pairs use the pre-fix classifier; "
+            "36 use the updated classifier).",
+            f"- Mutation ledger: `{provenance.get('mutation_ledger', {}).get('path', 'unknown')}`, "
+            f"commit `{provenance.get('mutation_ledger', {}).get('git_commit', 'unknown')}`, "
+            f"blob `{provenance.get('mutation_ledger', {}).get('git_blob_sha1', 'unknown')}`.",
+            f"- Aggregator: `{provenance.get('aggregator', {}).get('path', 'unknown')}`, "
+            f"commit `{provenance.get('aggregator', {}).get('git_commit', 'unknown')}`, "
+            f"blob `{provenance.get('aggregator', {}).get('git_blob_sha1', 'unknown')}`.",
+            f"- Measurement runner: `{provenance.get('measurement_runner', {}).get('path', 'unknown')}`, "
+            f"commit `{provenance.get('measurement_runner', {}).get('git_commit', 'unknown')}`, "
+            f"blob `{provenance.get('measurement_runner', {}).get('git_blob_sha1', 'unknown')}`.",
+            "",
+        ]
+    )
+    text = report_path.with_name("report.md").read_text()
+    marker = "## Week 6 interpretation\n"
+    if marker in text:
+        start = text.index(marker)
+        diagnostics = text.find("\n## Diagnostics\n", start)
+        text = (
+            text[:start] + text[diagnostics + 1 :]
+            if diagnostics >= 0
+            else text[:start].rstrip() + "\n"
+        )
+    text = text.replace("attrs-rerun12", "attrs")
+    text = text.replace(
+        "# TestPilot training report\n", "# TestPilot training report\n\n" + section
+    )
+    report_path.with_name("report.md").write_text(text)
+
+
+def interpretation(loro: dict, repos: dict, report: dict) -> dict:
+    rows = loro["per_repo"]
+    cov_macro = sum(row["baselines"]["cov_lines"] for row in rows) / len(rows)
+    overall = report.get("paired_delta_ci_test") or {}
+    nc, _ = test_nc(report)
+    return {
+        "loro_macro_recall_at_10pct": loro["macro_recall@10%"],
+        "cov_lines_macro_recall_at_10pct": cov_macro,
+        "delta_vs_cov_lines": loro["macro_recall@10%"] - cov_macro,
+        "per_repo": [
+            {
+                "repo": row["held_out"],
+                "model_recall_at_10pct": row["recall@10%"],
+                "cov_lines_recall_at_10pct": row["baselines"]["cov_lines"],
+                "delta_vs_cov_lines": row["recall@10%"] - row["baselines"]["cov_lines"],
+                "gate": repos.get(row["held_out"], {}).get("verdict"),
+                "gate_reason": repos.get(row["held_out"], {}).get("reason"),
+                "test_n_C": repos.get(row["held_out"], {}).get("test_n_C"),
+            }
+            for row in rows
+        ],
+        "pooled_test_delta": overall.get("mean"),
+        "pooled_test_ci95": overall.get("ci95"),
+        "pooled_test_n": overall.get("n"),
+        "pooled_test_n_C": nc,
+        "default_ranker": "cov_lines",
+        "conclusion": "model approximately ties cov_lines; cov_lines dominates feature gain",
+        "limitations": [
+            "dry-run underpredicted measured wall time by 32–42%",
+            "Click and attrs have TEST n_C=5 (<10); widen TEST in Week 7",
+        ],
+    }
+
+
 def paired_ci(train: dict) -> tuple:
     value = train.get("paired_delta_ci_synthetic_test_cov_lines")
     if not isinstance(value, dict):
@@ -239,7 +485,19 @@ def main() -> int:
         raise ValueError('level-b mutant sets or nonflaky labels differ')
     b_report = load(args.level_b_out/'bootstrap_report.json')
     per['click_level_b'] = {k: b_report.get(k) for k in ('step_timings_s', 'n_timeout', 'timeout_rate', 'n_actual')}
-    loro = run_loro(root)
+    loro = normalize_attrs_run_name(run_loro(root))
+    provenance = measurement_provenance(root)
+    for name in ('click', 'jinja', 'attrs'):
+        for filename in ('bootstrap_report.json', 'model.json', 'report.json'):
+            attach_provenance(root/'docs/measurements'/f'bootstrap-{name}'/filename, provenance)
+        append_bootstrap_provenance(
+            root/'docs/measurements'/f'bootstrap-{name}'/'report.md', provenance, name
+        )
+    loro_dir = root/'docs/measurements/loro-w6-click-jinja-attrs'
+    for filename in ('report.json', 'model.json', 'bootstrap_report.json'):
+        attach_provenance(loro_dir/filename, provenance)
+    write_loro_interpretation(root, loro, per)
+    loro_interpretation = interpretation(loro, per, load(loro_dir/'report.json'))
     host = dict(line.split('=', 1) for line in (root/'docs/measurements/env-host.txt').read_text().splitlines() if '=' in line)
     dry_path = root/'docs/measurements/dry-run-estimates.json'
     dry = load(dry_path)
@@ -253,6 +511,8 @@ def main() -> int:
                'env': {**host, 'pip_freeze':'docs/measurements/env-pip-freeze.txt', 'training':load(root/'docs/measurements/env-training-versions.json')},
                'dry_run_estimates':dry, 'repos':per, 'level_b':level, 'loro':loro,
                'n_C_widths_citation': {'path':'docs/measurements/mut2-80x5-click-jinja.json', 'n_C_test_over_N':load(root/'docs/measurements/mut2-80x5-click-jinja.json').get('n_C_test_over_N'), 'diagnostics':load(root/'docs/measurements/mut2-80x5-click-jinja.json').get('diagnostics')}}
+    summary['interpretation'] = loro_interpretation
+    summary['provenance'] = provenance
     forbid_abs(summary, 'bootstrap-w6-click-jinja-attrs.json')
     (root/'docs/measurements/bootstrap-w6-click-jinja-attrs.json').write_text(json.dumps(summary,indent=2,sort_keys=True,allow_nan=False)+'\n')
     return 0
