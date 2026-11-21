@@ -935,11 +935,13 @@ def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_contr
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])
-@pytest.mark.parametrize("mutation_kind", ["sentinel", "other"])
+@pytest.mark.parametrize("error_kind", ["unexpected_keyword", "missing_opaque"])
+@pytest.mark.parametrize("mutation_kind", ["sentinel", "class_var", "other"])
 def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
+    error_kind: str,
     mutation_kind: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
@@ -956,6 +958,9 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
                 return False
             return True
 
+        def _is_class_var(annot):
+            return annot.startswith(("_ClassVar",))
+
         def other(attr):
             if attr is _SENTINEL:
                 return False
@@ -964,6 +969,8 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
     )
     if mutation_kind == "sentinel":
         after = before.replace("if attr is _SENTINEL:", "if not attr is _SENTINEL:", 1)
+    elif mutation_kind == "class_var":
+        after = before.replace('return annot.startswith(("_ClassVar",))', "return None")
     else:
         after = before.replace(
             "def other(attr):\n    if attr is _SENTINEL:",
@@ -999,6 +1006,11 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
     external_frame = tmp_path / "site-packages" / "referencing" / "_core.py"
     external_frame.parent.mkdir(parents=True)
     external_frame.write_text("# external package frame\n", encoding="utf-8")
+    error_line = (
+        "TypeError: Specification.__init__() got an unexpected keyword argument 'name'"
+        if error_kind == "unexpected_keyword"
+        else "TypeError: Specification.__init__() missing 1 required positional argument: 'OPAQUE'"
+    )
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"
@@ -1008,7 +1020,7 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
         + "esac\n"
         + "printf '%s\\n' 'Traceback (most recent call last):'\n"
         + f'printf \'%s\\n\' "  File \\"{external_frame}\\", line 172, in <module>"\n'
-        + "printf '%s\\n' \"TypeError: Specification.__init__() got an unexpected keyword argument 'name'\"\n"
+        + f"printf '%s\\n' \"{error_line}\"\n"
         + "exit 1\n",
         encoding="utf-8",
     )
@@ -1025,6 +1037,10 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
         timeout_override=60,
     )
     assert result.pytest_rc == 1
+    matching_mutation = (mutation_kind, error_kind) in {
+        ("sentinel", "unexpected_keyword"),
+        ("class_var", "missing_opaque"),
+    }
     assert result.collection_error is (
-        parent_collects and mutation_kind == "sentinel"
+        parent_collects and matching_mutation
     ), result.collect_note[-2000:]

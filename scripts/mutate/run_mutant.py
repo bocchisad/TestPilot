@@ -184,6 +184,9 @@ _NO_JUNIT_ATTR_METADATA_FRAME_RE = re.compile(
 _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE = re.compile(
     r"(?m)^TypeError: Specification\.__init__\(\) got an unexpected keyword argument 'name'\s*$"
 )
+_NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE = re.compile(
+    r"(?m)^TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
+)
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
     r"jsonschema[/\\]_types\.py\", line \d+, in"
 )
@@ -997,6 +1000,13 @@ def run_mutant(
                     repo, parent_sha, mutant_sha
                 )
             )
+            attrs_class_var_import_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE.search(tail) is not None
+                and _mutant_attrs_function_returns_none(
+                    repo, parent_sha, mutant_sha, "_is_class_var"
+                )
+            )
             if (
                 not no_junit_mutant_control_error
                 and rc in {1, 3}
@@ -1008,8 +1018,13 @@ def run_mutant(
                     or attrs_annotations_failure
                     or attrs_metadata_bool_failure
                     or attrs_specification_import_failure
+                    or attrs_class_var_import_failure
                 )
-                and (has_local_mutant_frame or attrs_specification_import_failure)
+                and (
+                    has_local_mutant_frame
+                    or attrs_specification_import_failure
+                    or attrs_class_var_import_failure
+                )
             ):
                 parent_ok, parent_note = _parent_control_collection(
                     repo,
@@ -1029,7 +1044,11 @@ def run_mutant(
                     else (
                         "mutant inverts _has_own_attribute sentinel test; "
                         if attrs_specification_import_failure
-                        else ""
+                        else (
+                            "mutant changes _is_class_var to return None; "
+                            if attrs_class_var_import_failure
+                            else ""
+                        )
                     )
                 )
                 no_junit_note = f"{no_junit_note}\n{cause_note}{parent_note}"
