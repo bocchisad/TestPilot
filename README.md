@@ -84,6 +84,8 @@ After more history or a larger N, re-run with `--force`.
 
 Conclusion: the model is approximately tied with `cov_lines`; `cov_lines` dominates the feature gain. Keep `cov_lines` as the default. The dry-run estimate underpredicted measured wall time by **32–42%**. Click and attrs each had TEST n_C=5, below the gate's minimum of 10; widening the TEST fold is deferred to Week 7. `env.date_utc` records when the environment fingerprint was captured before the runs, not the run start time. Full metrics and script provenance are in [`docs/measurements/loro-w6-click-jinja-attrs/report.md`](docs/measurements/loro-w6-click-jinja-attrs/report.md) and [`docs/measurements/bootstrap-w6-click-jinja-attrs.json`](docs/measurements/bootstrap-w6-click-jinja-attrs.json).
 
+**Week 7 TODO:** have the exporter record script commit/blob SHAs automatically on every run instead of hard-coding them in `measurement_provenance()`; remove the one-off `rerun12` normalization from `aggregate_bootstrap_w6.py`.
+
 **Click on Linux:** install **`less`**. Without it, pager tests fail on every commit (persistent, not `new_fail`).
 
 Bootstrap resolves relative output paths from the invocation directory and passes its own executable to collection subprocesses, including when invoked by an absolute binary path outside the target repo.

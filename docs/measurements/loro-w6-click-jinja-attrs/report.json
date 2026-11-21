@@ -2138,26 +2138,31 @@
     "mutation_ledger": {
       "path": "scripts/mutate_bootstrap.py",
       "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
-      "git_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620"
+      "git_blob_sha1": "2f09ab29a91b597369cb7d76dfbade9dc397ecca"
     },
     "labeling_classifier": {
       "path": "scripts/mutate/run_mutant.py",
-      "click_jinja": {
+      "click": {
         "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
         "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81"
       },
+      "jinja": {
+        "git_commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
+        "git_blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b"
+      },
       "attrs_pairs": [
         {
-          "count": 76,
+          "count": 36,
           "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
           "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
-          "period": "before the attrs classifier fixes"
+          "period": "last run"
         },
         {
-          "count": 36,
-          "git_commit": "9e863f1d0283c274c05f49d1124550e5151251b5",
-          "git_blob_sha1": "7cdb0938e52c44b7733cb3b1213048e21069a539",
-          "period": "after the attrs classifier fixes"
+          "count": 76,
+          "git_commit": null,
+          "git_blob_sha1": null,
+          "period": "estimated early runs across classifier versions before 978b50b",
+          "ledger_committed": false
         }
       ]
     },

@@ -14,9 +14,10 @@
 
 ## Provenance
 
-- Click/Jinja classifier: commit `6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac`, blob `55bacb570a74e4625eddab73ed155698c326db81`.
-- Attrs labels: 76 pairs at 978b50b (blob 3a6f035b688d6e35f507d07ae4b1211f2ada4d79), 36 pairs at 9e863f1 (blob 7cdb0938e52c44b7733cb3b1213048e21069a539) (76 of 112 pairs use the pre-fix classifier; 36 use the updated classifier).
-- Mutation ledger: `scripts/mutate_bootstrap.py`, commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `548fcc2e98285d7d6bd2dea29d8e4c4b144b4620`.
+- Click classifier: commit `6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac`, blob `55bacb570a74e4625eddab73ed155698c326db81`.
+- Jinja classifier: commit `b4d5bfaf9e18316895970058c87e105b0a404293`, blob `dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b`.
+- Attrs labels: estimated: 36 pairs in the last run at 978b50b (blob 3a6f035b688d6e35f507d07ae4b1211f2ada4d79); 76 pairs from early runs across classifier versions before 978b50b; the per-pair ledger was not committed.
+- Mutation ledger: `scripts/mutate_bootstrap.py`, commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `2f09ab29a91b597369cb7d76dfbade9dc397ecca`.
 - Aggregator: `scripts/aggregate_bootstrap_w6.py`, commit `092d6cc30a09f409aea1b1413ab62976d60430fd`, blob `0a7c3bb9ad7ebde626c75ae2266abd30ae254302`.
 - Measurement runner: `scripts/measure_bootstrap_w6.sh`, commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `f408b62d49636c259dd6980f725a5fada0311bf7`.
 

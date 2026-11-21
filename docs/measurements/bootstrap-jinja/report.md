@@ -290,6 +290,6 @@
 
 ## Provenance
 
-- Mutation classifier (`scripts/mutate/run_mutant.py`): commit `6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac`, blob `55bacb570a74e4625eddab73ed155698c326db81`.
-- Mutation ledger (`scripts/mutate_bootstrap.py`): commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `548fcc2e98285d7d6bd2dea29d8e4c4b144b4620`.
+- Mutation classifier (`scripts/mutate/run_mutant.py`): commit `b4d5bfaf9e18316895970058c87e105b0a404293`, blob `dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b`.
+- Mutation ledger (`scripts/mutate_bootstrap.py`): commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `2f09ab29a91b597369cb7d76dfbade9dc397ecca`.
 - Aggregator (`scripts/aggregate_bootstrap_w6.py`): commit `092d6cc30a09f409aea1b1413ab62976d60430fd`, blob `0a7c3bb9ad7ebde626c75ae2266abd30ae254302`.

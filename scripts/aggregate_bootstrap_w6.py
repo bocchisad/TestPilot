@@ -64,26 +64,31 @@ def measurement_provenance(root: Path) -> dict:
         "mutation_ledger": {
             "path": "scripts/mutate_bootstrap.py",
             "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
-            "git_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+            "git_blob_sha1": "2f09ab29a91b597369cb7d76dfbade9dc397ecca",
         },
         "labeling_classifier": {
             "path": "scripts/mutate/run_mutant.py",
-            "click_jinja": {
+            "click": {
                 "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
                 "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81",
             },
+            "jinja": {
+                "git_commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
+                "git_blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b",
+            },
             "attrs_pairs": [
                 {
-                    "count": 76,
+                    "count": 36,
                     "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
                     "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
-                    "period": "before the attrs classifier fixes",
+                    "period": "last run",
                 },
                 {
-                    "count": 36,
-                    "git_commit": "9e863f1d0283c274c05f49d1124550e5151251b5",
-                    "git_blob_sha1": "7cdb0938e52c44b7733cb3b1213048e21069a539",
-                    "period": "after the attrs classifier fixes",
+                    "count": 76,
+                    "git_commit": None,
+                    "git_blob_sha1": None,
+                    "period": "estimated early runs across classifier versions before 978b50b",
+                    "ledger_committed": False,
                 },
             ],
         },
@@ -110,19 +115,24 @@ def append_bootstrap_provenance(path: Path, provenance: dict, repo_name: str) ->
         return
     classifier = provenance["labeling_classifier"]
     old, new = classifier["attrs_pairs"]
+    if repo_name == "attrs":
+        classifier_note = (
+            f"- Mutation classifier (`{classifier['path']}`): estimated split; {old['count']} "
+            f"pairs in the last run at `{old['git_commit']}` (blob `{old['git_blob_sha1']}`); "
+            f"{new['count']} pairs from early runs on varying versions before 978b50b. "
+            "The per-pair ledger was not committed."
+        )
+    else:
+        source = classifier[repo_name]
+        classifier_note = (
+            f"- Mutation classifier (`{classifier['path']}`): commit "
+            f"`{source['git_commit']}`, blob `{source['git_blob_sha1']}`."
+        )
     section = "\n".join(
         [
             "## Provenance",
             "",
-            (
-                f"- Mutation classifier (`{classifier['path']}`): attrs {old['count']} pairs at "
-                f"`{old['git_commit']}` (blob `{old['git_blob_sha1']}`); {new['count']} pairs at "
-                f"`{new['git_commit']}` (blob `{new['git_blob_sha1']}`)."
-                if repo_name == "attrs"
-                else f"- Mutation classifier (`{classifier['path']}`): commit "
-                f"`{classifier['click_jinja']['git_commit']}`, "
-                f"blob `{classifier['click_jinja']['git_blob_sha1']}`."
-            ),
+            classifier_note,
             f"- Mutation ledger (`{provenance['mutation_ledger']['path']}`): commit "
             f"`{provenance['mutation_ledger']['git_commit']}`, blob "
             f"`{provenance['mutation_ledger']['git_blob_sha1']}`.",
@@ -183,11 +193,15 @@ def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
     provenance = report.get("provenance", {})
     classifier = provenance.get("labeling_classifier", {})
     attrs_pairs = classifier.get("attrs_pairs", [])
-    labeling_text = ", ".join(
-        f"{row['count']} pairs at {row['git_commit'][:7]} "
-        f"(blob {row['git_blob_sha1']})"
-        for row in attrs_pairs
-    )
+    attrs_labeling = "estimated split unavailable"
+    if len(attrs_pairs) == 2:
+        last_run, early_runs = attrs_pairs
+        attrs_labeling = (
+            f"estimated: {last_run['count']} pairs in the last run at "
+            f"{last_run['git_commit'][:7]} (blob {last_run['git_blob_sha1']}); "
+            f"{early_runs['count']} pairs from early runs across classifier versions "
+            "before 978b50b; the per-pair ledger was not committed"
+        )
     section = "\n".join(
         [
             "## Week 6 interpretation",
@@ -209,10 +223,11 @@ def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
             "",
             "## Provenance",
             "",
-            f"- Click/Jinja classifier: commit `{classifier.get('click_jinja', {}).get('git_commit', 'unknown')}`, "
-            f"blob `{classifier.get('click_jinja', {}).get('git_blob_sha1', 'unknown')}`.",
-            f"- Attrs labels: {labeling_text} (76 of 112 pairs use the pre-fix classifier; "
-            "36 use the updated classifier).",
+            f"- Click classifier: commit `{classifier.get('click', {}).get('git_commit', 'unknown')}`, "
+            f"blob `{classifier.get('click', {}).get('git_blob_sha1', 'unknown')}`.",
+            f"- Jinja classifier: commit `{classifier.get('jinja', {}).get('git_commit', 'unknown')}`, "
+            f"blob `{classifier.get('jinja', {}).get('git_blob_sha1', 'unknown')}`.",
+            f"- Attrs labels: {attrs_labeling}.",
             f"- Mutation ledger: `{provenance.get('mutation_ledger', {}).get('path', 'unknown')}`, "
             f"commit `{provenance.get('mutation_ledger', {}).get('git_commit', 'unknown')}`, "
             f"blob `{provenance.get('mutation_ledger', {}).get('git_blob_sha1', 'unknown')}`.",
@@ -230,11 +245,14 @@ def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
     if marker in text:
         start = text.index(marker)
         diagnostics = text.find("\n## Diagnostics\n", start)
-        text = (
-            text[:start] + text[diagnostics + 1 :]
-            if diagnostics >= 0
-            else text[:start].rstrip() + "\n"
+        status = text.find("\n- status:", start, diagnostics if diagnostics >= 0 else None)
+        report_metadata = (
+            text[status + 1 : diagnostics].rstrip() + "\n\n" if status >= 0 else ""
         )
+        if diagnostics >= 0:
+            text = text[:start] + report_metadata + text[diagnostics + 1 :]
+        else:
+            text = text[:start].rstrip() + "\n"
     text = text.replace("attrs-rerun12", "attrs")
     text = text.replace(
         "# TestPilot training report\n", "# TestPilot training report\n\n" + section
