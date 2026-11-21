@@ -15,6 +15,9 @@ type DemoCase = {
   n_candidates: number;
   saved_ms: number | null;
   caught: boolean | null;
+  caught_reason: string | null;
+  new_fail_n: number | null;
+  new_fail_selected: number | null;
   synthetic: boolean;
   safe_fallback: boolean;
   safe_reasons: string[];
@@ -31,11 +34,15 @@ type DemoFile = {
 type Copy = {
   savedMissing: string;
   caughtMissing: string;
+  caughtNone: string;
   caughtYes: string;
   caughtNo: string;
+  nothingToCatch: string;
+  onlyFlaky: string;
+  missedBudget: string;
+  planted: string;
   safe: string;
   synthetic: string;
-  caughtNote: string;
   scoreNote: string;
   reason: Record<string, string>;
   safeReason: Record<string, string>;
@@ -112,6 +119,25 @@ function fillTests(list: HTMLElement, item: DemoCase, copy: Copy) {
   }
 }
 
+function caughtValue(item: DemoCase, copy: Copy): string {
+  if (item.caught === true) return copy.caughtYes;
+  if (item.caught === false) return copy.caughtNo;
+  if (item.caught_reason === "no_outcomes") return copy.caughtMissing;
+  return copy.caughtNone;
+}
+
+function caughtCaption(item: DemoCase, copy: Copy): string {
+  if (item.caught === true && item.synthetic) return copy.planted;
+  if (item.caught === false) {
+    return copy.missedBudget
+      .replaceAll("{failed}", String(item.new_fail_n ?? 0))
+      .replaceAll("{selected}", String(item.new_fail_selected ?? 0));
+  }
+  if (item.caught_reason === "nothing_to_catch") return copy.nothingToCatch;
+  if (item.caught_reason === "only_flaky") return copy.onlyFlaky;
+  return "";
+}
+
 function show(index: number, data: DemoFile, copy: Copy) {
   const item = data.cases[index];
   if (!item) return;
@@ -127,15 +153,13 @@ function show(index: number, data: DemoFile, copy: Copy) {
   const saved = document.getElementById("demo-saved");
   if (saved) saved.textContent = item.saved_ms === null ? copy.savedMissing : String(item.saved_ms);
   const caught = document.getElementById("demo-caught");
-  if (caught) {
-    caught.textContent =
-      item.caught === null ? copy.caughtMissing : item.caught ? copy.caughtYes : copy.caughtNo;
-  }
+  if (caught) caught.textContent = caughtValue(item, copy);
   document.getElementById("demo-synthetic-metric")?.toggleAttribute("hidden", !item.synthetic);
   const note = document.getElementById("demo-caught-note");
   if (note) {
-    note.hidden = !item.synthetic;
-    note.textContent = copy.caughtNote;
+    const caption = caughtCaption(item, copy);
+    note.hidden = caption === "";
+    note.textContent = caption;
   }
   const score = document.getElementById("demo-score-note");
   if (score) score.textContent = copy.scoreNote.replaceAll("{ranker}", item.ranker);

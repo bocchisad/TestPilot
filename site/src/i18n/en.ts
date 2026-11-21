@@ -64,14 +64,19 @@ export const messages = {
     caught: "failure in the selection",
     savedMissing: "not in the select JSON",
     caughtMissing: "not in the outcomes file",
+    caughtNone: "—",
     caughtYes: "yes",
     caughtNo: "no",
     safe: "Safe mode returned the full candidate set.",
     synthetic: "SYNTHETIC",
     measured:
       "model_measured_at {time} is env.date_utc from docs/measurements/bootstrap-w6-click-jinja-attrs.json at 20f45a9. It is the environment fingerprint time, not this select run.",
-    caughtNote:
-      "A yes or no needs an outcomes file. On a synthetic commit that file is the mutant run, so a caught failure was planted by the mutant.",
+    nothingToCatch: "Outcomes are recorded, and there are no new failures. There is nothing to catch.",
+    onlyFlaky: "Only an unstable test failed, and that does not count.",
+    missedBudget:
+      "New failures exist, but they missed the 10% budget. {failed} failed, {selected} of them are in the selection.",
+    planted:
+      "On a synthetic commit this is the mutant run, so a caught failure was planted by the mutant.",
     scoreNote:
       "Raw score, ranker {ranker}. For model this is LightGBM predict_raw. For cov_lines it is a covered-line count. Not a probability.",
     commits: "commits",

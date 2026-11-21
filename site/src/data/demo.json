@@ -4,7 +4,7 @@
     "target_repo": "https://github.com/pallets/click",
     "target_sha": "934813e4d421071a1b3db3973c02fe2721359a6e",
     "testpilot_version": "0.1.0 (20f45a96fdd2)",
-    "generated_at": "2026-11-21T21:16:23Z",
+    "generated_at": "2026-11-21T21:40:40Z",
     "model_measured_at": "2026-11-20T06:59:03Z"
   },
   "cases": [
@@ -18,6 +18,9 @@
       "n_candidates": 535,
       "saved_ms": 462,
       "caught": true,
+      "caught_reason": null,
+      "new_fail_n": 255,
+      "new_fail_selected": 49,
       "synthetic": true,
       "safe_fallback": false,
       "safe_reasons": [],
@@ -415,6 +418,9 @@
       "n_candidates": 615,
       "saved_ms": 466,
       "caught": false,
+      "caught_reason": null,
+      "new_fail_n": 2,
+      "new_fail_selected": 0,
       "synthetic": true,
       "safe_fallback": false,
       "safe_reasons": [],
@@ -868,6 +874,9 @@
       "n_candidates": 650,
       "saved_ms": 466,
       "caught": null,
+      "caught_reason": "nothing_to_catch",
+      "new_fail_n": null,
+      "new_fail_selected": null,
       "synthetic": false,
       "safe_fallback": false,
       "safe_reasons": [],
@@ -1342,6 +1351,9 @@
       "n_candidates": 650,
       "saved_ms": 459,
       "caught": null,
+      "caught_reason": "nothing_to_catch",
+      "new_fail_n": null,
+      "new_fail_selected": null,
       "synthetic": false,
       "safe_fallback": false,
       "safe_reasons": [],
@@ -1816,6 +1828,9 @@
       "n_candidates": 535,
       "saved_ms": 477,
       "caught": true,
+      "caught_reason": null,
+      "new_fail_n": 1,
+      "new_fail_selected": 1,
       "synthetic": true,
       "safe_fallback": false,
       "safe_reasons": [],
@@ -2204,6 +2219,462 @@
       ]
     },
     {
+      "head": "bb6a8727aa4aab62e5a388b15c4443fedf422622",
+      "base": "ce6e066a4b58dabe18f6ee5d6f55cf9ce303c941",
+      "subject": "start version 8.1.7",
+      "authored_at": "2023-08-17T09:52:05-07:00",
+      "diff": "diff --git a/CHANGES.rst b/CHANGES.rst\nindex 77dceb5..90faecc 100644\n--- a/CHANGES.rst\n+++ b/CHANGES.rst\n@@ -1,5 +1,11 @@\n .. currentmodule:: click\n \n+Version 8.1.7\n+-------------\n+\n+Unreleased\n+\n+\n Version 8.1.6\n -------------\n \ndiff --git a/src/click/__init__.py b/src/click/__init__.py\nindex 520ae88..fc2fbe6 100644\n--- a/src/click/__init__.py\n+++ b/src/click/__init__.py\n@@ -70,4 +70,4 @@ from .utils import get_binary_stream as get_binary_stream\n from .utils import get_text_stream as get_text_stream\n from .utils import open_file as open_file\n \n-__version__ = \"8.1.6\"\n+__version__ = \"8.1.7.dev\"\n",
+      "n_selected": 62,
+      "n_candidates": 611,
+      "saved_ms": 520,
+      "caught": false,
+      "caught_reason": null,
+      "new_fail_n": 1,
+      "new_fail_selected": 0,
+      "synthetic": false,
+      "safe_fallback": false,
+      "safe_reasons": [],
+      "recent_k": 5,
+      "ranker": "cov_lines",
+      "model_sha256": "d0e9735b9b1737baf87b751b3efd31a08749be2dc6daf36f10d0dc3ce4e14179",
+      "tests": [
+        {
+          "test_id": "tests/test_arguments.py::test_argument_unbounded_nargs_cant_have_default",
+          "score": "0.0",
+          "rank": 1,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_bytes_args",
+          "score": "0.0",
+          "rank": 2,
+          "dur": "1",
+          "reason": "recent_fail"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_defaults_for_nargs",
+          "score": "0.0",
+          "rank": 3,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_eat_options",
+          "score": "0.0",
+          "rank": 4,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_empty_nargs",
+          "score": "0.0",
+          "rank": 5,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_file_args",
+          "score": "0.0",
+          "rank": 6,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_file_atomics",
+          "score": "0.0",
+          "rank": 7,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_implicit_non_required",
+          "score": "0.0",
+          "rank": 8,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_missing_arg",
+          "score": "0.0",
+          "rank": 9,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_missing_argument_string_cast",
+          "score": "0.0",
+          "rank": 10,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_multiple_not_allowed",
+          "score": "0.0",
+          "rank": 11,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_multiple_param_decls_not_allowed",
+          "score": "0.0",
+          "rank": 12,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_bad_default[value0]",
+          "score": "0.0",
+          "rank": 13,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_bad_default[value1]",
+          "score": "0.0",
+          "rank": 14,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_bad_default[value2]",
+          "score": "0.0",
+          "rank": 15,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_envvar[-1--expect5]",
+          "score": "0.0",
+          "rank": 16,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_envvar[-1-a b c-expect4]",
+          "score": "0.0",
+          "rank": 17,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_envvar[2--None]",
+          "score": "0.0",
+          "rank": 18,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_envvar[2-a b c-Takes 2 values but 3 were given.]",
+          "score": "0.0",
+          "rank": 19,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_envvar[2-a b-expect2]",
+          "score": "0.0",
+          "rank": 20,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_envvar[2-a-Takes 2 values but 1 was given.]",
+          "score": "0.0",
+          "rank": 21,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_envvar_only_if_values_empty",
+          "score": "0.0",
+          "rank": 22,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_err",
+          "score": "0.0",
+          "rank": 23,
+          "dur": "2",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_specified_plus_star_ordering",
+          "score": "0.0",
+          "rank": 24,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_star",
+          "score": "0.0",
+          "rank": 25,
+          "dur": "5",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_star_ordering",
+          "score": "0.0",
+          "rank": 26,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_tup",
+          "score": "0.0",
+          "rank": 27,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_tup_composite[opts0]",
+          "score": "0.0",
+          "rank": 28,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_tup_composite[opts1]",
+          "score": "0.0",
+          "rank": 29,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_tup_composite[opts2]",
+          "score": "0.0",
+          "rank": 30,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nargs_tup_composite[opts3]",
+          "score": "0.0",
+          "rank": 31,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_nested_subcommand_help",
+          "score": "0.0",
+          "rank": 32,
+          "dur": "2",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_path_allow_dash",
+          "score": "0.0",
+          "rank": 33,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_stdout_default",
+          "score": "0.0",
+          "rank": 34,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_subcommand_help",
+          "score": "0.0",
+          "rank": 35,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_arguments.py::test_when_argument_decorator_is_used_multiple_times_cls_is_preserved",
+          "score": "0.0",
+          "rank": 36,
+          "dur": "0",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_basic_functionality",
+          "score": "0.0",
+          "rank": 37,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_basic_group",
+          "score": "0.0",
+          "rank": 38,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[0-False]",
+          "score": "0.0",
+          "rank": 39,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[1-True]",
+          "score": "0.0",
+          "rank": 40,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[f-False]",
+          "score": "0.0",
+          "rank": 41,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[false-False]",
+          "score": "0.0",
+          "rank": 42,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[n-False]",
+          "score": "0.0",
+          "rank": 43,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[no-False]",
+          "score": "0.0",
+          "rank": 44,
+          "dur": "2",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[off-False]",
+          "score": "0.0",
+          "rank": 45,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[on-True]",
+          "score": "0.0",
+          "rank": 46,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[t-True]",
+          "score": "0.0",
+          "rank": 47,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[true-True]",
+          "score": "0.0",
+          "rank": 48,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[y-True]",
+          "score": "0.0",
+          "rank": 49,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_conversion[yes-True]",
+          "score": "0.0",
+          "rank": 50,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_flag[args0-True-False]",
+          "score": "0.0",
+          "rank": 51,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_flag[args0-True-True]",
+          "score": "0.0",
+          "rank": 52,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_flag[args1-False-False]",
+          "score": "0.0",
+          "rank": 53,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_flag[args1-False-True]",
+          "score": "0.0",
+          "rank": 54,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_switch[args0-True-False]",
+          "score": "0.0",
+          "rank": 55,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_switch[args0-True-True]",
+          "score": "0.0",
+          "rank": 56,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_switch[args1-False-False]",
+          "score": "0.0",
+          "rank": 57,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_switch[args1-False-True]",
+          "score": "0.0",
+          "rank": 58,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_basic.py::test_boolean_switch[args2-None-False]",
+          "score": "0.0",
+          "rank": 59,
+          "dur": "1",
+          "reason": "ranked"
+        },
+        {
+          "test_id": "tests/test_shell_completion.py::test_full_source[bash]",
+          "score": "0.0",
+          "rank": 60,
+          "dur": "1",
+          "reason": "recent_fail"
+        },
+        {
+          "test_id": "tests/test_shell_completion.py::test_full_source[fish]",
+          "score": "0.0",
+          "rank": 61,
+          "dur": "1",
+          "reason": "recent_fail"
+        },
+        {
+          "test_id": "tests/test_shell_completion.py::test_full_source[zsh]",
+          "score": "0.0",
+          "rank": 62,
+          "dur": "1",
+          "reason": "recent_fail"
+        }
+      ]
+    },
+    {
       "head": "bed037717d5f39cf875d83df4025e62beebc77f4",
       "base": "653459007a15e4d75187acc5a1e1a08cbd787814",
       "subject": "remove test pypi",
@@ -2213,6 +2684,9 @@
       "n_candidates": 650,
       "saved_ms": 0,
       "caught": null,
+      "caught_reason": "nothing_to_catch",
+      "new_fail_n": null,
+      "new_fail_selected": null,
       "synthetic": false,
       "safe_fallback": true,
       "safe_reasons": [
@@ -6784,6 +7258,9 @@
       "n_candidates": 650,
       "saved_ms": 521,
       "caught": null,
+      "caught_reason": "nothing_to_catch",
+      "new_fail_n": null,
+      "new_fail_selected": null,
       "synthetic": false,
       "safe_fallback": false,
       "safe_reasons": [],
@@ -7257,7 +7734,10 @@
       "n_selected": 60,
       "n_candidates": 598,
       "saved_ms": 522,
-      "caught": true,
+      "caught": null,
+      "caught_reason": "only_flaky",
+      "new_fail_n": null,
+      "new_fail_selected": null,
       "synthetic": true,
       "safe_fallback": false,
       "safe_reasons": [],

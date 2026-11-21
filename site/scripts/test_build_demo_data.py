@@ -248,13 +248,23 @@ class BuildDemoDataTest(unittest.TestCase):
         inp = write_input(repo, sha, "model", "model")
         (inp / "outcomes").mkdir()
         (inp / "outcomes" / f"{sha}.json").write_text(
-            json.dumps({"complete": True, "tests": {"t::a": "fail", "t::b": "pass"}}),
+            json.dumps(
+                {
+                    "complete": True,
+                    "tests": {"t::a": "fail", "t::b": "pass"},
+                    "base": {"complete": True, "tests": {"t::a": "pass", "t::b": "pass"}},
+                }
+            ),
             encoding="utf-8",
         )
         out = Path(tempfile.mkdtemp()) / "demo.json"
         result = run_script(["--input", str(inp), "--out", str(out)])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(json.loads(out.read_text(encoding="utf-8"))["cases"][0]["caught"])
+        case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
+        self.assertTrue(case["caught"])
+        self.assertIsNone(case["caught_reason"])
+        self.assertEqual(case["new_fail_n"], 1)
+        self.assertEqual(case["new_fail_selected"], 1)
 
     def test_caught_incomplete_is_null(self) -> None:
         repo, sha = init_repo()
@@ -267,20 +277,78 @@ class BuildDemoDataTest(unittest.TestCase):
         out = Path(tempfile.mkdtemp()) / "demo.json"
         result = run_script(["--input", str(inp), "--out", str(out)])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNone(json.loads(out.read_text(encoding="utf-8"))["cases"][0]["caught"])
+        case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
+        self.assertIsNone(case["caught"])
+        self.assertEqual(case["caught_reason"], "no_outcomes")
 
     def test_caught_false_when_failure_was_not_selected(self) -> None:
         repo, sha = init_repo()
         inp = write_input(repo, sha, "model", "model")
         (inp / "outcomes").mkdir()
         (inp / "outcomes" / f"{sha}.json").write_text(
-            json.dumps({"complete": True, "tests": {"t::a": "pass", "t::b": "pass", "t::missed": "error"}}),
+            json.dumps(
+                {
+                    "complete": True,
+                    "tests": {"t::a": "pass", "t::b": "pass", "t::missed": "error"},
+                    "base": {"complete": True, "tests": {"t::a": "pass", "t::missed": "pass"}},
+                }
+            ),
             encoding="utf-8",
         )
         out = Path(tempfile.mkdtemp()) / "demo.json"
         result = run_script(["--input", str(inp), "--out", str(out)])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(json.loads(out.read_text(encoding="utf-8"))["cases"][0]["caught"])
+        case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
+        self.assertFalse(case["caught"])
+        self.assertIsNone(case["caught_reason"])
+        self.assertEqual(case["new_fail_n"], 1)
+        self.assertEqual(case["new_fail_selected"], 0)
+
+    def test_caught_only_flaky(self) -> None:
+        repo, sha = init_repo()
+        inp = write_input(repo, sha, "model", "model")
+        (inp / "outcomes").mkdir()
+        (inp / "outcomes" / f"{sha}.json").write_text(
+            json.dumps(
+                {
+                    "complete": True,
+                    "tests": {
+                        "t::a": {"outcome": "error", "flaky": True},
+                        "t::b": "pass",
+                        "t::old": "fail",
+                    },
+                    "base": {"complete": True, "tests": {"t::a": "error", "t::old": "fail"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        out = Path(tempfile.mkdtemp()) / "demo.json"
+        result = run_script(["--input", str(inp), "--out", str(out)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
+        self.assertIsNone(case["caught"])
+        self.assertEqual(case["caught_reason"], "only_flaky")
+
+    def test_persistent_failure_is_nothing_to_catch(self) -> None:
+        repo, sha = init_repo()
+        inp = write_input(repo, sha, "model", "model")
+        (inp / "outcomes").mkdir()
+        (inp / "outcomes" / f"{sha}.json").write_text(
+            json.dumps(
+                {
+                    "complete": True,
+                    "tests": {"t::a": "fail", "t::b": "pass"},
+                    "base": {"complete": True, "tests": {"t::a": "fail", "t::b": "pass"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        out = Path(tempfile.mkdtemp()) / "demo.json"
+        result = run_script(["--input", str(inp), "--out", str(out)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
+        self.assertIsNone(case["caught"])
+        self.assertEqual(case["caught_reason"], "nothing_to_catch")
 
     def test_local_origin_keeps_public_url_and_stamps_generated_at(self) -> None:
         repo, sha = init_repo()

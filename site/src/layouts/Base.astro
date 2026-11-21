@@ -26,6 +26,7 @@ const fontFace = `@font-face{font-family:"JetBrains Mono";font-style:normal;font
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" href={`${base}favicon.svg`} />
+    <link rel="canonical" href={locale === "ru" ? links.locale.ru : links.locale.en} />
     <link rel="alternate" hreflang="en" href={links.locale.en} />
     <link rel="alternate" hreflang="ru" href={links.locale.ru} />
     <link rel="alternate" hreflang="x-default" href={links.locale.en} />

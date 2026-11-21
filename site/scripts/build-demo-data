@@ -105,28 +105,58 @@ def saved_ms(selected_ids: set[str], candidates: dict | None) -> int | None:
     return total
 
 
-def caught(selected_ids: list[str], outcomes: dict | None) -> bool | None:
-    if outcomes is None:
-        return None
-    mapping = outcomes.get("tests")
+def outcome_rows(mapping: object, label: str) -> dict[str, tuple[str, bool]]:
     if not isinstance(mapping, dict):
-        fail("outcomes.tests must be an object")
+        fail(f"{label} must be an object")
     allowed = {"pass", "fail", "error", "skip"}
-    for value in mapping.values():
-        if value not in allowed:
-            fail(f"unknown outcome {value!r}")
+    rows: dict[str, tuple[str, bool]] = {}
+    for test_id, value in mapping.items():
+        if not isinstance(test_id, str) or not test_id:
+            fail(f"{label} has an empty test id")
+        if isinstance(value, str):
+            outcome, flaky = value, False
+        elif isinstance(value, dict):
+            outcome = value.get("outcome")
+            flaky = value.get("flaky") is True
+        else:
+            fail(f"{label} {test_id} must be an outcome string or object")
+        if outcome not in allowed:
+            fail(f"unknown outcome {outcome!r}")
+        rows[test_id] = (outcome, flaky)
+    return rows
 
-    def is_fail(test_id: str) -> bool:
-        return mapping.get(test_id) in {"fail", "error"}
 
-    if any(is_fail(test_id) for test_id in selected_ids):
-        return True
-    complete = outcomes.get("complete") is True
-    any_fail = any(value in {"fail", "error"} for value in mapping.values())
-    failed_ids = {key for key, value in mapping.items() if value in {"fail", "error"}}
-    if complete and any_fail and failed_ids.isdisjoint(selected_ids):
-        return False
-    return None
+def caught(selected_ids: list[str], outcomes: dict | None) -> tuple[bool | None, str | None, int | None, int | None]:
+    """Return caught, caught_reason, new_fail_n, new_fail_selected.
+
+    A new failure is fail/error on this run, not fail/error on the base run,
+    and not marked flaky on either run.
+    """
+    if outcomes is None or outcomes.get("complete") is not True:
+        return None, "no_outcomes", None, None
+    head = outcome_rows(outcomes.get("tests"), "outcomes.tests")
+    base_doc = outcomes.get("base")
+    if not isinstance(base_doc, dict) or base_doc.get("complete") is not True:
+        fail("complete outcomes need a complete base run")
+    base = outcome_rows(base_doc.get("tests"), "outcomes.base.tests")
+    flaky = {test_id for test_id, (_, flag) in head.items() if flag}
+    flaky.update(test_id for test_id, (_, flag) in base.items() if flag)
+
+    def fails(rows: dict[str, tuple[str, bool]]) -> set[str]:
+        return {test_id for test_id, (outcome, flag) in rows.items() if outcome in {"fail", "error"} and not flag}
+
+    new = (fails(head) - fails(base)) - flaky
+    if new:
+        selected_new = new.intersection(selected_ids)
+        return bool(selected_new), None, len(new), len(selected_new)
+    flaky_failures = {
+        test_id
+        for test_id, (outcome, _) in head.items()
+        if outcome in {"fail", "error"} and test_id in flaky
+    }
+    if flaky_failures:
+        return None, "only_flaky", None, None
+    return None, "nothing_to_catch", None, None
 
 
 def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
@@ -198,6 +228,7 @@ def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
     out_path = inp / "outcomes" / f"{head}.json"
     candidates = as_dict(load_numbers_as_text(cand_path), cand_path.name) if cand_path.is_file() else None
     outcomes = as_dict(load_numbers_as_text(out_path), out_path.name) if out_path.is_file() else None
+    verdict = caught(selected_ids, outcomes)
     safe = as_dict(doc["safe"], "safe")
     thresholds = safe.get("thresholds")
     recent_k = None
@@ -215,7 +246,10 @@ def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
         "n_selected": n_selected,
         "n_candidates": n_candidates,
         "saved_ms": saved_ms(set(selected_ids), candidates),
-        "caught": caught(selected_ids, outcomes),
+        "caught": verdict[0],
+        "caught_reason": verdict[1],
+        "new_fail_n": verdict[2],
+        "new_fail_selected": verdict[3],
         "synthetic": synthetic,
         "safe_fallback": safe.get("fallback_all") is True,
         "safe_reasons": reasons,
