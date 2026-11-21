@@ -839,3 +839,96 @@ def test_attrs_annotations_import_failure_requires_matching_mutation(
     assert result.collection_error is (
         parent_collects and mutation_kind == "annotations"
     )
+
+
+@pytest.mark.parametrize("parent_collects", [True, False])
+@pytest.mark.parametrize("mutation_kind", ["metadata", "other"])
+def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    parent_collects: bool,
+    mutation_kind: str,
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    before = textwrap.dedent(
+        """\
+        class Attribute:
+            def _setattrs(self, name, value):
+                if name != "metadata":
+                    bound_setattr(name, value)
+                else:
+                    bound_setattr(name, value if value else {})
+
+        def other(value):
+            return value
+
+        def __getstate__(self):
+            return dict(self.metadata)
+        """
+    )
+    if mutation_kind == "metadata":
+        after = before.replace(
+            "bound_setattr(name, value if value else {})",
+            "bound_setattr(name, not (value if value else {}))",
+        )
+    else:
+        after = before.replace("return value", "return not (value if value else {})")
+    source.write_text(before, encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline attrs package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text(after, encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant changes metadata")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+
+    wrapper = tmp_path / "pytest_wrap"
+    parent_output = (
+        "cat > \"$junit\" <<'XML'\n"
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<testsuites><testsuite name="tests" tests="1">'
+        '<testcase classname="tests.test_basic" name="test_ok"/>'
+        "</testsuite></testsuites>\n"
+        "XML\n"
+        "echo '1 test collected'\n"
+        "exit 0\n"
+    )
+    if not parent_collects:
+        parent_output = "exit 1\n"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "junit=''\n"
+        'for arg in "$@"; do case "$arg" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n'
+        'case "$PWD" in *wt-parent-*)\n'
+        + parent_output
+        + "esac\n"
+        + "printf '%s\\n' 'Traceback (most recent call last):'\n"
+        + 'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 12, in __getstate__"\n'
+        + "printf '%s\\n' \"TypeError: 'bool' object is not iterable\"\n"
+        + "exit 1\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.pytest_rc == 1
+    assert result.collection_error is (
+        parent_collects and mutation_kind == "metadata"
+    ), result.collect_note[-2000:]

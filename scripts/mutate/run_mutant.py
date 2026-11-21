@@ -175,6 +175,12 @@ _NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE = re.compile(
 _NO_JUNIT_MUTANT_ANNOTATIONS_NONE_RE = re.compile(
     r"(?m)^AttributeError: 'NoneType' object has no attribute 'get'\s*$"
 )
+_NO_JUNIT_MUTANT_METADATA_BOOL_RE = re.compile(
+    r"(?m)^TypeError: 'bool' object is not iterable\s*$"
+)
+_NO_JUNIT_ATTR_METADATA_FRAME_RE = re.compile(
+    r"(?m)^\s*File ['\"].*/src/attr/_make\.py['\"], line \d+, in __getstate__"
+)
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
     r"jsonschema[/\\]_types\.py\", line \d+, in"
 )
@@ -401,6 +407,79 @@ def _mutant_attrs_function_returns_none(
         ):
             return True
     return False
+
+
+def _mutant_negates_attrs_attribute_metadata(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize the metadata setter mutation that stores bool instead of a mapping."""
+    path = "src/attr/_make.py"
+
+    def negates_metadata_value(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for cls in tree.body:
+            if not isinstance(cls, ast.ClassDef) or cls.name != "Attribute":
+                continue
+            for method in cls.body:
+                if not isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if method.name != "_setattrs":
+                    continue
+                for node in ast.walk(method):
+                    if not isinstance(node, ast.If) or not isinstance(
+                        node.test, ast.Compare
+                    ):
+                        continue
+                    test = node.test
+                    if not (
+                        isinstance(test.left, ast.Name)
+                        and test.left.id == "name"
+                        and len(test.ops) == 1
+                        and isinstance(test.ops[0], ast.NotEq)
+                        and len(test.comparators) == 1
+                        and isinstance(test.comparators[0], ast.Constant)
+                        and test.comparators[0].value == "metadata"
+                    ):
+                        continue
+                    for statement in node.orelse:
+                        for call in ast.walk(statement):
+                            if not (
+                                isinstance(call, ast.Call)
+                                and isinstance(call.func, ast.Name)
+                                and call.func.id == "bound_setattr"
+                                and len(call.args) >= 2
+                            ):
+                                continue
+                            value = call.args[1]
+                            if isinstance(value, ast.UnaryOp) and isinstance(
+                                value.op, ast.Not
+                            ):
+                                return isinstance(value.operand, ast.IfExp)
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not negates_metadata_value(parent_source) and negates_metadata_value(
+        mutant_source
+    )
 
 
 def _collected_count(output: str) -> int:
@@ -840,6 +919,15 @@ def run_mutant(
                     repo, parent_sha, mutant_sha, "_get_annotations"
                 )
             )
+            attrs_metadata_bool_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_MUTANT_METADATA_BOOL_RE.search(tail) is not None
+                and _NO_JUNIT_ATTR_METADATA_FRAME_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_negates_attrs_attribute_metadata(
+                    repo, parent_sha, mutant_sha
+                )
+            )
             if (
                 not no_junit_mutant_control_error
                 and rc in {1, 3}
@@ -849,6 +937,7 @@ def run_mutant(
                     or _NO_JUNIT_MUTANT_INIT_TYPEERROR_RE.search(tail) is not None
                     or _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE.search(tail) is not None
                     or attrs_annotations_failure
+                    or attrs_metadata_bool_failure
                 )
                 and has_local_mutant_frame
             ):
@@ -864,7 +953,12 @@ def run_mutant(
                     env,
                 )
                 no_junit_mutant_control_error = parent_ok
-                no_junit_note = f"{no_junit_note}\n{parent_note}"
+                cause_note = (
+                    "mutant negates Attribute.metadata in _setattrs; "
+                    if attrs_metadata_bool_failure
+                    else ""
+                )
+                no_junit_note = f"{no_junit_note}\n{cause_note}{parent_note}"
             elif not no_junit_mutant_control_error and attrs_evolve_jsonschema_failure:
                 parent_ok, parent_note = _parent_control_collection(
                     repo,
