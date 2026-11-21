@@ -1006,7 +1006,6 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
         'case "$PWD" in *wt-parent-*)\n'
         + parent_output
         + "esac\n"
-        + "printf '%s\\n' 'Error while loading plugin \"pytest11\".'\n"
         + "printf '%s\\n' 'Traceback (most recent call last):'\n"
         + f'printf \'%s\\n\' "  File \\"{external_frame}\\", line 172, in <module>"\n'
         + "printf '%s\\n' \"TypeError: Specification.__init__() got an unexpected keyword argument 'name'\"\n"

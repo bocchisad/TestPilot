@@ -992,7 +992,6 @@ def run_mutant(
             )
             attrs_specification_import_failure = (
                 rc in {1, 3}
-                and _NO_JUNIT_PYTEST11_RE.search(tail) is not None
                 and _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE.search(tail) is not None
                 and _mutant_inverts_attrs_own_attribute_sentinel(
                     repo, parent_sha, mutant_sha
