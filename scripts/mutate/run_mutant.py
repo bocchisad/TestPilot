@@ -191,6 +191,9 @@ _NO_JUNIT_ATTRS_INIT_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s
 _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE = re.compile(
     r"(?m)^AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
 )
+_NO_JUNIT_ATTRS_EQ_SYNTAX_RE = re.compile(
+    r"(?m)^SyntaxError: invalid syntax\. Perhaps you forgot a comma\?\s*$"
+)
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
     r"jsonschema[/\\]_types\.py\", line \d+, in"
 )
@@ -620,6 +623,88 @@ def _mutant_negates_attrs_generated_init_expression(
     return not has_negated_fstring_condition(
         parent_source
     ) and has_negated_fstring_condition(mutant_source)
+
+
+def _mutant_breaks_attrs_generated_eq_expression(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize mutations that add a trailing `and` to attrs' generated eq."""
+    path = "src/attr/_make.py"
+
+    def has_broken_final_attribute_check(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+
+        def attrs_index(node: ast.expr, index: int) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "attrs"
+            ):
+                return False
+            try:
+                return ast.literal_eval(node.slice) == index
+            except (ValueError, TypeError):
+                return False
+
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != "_make_eq":
+                continue
+            for child in ast.walk(node):
+                if not isinstance(child, ast.If):
+                    continue
+                test = child.test
+                if (
+                    isinstance(test, ast.Compare)
+                    and isinstance(test.left, ast.Name)
+                    and test.left.id == "a"
+                    and len(test.ops) == 1
+                    and isinstance(test.ops[0], ast.IsNot)
+                    and len(test.comparators) == 1
+                    and attrs_index(test.comparators[0], -2)
+                ):
+                    return True
+                if (
+                    isinstance(test, ast.UnaryOp)
+                    and isinstance(test.op, ast.Not)
+                    and isinstance(test.operand, ast.Compare)
+                ):
+                    comparison = test.operand
+                    if (
+                        isinstance(comparison.left, ast.Name)
+                        and comparison.left.id == "a"
+                        and len(comparison.ops) == 1
+                        and isinstance(comparison.ops[0], ast.IsNot)
+                        and len(comparison.comparators) == 1
+                        and attrs_index(comparison.comparators[0], -1)
+                    ):
+                        return True
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not has_broken_final_attribute_check(
+        parent_source
+    ) and has_broken_final_attribute_check(mutant_source)
 
 
 def _collected_count(output: str) -> int:
@@ -1097,6 +1182,14 @@ def run_mutant(
                     repo, parent_sha, mutant_sha, "generated_body"
                 )
             )
+            attrs_generated_eq_syntax_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_EQ_SYNTAX_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_breaks_attrs_generated_eq_expression(
+                    repo, parent_sha, mutant_sha
+                )
+            )
             if (
                 not no_junit_mutant_control_error
                 and rc in {1, 3}
@@ -1111,6 +1204,7 @@ def run_mutant(
                     or attrs_class_var_import_failure
                     or attrs_generated_init_syntax_failure
                     or attrs_generated_init_typechecker_failure
+                    or attrs_generated_eq_syntax_failure
                 )
                 and (
                     has_local_mutant_frame
@@ -1146,7 +1240,11 @@ def run_mutant(
                                 else (
                                     "mutant negates the generated attrs initializer body; "
                                     if attrs_generated_init_typechecker_failure
-                                    else ""
+                                    else (
+                                        "mutant breaks the attrs generated equality expression; "
+                                        if attrs_generated_eq_syntax_failure
+                                        else ""
+                                    )
                                 )
                             )
                         )
