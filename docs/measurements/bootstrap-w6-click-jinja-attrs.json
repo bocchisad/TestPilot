@@ -63,6 +63,53 @@
       "python": "3.13.18"
     }
   },
+  "interpretation": {
+    "conclusion": "model approximately ties cov_lines; cov_lines dominates feature gain",
+    "cov_lines_macro_recall_at_10pct": 0.7157546412443209,
+    "default_ranker": "cov_lines",
+    "delta_vs_cov_lines": -0.005859520781038352,
+    "limitations": [
+      "dry-run underpredicted measured wall time by 32\u201342%",
+      "Click and attrs have TEST n_C=5 (<10); widen TEST in Week 7"
+    ],
+    "loro_macro_recall_at_10pct": 0.7098951204632825,
+    "per_repo": [
+      {
+        "cov_lines_recall_at_10pct": 0.849752390987194,
+        "delta_vs_cov_lines": 0.004518965796725616,
+        "gate": "use_baseline",
+        "gate_reason": "insufficient_test_C",
+        "model_recall_at_10pct": 0.8542713567839196,
+        "repo": "attrs",
+        "test_n_C": 5
+      },
+      {
+        "cov_lines_recall_at_10pct": 0.42792188538570725,
+        "delta_vs_cov_lines": -0.020575126341097427,
+        "gate": "use_baseline",
+        "gate_reason": "insufficient_test_C",
+        "model_recall_at_10pct": 0.4073467590446098,
+        "repo": "click",
+        "test_n_C": 5
+      },
+      {
+        "cov_lines_recall_at_10pct": 0.8695896473600615,
+        "delta_vs_cov_lines": -0.0015224017987430782,
+        "gate": "use_model",
+        "gate_reason": "synth_test_ci_low_ge_0",
+        "model_recall_at_10pct": 0.8680672455613184,
+        "repo": "jinja",
+        "test_n_C": 11
+      }
+    ],
+    "pooled_test_ci95": [
+      0.004897452006012426,
+      0.053819629480489704
+    ],
+    "pooled_test_delta": 0.026567906847545734,
+    "pooled_test_n": 48,
+    "pooled_test_n_C": 21
+  },
   "level_b": {
     "excluded_timeout_shas": [
       "0f507e6228d0fbca7eb45f0506803ff0269d8a04",
@@ -12141,7 +12188,7 @@
           "random": 0.09978527279271918
         },
         "best_iteration": 22,
-        "held_out": "attrs-rerun12",
+        "held_out": "attrs",
         "n_changes": 16,
         "objective": "binary",
         "recall@10%": 0.8542713567839196
@@ -12193,6 +12240,44 @@
     "jinja": {
       "sha": "15206881c006c79667fe5154fe80c01c65410679",
       "tag": "3.1.6"
+    }
+  },
+  "provenance": {
+    "aggregator": {
+      "git_blob_sha1": "0a7c3bb9ad7ebde626c75ae2266abd30ae254302",
+      "git_commit": "092d6cc30a09f409aea1b1413ab62976d60430fd",
+      "path": "scripts/aggregate_bootstrap_w6.py"
+    },
+    "labeling_classifier": {
+      "attrs_pairs": [
+        {
+          "count": 76,
+          "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+          "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+          "period": "before the attrs classifier fixes"
+        },
+        {
+          "count": 36,
+          "git_blob_sha1": "7cdb0938e52c44b7733cb3b1213048e21069a539",
+          "git_commit": "9e863f1d0283c274c05f49d1124550e5151251b5",
+          "period": "after the attrs classifier fixes"
+        }
+      ],
+      "click_jinja": {
+        "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81",
+        "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac"
+      },
+      "path": "scripts/mutate/run_mutant.py"
+    },
+    "measurement_runner": {
+      "git_blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "path": "scripts/measure_bootstrap_w6.sh"
+    },
+    "mutation_ledger": {
+      "git_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+      "path": "scripts/mutate_bootstrap.py"
     }
   },
   "repos": {

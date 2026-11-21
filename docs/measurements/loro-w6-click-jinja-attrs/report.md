@@ -1,5 +1,25 @@
 # TestPilot training report
 
+## Week 6 interpretation
+
+- LORO macro recall@10%: model 0.710 vs cov_lines 0.716 (Δ -0.006).
+- attrs: model 0.854, cov_lines 0.850 (Δ +0.005); gate `use_baseline` (insufficient_test_C, n_C=5).
+- click: model 0.407, cov_lines 0.428 (Δ -0.021); gate `use_baseline` (insufficient_test_C, n_C=5).
+- jinja: model 0.868, cov_lines 0.870 (Δ -0.002); gate `use_model` (synth_test_ci_low_ge_0, n_C=11).
+- Pooled TEST vs cov_lines: Δ +0.027, 95% CI [0.005, 0.054], n=48, n_C=21.
+- Aggregate bootstrap verdict is `use_model` on the pooled synthetic TEST gate; that result is distinct from per-repository gates and does not change the global default.
+- Conclusion: the model is approximately tied with cov_lines; cov_lines has the strongest feature gain. Keep cov_lines as the default.
+- Limitation: the dry-run estimate underpredicted measured wall time by 32–42%. Click and attrs each had TEST n_C=5 (<10); widening TEST is deferred to Week 7.
+- `env.date_utc` is the environment fingerprint captured before the measurement runs, not the run start time.
+
+## Provenance
+
+- Click/Jinja classifier: commit `6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac`, blob `55bacb570a74e4625eddab73ed155698c326db81`.
+- Attrs labels: 76 pairs at 978b50b (blob 3a6f035b688d6e35f507d07ae4b1211f2ada4d79), 36 pairs at 9e863f1 (blob 7cdb0938e52c44b7733cb3b1213048e21069a539) (76 of 112 pairs use the pre-fix classifier; 36 use the updated classifier).
+- Mutation ledger: `scripts/mutate_bootstrap.py`, commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `548fcc2e98285d7d6bd2dea29d8e4c4b144b4620`.
+- Aggregator: `scripts/aggregate_bootstrap_w6.py`, commit `092d6cc30a09f409aea1b1413ab62976d60430fd`, blob `0a7c3bb9ad7ebde626c75ae2266abd30ae254302`.
+- Measurement runner: `scripts/measure_bootstrap_w6.sh`, commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `f408b62d49636c259dd6980f725a5fada0311bf7`.
+
 - status: **ok**
 - objective: `lambdarank`
 - useful_on_val (useful_on_real_val): True
@@ -86,44 +106,44 @@
 
 ### Always-broken tests (≥90% fails, n=79)
 
-- `attrs-rerun12` `tests/test_dunders.py::TestAddHash::test_hash_works[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestAddHash::test_hash_works[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestAddHash::test_hash_works[None2]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestAddHash::test_hash_works[None3]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestAddHash::test_hash_works[None4]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestAddRepr::test_repr_works[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestAddRepr::test_repr_works[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_equal[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_equal[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_ge[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_ge[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_ge_unordable[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_ge_unordable[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_gt[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_gt[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_gt_unordable[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_gt_unordable[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_le[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_le[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_le_unordable[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_le_unordable[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_lt[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_lt[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_lt_unordable[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_lt_unordable[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None0]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None1]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_frozen_instance[None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_attributes[2-None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_attributes[3-None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_attributes[4-None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_attributes[5-None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_object[2-None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_object[3-None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_object[4-None]`: 1/1 (100%)
-- `attrs-rerun12` `tests/test_functional.py::TestFunctional::test_pickle_object[5-None]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestAddHash::test_hash_works[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestAddHash::test_hash_works[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestAddHash::test_hash_works[None2]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestAddHash::test_hash_works[None3]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestAddHash::test_hash_works[None4]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestAddRepr::test_repr_works[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestAddRepr::test_repr_works[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_equal[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_equal[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_ge[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_ge[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_ge_unordable[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_ge_unordable[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_gt[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_gt[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_gt_unordable[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_gt_unordable[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_le[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_le[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_le_unordable[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_le_unordable[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_lt[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_lt[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_lt_unordable[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_lt_unordable[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None1]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None0]`: 1/1 (100%)
+- `attrs` `tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None1]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_frozen_instance[None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_attributes[2-None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_attributes[3-None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_attributes[4-None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_attributes[5-None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_object[2-None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_object[3-None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_object[4-None]`: 1/1 (100%)
+- `attrs` `tests/test_functional.py::TestFunctional::test_pickle_object[5-None]`: 1/1 (100%)
 - `jinja` `tests/test_asyncfilters.py::test_attribute_map[<lambda>0]`: 55/55 (100%)
 - `jinja` `tests/test_asyncfilters.py::test_attribute_map[<lambda>1]`: 55/55 (100%)
 - `jinja` `tests/test_asyncfilters.py::test_bool_reject[<lambda>0]`: 55/55 (100%)
@@ -227,7 +247,7 @@
 ## LORO (macro recall@10% new_fail on held-out test)
 
 - macro: 0.7098951204632825
-- attrs-rerun12: model=0.8542713567839196 n_changes=16
+- attrs: model=0.8542713567839196 n_changes=16
   - baselines: cov_lines=0.849752390987194, cc_max=0.3962356171873058, random=0.09978527279271918
 - click: model=0.4073467590446098 n_changes=10
   - baselines: cov_lines=0.42792188538570725, cc_max=0.16316964067662662, random=0.09939805619554568

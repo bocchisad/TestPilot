@@ -72,7 +72,17 @@ Gate `use_baseline` reasons (select uses `cov_lines` from the same artifact — 
 
 After more history or a larger N, re-run with `--force`.
 
-**n_C widths** (why 200×4): see [`docs/measurements/mut2-80x5-click-jinja.json`](docs/measurements/mut2-80x5-click-jinja.json). **Measured step times / timeout rates / LORO:** [`docs/measurements/`](docs/measurements/) (do not invent numbers — open the JSON files). Dry-run hats: [`docs/measurements/bootstrap_time_priors.json`](docs/measurements/bootstrap_time_priors.json).
+**n_C widths** (why 200×4): see [`docs/measurements/mut2-80x5-click-jinja.json`](docs/measurements/mut2-80x5-click-jinja.json). **Measured step times / timeout rates / LORO:** [`docs/measurements/`](docs/measurements/) (do not invent numbers — open the JSON files). Dry-run estimates use [`docs/measurements/bootstrap_time_priors.json`](docs/measurements/bootstrap_time_priors.json).
+
+**Week 6 result (Click/Jinja/attrs):** on leave-one-repository-out evaluation, model macro recall@10% was **0.710** versus **0.716** for `cov_lines` (Δ **−0.006**). Per-repository deltas were attrs **+0.005**, Click **−0.021**, and Jinja **−0.002**. The pooled TEST estimate was Δ **+0.027** (95% CI **[0.005, 0.054]**, n=48, n_C=21), but it does not establish an advantage across held-out repositories.
+
+| Held-out repository | Model recall@10% | `cov_lines` | Δ | Bootstrap gate |
+|---|---:|---:|---:|---|
+| attrs | 0.854 | 0.850 | +0.005 | `use_baseline` (`insufficient_test_C`, n_C=5) |
+| Click | 0.407 | 0.428 | −0.021 | `use_baseline` (`insufficient_test_C`, n_C=5) |
+| Jinja | 0.868 | 0.870 | −0.002 | `use_model` (n_C=11) |
+
+Conclusion: the model is approximately tied with `cov_lines`; `cov_lines` dominates the feature gain. Keep `cov_lines` as the default. The dry-run estimate underpredicted measured wall time by **32–42%**. Click and attrs each had TEST n_C=5, below the gate's minimum of 10; widening the TEST fold is deferred to Week 7. `env.date_utc` records when the environment fingerprint was captured before the runs, not the run start time. Full metrics and script provenance are in [`docs/measurements/loro-w6-click-jinja-attrs/report.md`](docs/measurements/loro-w6-click-jinja-attrs/report.md) and [`docs/measurements/bootstrap-w6-click-jinja-attrs.json`](docs/measurements/bootstrap-w6-click-jinja-attrs.json).
 
 **Click on Linux:** install **`less`**. Without it, pager tests fail on every commit (persistent, not `new_fail`).
 

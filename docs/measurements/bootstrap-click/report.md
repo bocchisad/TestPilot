@@ -246,3 +246,9 @@
 | `cc_sum` | 691 | 76992 | None | 0.0000 |
 | `cov_breadth` | 773 | 76992 | None | 0.0000 |
 | `t_age_days` | 2834 | 76992 | None | 0.0000 |
+
+## Provenance
+
+- Mutation classifier (`scripts/mutate/run_mutant.py`): commit `6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac`, blob `55bacb570a74e4625eddab73ed155698c326db81`.
+- Mutation ledger (`scripts/mutate_bootstrap.py`): commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `548fcc2e98285d7d6bd2dea29d8e4c4b144b4620`.
+- Aggregator (`scripts/aggregate_bootstrap_w6.py`): commit `092d6cc30a09f409aea1b1413ab62976d60430fd`, blob `0a7c3bb9ad7ebde626c75ae2266abd30ae254302`.
