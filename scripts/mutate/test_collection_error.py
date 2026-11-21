@@ -411,13 +411,14 @@ def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
     source = repo / "src" / "attr" / "_make.py"
     source.parent.mkdir(parents=True)
     source.write_text("def value():\n    return 1\n", encoding="utf-8")
-    _git(repo, "add", "src/attr/_make.py")
+    relative_source = source.relative_to(repo).as_posix()
+    _git(repo, "add", relative_source)
     _git(repo, "commit", "-m", "baseline package")
     parent = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
     ).strip()
     source.write_text("def value():\n    return 2\n", encoding="utf-8")
-    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "add", relative_source)
     _git(repo, "commit", "-m", "mutant breaks plugin import")
     mutant = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
@@ -724,31 +725,72 @@ def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])
-@pytest.mark.parametrize("mutates_annotations", [True, False])
+@pytest.mark.parametrize("mutation_kind", ["annotations", "other", "nested"])
+@pytest.mark.parametrize("attrs_module", ["_make", "_compat"])
 def test_attrs_annotations_import_failure_requires_matching_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
-    mutates_annotations: bool,
+    mutation_kind: str,
+    attrs_module: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
-    source = repo / "src" / "attr" / "_make.py"
+    source = repo / "src" / "attr" / f"{attrs_module}.py"
     source.parent.mkdir(parents=True)
-    before = "def _get_annotations(cls):\n    return {}\n\ndef other():\n    return 1\n"
-    after = (
-        "def _get_annotations(cls):\n    return None\n\ndef other():\n    return 1\n"
-        if mutates_annotations
-        else "def _get_annotations(cls):\n    return {}\n\ndef other():\n    return 2\n"
-    )
+    if attrs_module == "_compat":
+        before = (
+            "if PY_3_14_PLUS:\n"
+            "    _get_annotations = annotationlib.get_annotations\n"
+            "else:\n"
+            "    def _get_annotations(cls):\n        return {}\n"
+            "\ndef other():\n    return 1\n"
+        )
+        after = (
+            before.replace("return {}", "return None", 1)
+            if mutation_kind == "annotations"
+            else before.replace(
+                "def other():\n    return 1",
+                (
+                    "def other():\n    def _get_annotations(cls):\n        return None\n"
+                    "    return 1"
+                    if mutation_kind == "nested"
+                    else "def other():\n    return 2"
+                ),
+            )
+        )
+    else:
+        before = (
+            "def _get_annotations(cls):\n    return {}\n\ndef other():\n    return 1\n"
+        )
+        after = (
+            before.replace("return {}", "return None", 1)
+            if mutation_kind == "annotations"
+            else before.replace(
+                "def other():\n    return 1",
+                (
+                    "def other():\n    def _get_annotations(cls):\n        return None\n"
+                    "    return 1"
+                    if mutation_kind == "nested"
+                    else "def other():\n    return 2"
+                ),
+            )
+        )
     source.write_text(before, encoding="utf-8")
-    _git(repo, "add", "src/attr/_make.py")
+    relative_source = source.relative_to(repo).as_posix()
+    _git(repo, "add", relative_source)
+    if attrs_module == "_compat":
+        trace_source = source.parent / "_make.py"
+        trace_source.write_text(
+            "def _transform_attrs():\n    return None\n", encoding="utf-8"
+        )
+        _git(repo, "add", "src/attr/_make.py")
     _git(repo, "commit", "-m", "baseline package")
     parent = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
     ).strip()
     source.write_text(after, encoding="utf-8")
-    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "add", relative_source)
     _git(repo, "commit", "-m", "mutant changes attrs behavior")
     mutant = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
@@ -794,4 +836,6 @@ def test_attrs_annotations_import_failure_requires_matching_mutation(
         timeout_override=60,
     )
     assert result.pytest_rc == 1
-    assert result.collection_error is (parent_collects and mutates_annotations)
+    assert result.collection_error is (
+        parent_collects and mutation_kind == "annotations"
+    )

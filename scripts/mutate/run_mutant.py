@@ -346,42 +346,61 @@ def _mutant_attrs_function_returns_none(
     repo: Path, parent_sha: str, mutant_sha: str, function_name: str
 ) -> bool:
     """Recognize an attrs function changed to return None by this mutant."""
-    path = "src/attr/_make.py"
-    try:
-        parent_source = subprocess.run(
-            ["git", "show", f"{parent_sha}:{path}"],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        mutant_source = subprocess.run(
-            ["git", "show", f"{mutant_sha}:{path}"],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        parent_tree = ast.parse(parent_source)
-        mutant_tree = ast.parse(mutant_source)
-    except (OSError, subprocess.CalledProcessError, SyntaxError):
-        return False
 
     def function_returns_none(tree: ast.Module) -> bool:
-        for node in tree.body:
-            if (
-                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name == function_name
-            ):
-                return any(
-                    isinstance(child, ast.Return)
-                    and isinstance(child.value, ast.Constant)
-                    and child.value.value is None
-                    for child in ast.walk(node)
-                )
-        return False
+        def module_functions(statements: list[ast.stmt]):
+            for statement in statements:
+                if isinstance(
+                    statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+                ):
+                    if (
+                        isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and statement.name == function_name
+                    ):
+                        yield statement
+                    continue
+                for ast_field in ("body", "orelse", "finalbody"):
+                    nested = getattr(statement, ast_field, None)
+                    if isinstance(nested, list):
+                        yield from module_functions(nested)
+                for handler in getattr(statement, "handlers", ()):
+                    yield from module_functions(handler.body)
 
-    return not function_returns_none(parent_tree) and function_returns_none(mutant_tree)
+        return any(
+            any(
+                isinstance(child, ast.Return)
+                and isinstance(child.value, ast.Constant)
+                and child.value.value is None
+                for child in ast.walk(node)
+            )
+            for node in module_functions(tree.body)
+        )
+
+    for path in ("src/attr/_make.py", "src/attr/_compat.py"):
+        try:
+            parent_source = subprocess.run(
+                ["git", "show", f"{parent_sha}:{path}"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            mutant_source = subprocess.run(
+                ["git", "show", f"{mutant_sha}:{path}"],
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            parent_tree = ast.parse(parent_source)
+            mutant_tree = ast.parse(mutant_source)
+        except (OSError, subprocess.CalledProcessError, SyntaxError):
+            continue
+        if not function_returns_none(parent_tree) and function_returns_none(
+            mutant_tree
+        ):
+            return True
+    return False
 
 
 def _collected_count(output: str) -> int:
