@@ -188,6 +188,9 @@ _NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE = re.compile(
     r"(?m)^TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
 )
 _NO_JUNIT_ATTRS_INIT_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
+_NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE = re.compile(
+    r"(?m)^AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
+)
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
     r"jsonschema[/\\]_types\.py\", line \d+, in"
 )
@@ -549,7 +552,7 @@ def _mutant_inverts_attrs_own_attribute_sentinel(
 
 
 def _mutant_negates_attrs_generated_init_expression(
-    repo: Path, parent_sha: str, mutant_sha: str
+    repo: Path, parent_sha: str, mutant_sha: str, expression_kind: str
 ) -> bool:
     """Recognize bool-flip mutations that corrupt attrs' generated init source."""
     path = "src/attr/_make.py"
@@ -573,7 +576,28 @@ def _mutant_negates_attrs_generated_init_expression(
                     and isinstance(value.op, ast.Not)
                     and isinstance(value.operand, ast.IfExp)
                 ):
-                    return True
+                    conditional = value.operand
+                    if expression_kind == "kw_only_separator":
+                        if (
+                            isinstance(conditional.test, ast.Name)
+                            and conditional.test.id == "args"
+                            and isinstance(conditional.body, ast.Constant)
+                            and conditional.body.value == ", "
+                            and isinstance(conditional.orelse, ast.Constant)
+                            and conditional.orelse.value == ""
+                        ):
+                            return True
+                    elif expression_kind == "generated_body":
+                        if (
+                            isinstance(conditional.test, ast.Name)
+                            and conditional.test.id == "lines"
+                            and isinstance(conditional.body, ast.Call)
+                            and isinstance(conditional.body.func, ast.Attribute)
+                            and conditional.body.func.attr == "join"
+                            and isinstance(conditional.orelse, ast.Constant)
+                            and conditional.orelse.value == "pass"
+                        ):
+                            return True
         return False
 
     try:
@@ -1063,7 +1087,15 @@ def run_mutant(
                 and _NO_JUNIT_ATTRS_INIT_SYNTAX_RE.search(tail) is not None
                 and has_local_mutant_frame
                 and _mutant_negates_attrs_generated_init_expression(
-                    repo, parent_sha, mutant_sha
+                    repo, parent_sha, mutant_sha, "kw_only_separator"
+                )
+            )
+            attrs_generated_init_typechecker_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_negates_attrs_generated_init_expression(
+                    repo, parent_sha, mutant_sha, "generated_body"
                 )
             )
             if (
@@ -1079,6 +1111,7 @@ def run_mutant(
                     or attrs_specification_import_failure
                     or attrs_class_var_import_failure
                     or attrs_generated_init_syntax_failure
+                    or attrs_generated_init_typechecker_failure
                 )
                 and (
                     has_local_mutant_frame
@@ -1110,7 +1143,11 @@ def run_mutant(
                             else (
                                 "mutant negates an attrs generated-init f-string expression; "
                                 if attrs_generated_init_syntax_failure
-                                else ""
+                                else (
+                                    "mutant negates the generated attrs initializer body; "
+                                    if attrs_generated_init_typechecker_failure
+                                    else ""
+                                )
                             )
                         )
                     )

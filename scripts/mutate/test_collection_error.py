@@ -938,11 +938,13 @@ def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_contr
 @pytest.mark.parametrize(
     "mutation_kind", ["kw_only_separator", "generated_body", "other"]
 )
+@pytest.mark.parametrize("error_kind", ["syntax", "typechecker"])
 def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
     mutation_kind: str,
+    error_kind: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -1009,7 +1011,11 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
         + "esac\n"
         + "printf '%s\\n' 'Traceback (most recent call last):'\n"
         + 'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 3, in _attrs_to_init_script"\n'
-        + "printf '%s\\n' \"SyntaxError: invalid syntax\"\n"
+        + (
+            "printf '%s\\n' \"SyntaxError: invalid syntax\"\n"
+            if error_kind == "syntax"
+            else "printf '%s\\n' \"AttributeError: 'jsonschema._types.TypeChecker' object has no attribute '_type_checkers'\"\n"
+        )
         + "exit 1\n",
         encoding="utf-8",
     )
@@ -1026,8 +1032,12 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
         timeout_override=60,
     )
     assert result.pytest_rc == 1
+    matching_pair = (mutation_kind, error_kind) in {
+        ("kw_only_separator", "syntax"),
+        ("generated_body", "typechecker"),
+    }
     assert result.collection_error is (
-        parent_collects and mutation_kind != "other"
+        parent_collects and matching_pair
     ), result.collect_note[-2000:]
 
 
