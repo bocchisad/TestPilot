@@ -181,6 +181,9 @@ _NO_JUNIT_MUTANT_METADATA_BOOL_RE = re.compile(
 _NO_JUNIT_ATTR_METADATA_FRAME_RE = re.compile(
     r"(?m)^\s*File ['\"].*/src/attr/_make\.py['\"], line \d+, in __getstate__"
 )
+_NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE = re.compile(
+    r"(?m)^TypeError: Specification\.__init__\(\) got an unexpected keyword argument 'name'\s*$"
+)
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
     r"jsonschema[/\\]_types\.py\", line \d+, in"
 )
@@ -480,6 +483,65 @@ def _mutant_negates_attrs_attribute_metadata(
     return not negates_metadata_value(parent_source) and negates_metadata_value(
         mutant_source
     )
+
+
+def _mutant_inverts_attrs_own_attribute_sentinel(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize the sentinel inversion that breaks attrs-generated constructors."""
+    path = "src/attr/_make.py"
+
+    def has_inverted_check(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != "_has_own_attribute":
+                continue
+            for condition in ast.walk(node):
+                if not isinstance(condition, ast.If):
+                    continue
+                test = condition.test
+                if not (
+                    isinstance(test, ast.UnaryOp)
+                    and isinstance(test.op, ast.Not)
+                    and isinstance(test.operand, ast.Compare)
+                ):
+                    continue
+                comparison = test.operand
+                if (
+                    isinstance(comparison.left, ast.Name)
+                    and comparison.left.id == "attr"
+                    and len(comparison.ops) == 1
+                    and isinstance(comparison.ops[0], ast.Is)
+                    and len(comparison.comparators) == 1
+                    and isinstance(comparison.comparators[0], ast.Name)
+                    and comparison.comparators[0].id == "_SENTINEL"
+                ):
+                    return True
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not has_inverted_check(parent_source) and has_inverted_check(mutant_source)
 
 
 def _collected_count(output: str) -> int:
@@ -928,6 +990,14 @@ def run_mutant(
                     repo, parent_sha, mutant_sha
                 )
             )
+            attrs_specification_import_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_PYTEST11_RE.search(tail) is not None
+                and _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE.search(tail) is not None
+                and _mutant_inverts_attrs_own_attribute_sentinel(
+                    repo, parent_sha, mutant_sha
+                )
+            )
             if (
                 not no_junit_mutant_control_error
                 and rc in {1, 3}
@@ -938,8 +1008,9 @@ def run_mutant(
                     or _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE.search(tail) is not None
                     or attrs_annotations_failure
                     or attrs_metadata_bool_failure
+                    or attrs_specification_import_failure
                 )
-                and has_local_mutant_frame
+                and (has_local_mutant_frame or attrs_specification_import_failure)
             ):
                 parent_ok, parent_note = _parent_control_collection(
                     repo,
@@ -956,7 +1027,11 @@ def run_mutant(
                 cause_note = (
                     "mutant negates Attribute.metadata in _setattrs; "
                     if attrs_metadata_bool_failure
-                    else ""
+                    else (
+                        "mutant inverts _has_own_attribute sentinel test; "
+                        if attrs_specification_import_failure
+                        else ""
+                    )
                 )
                 no_junit_note = f"{no_junit_note}\n{cause_note}{parent_note}"
             elif not no_junit_mutant_control_error and attrs_evolve_jsonschema_failure:

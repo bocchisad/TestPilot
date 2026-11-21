@@ -932,3 +932,100 @@ def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_contr
     assert result.collection_error is (
         parent_collects and mutation_kind == "metadata"
     ), result.collect_note[-2000:]
+
+
+@pytest.mark.parametrize("parent_collects", [True, False])
+@pytest.mark.parametrize("mutation_kind", ["sentinel", "other"])
+def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    parent_collects: bool,
+    mutation_kind: str,
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    before = textwrap.dedent(
+        """\
+        _SENTINEL = object()
+
+        def _has_own_attribute(cls, attrib_name):
+            attr = getattr(cls, attrib_name, _SENTINEL)
+            if attr is _SENTINEL:
+                return False
+            return True
+
+        def other(attr):
+            if attr is _SENTINEL:
+                return False
+            return True
+        """
+    )
+    if mutation_kind == "sentinel":
+        after = before.replace("if attr is _SENTINEL:", "if not attr is _SENTINEL:", 1)
+    else:
+        after = before.replace(
+            "def other(attr):\n    if attr is _SENTINEL:",
+            "def other(attr):\n    if not attr is _SENTINEL:",
+        )
+    source.write_text(before, encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline attrs package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text(after, encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant inverts sentinel test")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+
+    wrapper = tmp_path / "pytest_wrap"
+    parent_output = (
+        "cat > \"$junit\" <<'XML'\n"
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<testsuites><testsuite name="tests" tests="1">'
+        '<testcase classname="tests.test_basic" name="test_ok"/>'
+        "</testsuite></testsuites>\n"
+        "XML\n"
+        "echo '1 test collected'\n"
+        "exit 0\n"
+    )
+    if not parent_collects:
+        parent_output = "exit 1\n"
+    external_frame = tmp_path / "site-packages" / "referencing" / "_core.py"
+    external_frame.parent.mkdir(parents=True)
+    external_frame.write_text("# external package frame\n", encoding="utf-8")
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "junit=''\n"
+        'for arg in "$@"; do case "$arg" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n'
+        'case "$PWD" in *wt-parent-*)\n'
+        + parent_output
+        + "esac\n"
+        + "printf '%s\\n' 'Error while loading plugin \"pytest11\".'\n"
+        + "printf '%s\\n' 'Traceback (most recent call last):'\n"
+        + f'printf \'%s\\n\' "  File \\"{external_frame}\\", line 172, in <module>"\n'
+        + "printf '%s\\n' \"TypeError: Specification.__init__() got an unexpected keyword argument 'name'\"\n"
+        + "exit 1\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.pytest_rc == 1
+    assert result.collection_error is (
+        parent_collects and mutation_kind == "sentinel"
+    ), result.collect_note[-2000:]
