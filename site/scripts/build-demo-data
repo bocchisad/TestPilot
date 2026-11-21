@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""Build site/src/data/demo.json from a TestPilot select run, or a placeholder."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def fail(message: str) -> None:
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def git(repo: Path, *args: str) -> str:
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(repo), *args],
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        fail(exc.stderr.strip() or f"git {' '.join(args)} failed")
+    return out
+
+
+def load_numbers_as_text(path: Path) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"), parse_int=str, parse_float=str)
+    except json.JSONDecodeError as exc:
+        fail(f"{path}: {exc}")
+    return None
+
+
+def as_dict(value: object, label: str) -> dict:
+    if not isinstance(value, dict):
+        fail(f"{label} must be an object")
+    return value
+
+
+def require(obj: dict, key: str, label: str) -> object:
+    if key not in obj:
+        fail(f"{label} missing {key}")
+    return obj[key]
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def write_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def placeholder(out: Path) -> None:
+    write_atomic(out, {"placeholder": True, "source": None, "cases": []})
+
+
+def resolve_ranker(select_doc: dict, model: dict) -> str:
+    raw = select_doc.get("ranker")
+    select_ranker = raw.strip() if isinstance(raw, str) else None
+    if select_ranker == "":
+        select_ranker = None
+    model_raw = model.get("ranker")
+    model_ranker = model_raw.strip() if isinstance(model_raw, str) else None
+    if model_ranker == "":
+        model_ranker = None
+    if select_ranker is None:
+        if model_ranker is None:
+            fail("ranker missing from select JSON and model.json")
+        return model_ranker
+    if model_ranker is not None and select_ranker != model_ranker:
+        fail(f"ranker mismatch: select {select_ranker} model {model_ranker}")
+    return select_ranker
+
+
+def saved_ms(selected_ids: set[str], candidates: dict | None) -> int | None:
+    if candidates is None:
+        return None
+    rows = candidates.get("tests")
+    if not isinstance(rows, list):
+        fail("candidates.tests must be a list")
+    total = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            fail("candidates row must be an object")
+        test_id = row.get("test_id")
+        if not isinstance(test_id, str) or test_id in selected_ids:
+            continue
+        dur = row.get("dur")
+        if not isinstance(dur, str) or dur == "-1":
+            return None
+        try:
+            total += int(dur)
+        except ValueError:
+            return None
+    return total
+
+
+def caught(selected_ids: list[str], outcomes: dict | None) -> bool | None:
+    if outcomes is None:
+        return None
+    mapping = outcomes.get("tests")
+    if not isinstance(mapping, dict):
+        fail("outcomes.tests must be an object")
+    allowed = {"pass", "fail", "error", "skip"}
+    for value in mapping.values():
+        if value not in allowed:
+            fail(f"unknown outcome {value!r}")
+
+    def is_fail(test_id: str) -> bool:
+        return mapping.get(test_id) in {"fail", "error"}
+
+    if any(is_fail(test_id) for test_id in selected_ids):
+        return True
+    complete = outcomes.get("complete") is True
+    any_fail = any(value in {"fail", "error"} for value in mapping.values())
+    failed_ids = {key for key, value in mapping.items() if value in {"fail", "error"}}
+    if complete and any_fail and failed_ids.isdisjoint(selected_ids):
+        return False
+    return None
+
+
+def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
+    head = ranking_path.stem
+    if len(head) != 40 or any(ch not in "0123456789abcdef" for ch in head):
+        fail(f"ranking filename is not a 40-hex sha: {ranking_path.name}")
+    doc = as_dict(load_numbers_as_text(ranking_path), ranking_path.name)
+    select_head = require(doc, "head", ranking_path.name)
+    if select_head != head:
+        fail(f"{ranking_path.name} head is {select_head}")
+    for key in (
+        "model_sha256",
+        "features_version",
+        "base",
+        "base_run_sha",
+        "n_candidates",
+        "n_selected",
+        "n_forced",
+        "n_safe_added",
+        "n_ranked",
+        "budget",
+        "safe",
+        "tests",
+    ):
+        require(doc, key, ranking_path.name)
+    tests = doc["tests"]
+    if not isinstance(tests, list):
+        fail("tests must be a list")
+    try:
+        n_selected = int(doc["n_selected"])
+        n_candidates = int(doc["n_candidates"])
+    except (TypeError, ValueError):
+        fail("n_selected/n_candidates must be integers")
+    if len(tests) != n_selected:
+        fail(f"len(tests) {len(tests)} != n_selected {n_selected}")
+    git(clone, "cat-file", "-e", head)
+    base = doc["base"]
+    if not isinstance(base, str) or not base:
+        fail("base must be a string")
+    git(clone, "rev-parse", "--verify", "--quiet", base)
+    subject = git(clone, "log", "-1", "--format=%s", head).strip()
+    authored = git(clone, "log", "-1", "--format=%aI", head).strip()
+    diff = git(clone, "diff", "--unified=3", base, head)
+    if diff.endswith("\n"):
+        pass
+    refs = git(clone, "for-each-ref", "--points-at", head, "refs/testpilot/mutants")
+    synthetic = bool(refs.strip())
+    ranker = resolve_ranker(doc, model)
+    selected_ids = []
+    rendered = []
+    for row in tests:
+        if not isinstance(row, dict):
+            fail("test row must be an object")
+        for key in ("test_id", "score", "rank", "dur", "reason"):
+            require(row, key, "test")
+        if not isinstance(row["score"], str) or not isinstance(row["dur"], str):
+            fail("score and dur must stay JSON literals")
+        selected_ids.append(row["test_id"])
+        rendered.append(
+            {
+                "test_id": row["test_id"],
+                "score": row["score"],
+                "rank": int(row["rank"]),
+                "dur": row["dur"],
+                "reason": row["reason"],
+            }
+        )
+    cand_path = inp / "candidates" / f"{head}.json"
+    out_path = inp / "outcomes" / f"{head}.json"
+    candidates = as_dict(load_numbers_as_text(cand_path), cand_path.name) if cand_path.is_file() else None
+    outcomes = as_dict(load_numbers_as_text(out_path), out_path.name) if out_path.is_file() else None
+    safe = as_dict(doc["safe"], "safe")
+    thresholds = safe.get("thresholds")
+    recent_k = None
+    if isinstance(thresholds, dict) and "recent_k" in thresholds:
+        recent_k = int(thresholds["recent_k"])
+    reasons = safe.get("reasons")
+    if not isinstance(reasons, list):
+        fail("safe.reasons must be a list")
+    return {
+        "head": head,
+        "base": base,
+        "subject": subject,
+        "authored_at": authored,
+        "diff": diff,
+        "n_selected": n_selected,
+        "n_candidates": n_candidates,
+        "saved_ms": saved_ms(set(selected_ids), candidates),
+        "caught": caught(selected_ids, outcomes),
+        "synthetic": synthetic,
+        "safe_fallback": safe.get("fallback_all") is True,
+        "safe_reasons": reasons,
+        "recent_k": recent_k,
+        "ranker": ranker,
+        "model_sha256": doc["model_sha256"],
+        "tests": rendered,
+    }
+
+
+def build(inp: Path, out: Path) -> None:
+    source_path = inp / "source.json"
+    if not source_path.is_file():
+        fail("source.json is required")
+    source = as_dict(load_numbers_as_text(source_path), "source.json")
+    for key in ("target_repo", "target_sha", "testpilot_version", "clone"):
+        value = require(source, key, "source.json")
+        if not isinstance(value, str) or not value.strip():
+            fail(f"source.json {key} must be a non-empty string")
+    measured = source.get("model_measured_at")
+    if measured is not None and (not isinstance(measured, str) or not measured.strip()):
+        fail("source.json model_measured_at must be a non-empty string")
+    clone = Path(source["clone"])
+    head = git(clone, "rev-parse", "HEAD").strip()
+    if head != source["target_sha"]:
+        fail(f"clone HEAD {head} != target_sha {source['target_sha']}")
+    git(clone, "cat-file", "-e", source["target_sha"])
+    model = as_dict(load_numbers_as_text(inp / "model.json"), "model.json")
+    schema = model.get("schema_sha256")
+    if not isinstance(schema, str) or not schema:
+        fail("model.json schema_sha256 is required")
+    report_path = inp / "report.json"
+    if not report_path.is_file():
+        fail("report.json is required")
+    as_dict(load_numbers_as_text(report_path), "report.json")
+    boot = inp / "bootstrap_report.json"
+    if boot.is_file():
+        report = as_dict(load_numbers_as_text(boot), "bootstrap_report.json")
+        fingerprint = report.get("fingerprint")
+        if isinstance(fingerprint, dict):
+            if fingerprint.get("bin_version") != source["testpilot_version"]:
+                fail("bootstrap fingerprint bin_version != testpilot_version")
+            if fingerprint.get("head_sha") != source["target_sha"]:
+                fail("bootstrap fingerprint head_sha != target_sha")
+    rank_dir = inp / "rankings"
+    if not rank_dir.is_dir() or not any(rank_dir.glob("*.json")):
+        fail("rankings/*.json is required")
+    cases = [build_case(inp, path, clone, model) for path in sorted(rank_dir.glob("*.json"))]
+    if not cases:
+        fail("no cases")
+    recorded = {
+        "target_repo": source["target_repo"],
+        "target_sha": source["target_sha"],
+        "testpilot_version": source["testpilot_version"],
+        "generated_at": utc_now(),
+    }
+    if isinstance(measured, str):
+        recorded["model_measured_at"] = measured
+    write_atomic(
+        out,
+        {
+            "placeholder": False,
+            "source": recorded,
+            "cases": cases,
+        },
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="build-demo-data")
+    parser.add_argument("--placeholder", action="store_true")
+    parser.add_argument("--input", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    if args.placeholder:
+        placeholder(args.out)
+        return
+    if args.input is None:
+        fail("--input is required unless --placeholder")
+    build(args.input, args.out)
+
+
+if __name__ == "__main__":
+    main()

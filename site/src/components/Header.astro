@@ -1,0 +1,30 @@
+---
+import type { Locale, Messages } from "../i18n/types";
+import { links } from "../i18n/en";
+
+interface Props {
+  locale: Locale;
+  messages: Messages;
+}
+
+const { locale, messages } = Astro.props;
+const base = import.meta.env.BASE_URL;
+---
+
+<header class="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="#top">{messages.brand}</a>
+    <nav class="nav" aria-label={messages.nav.label}>
+      <a href="#pipeline">{messages.nav.pipeline}</a>
+      <a href="#demo">{messages.nav.demo}</a>
+      <a href="#install">{messages.nav.install}</a>
+      <a href={links.github}>{messages.nav.github}</a>
+      <a href={base} hreflang="en" lang="en" data-keep-hash aria-current={locale === "en" ? "page" : undefined}>
+        {messages.lang.en}
+      </a>
+      <a href={`${base}ru/`} hreflang="ru" lang="ru" data-keep-hash aria-current={locale === "ru" ? "page" : undefined}>
+        {messages.lang.ru}
+      </a>
+    </nav>
+  </div>
+</header>

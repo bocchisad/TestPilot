@@ -1,0 +1,29 @@
+---
+import type { Messages } from "../i18n/types";
+import { links } from "../i18n/en";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+---
+
+<section class="wrap hero" id="top">
+  <div>
+    <h1>{messages.hero.title}</h1>
+    <p class="prose">{messages.hero.lede}</p>
+    <div class="actions">
+      <a class="btn primary" href="#demo">{messages.hero.demo}</a>
+      <a class="btn" href={links.github}>{messages.hero.github}</a>
+    </div>
+    <p class="note prose">{messages.hero.safe}</p>
+  </div>
+  <div class="terminal">
+    <div class="term-top"><span>{messages.hero.termLabel}</span></div>
+    <div class="term-body">
+      <div><span class="prompt">$</span> {messages.hero.command}</div>
+      <p class="note">{messages.hero.termNote}</p>
+    </div>
+  </div>
+</section>

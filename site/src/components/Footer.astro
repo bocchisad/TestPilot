@@ -1,0 +1,19 @@
+---
+import type { Messages } from "../i18n/types";
+import { links } from "../i18n/en";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+---
+
+<footer class="wrap foot">
+  <span>{messages.brand}</span>
+  <div class="footlinks">
+    <a href={links.github}>{messages.nav.github}</a>
+    <a href={links.docs}>{messages.footer.docs}</a>
+    <a href={links.license}>{messages.footer.license}</a>
+  </div>
+</footer>

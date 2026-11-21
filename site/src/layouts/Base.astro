@@ -1,0 +1,65 @@
+---
+import "../styles/global.css";
+import type { Locale } from "../i18n/types";
+import { links, messages as en } from "../i18n/en";
+import { messages as ru } from "../i18n/ru";
+import Header from "../components/Header.astro";
+import Footer from "../components/Footer.astro";
+
+interface Props {
+  locale: Locale;
+  title: string;
+  description: string;
+}
+
+const { locale, title, description } = Astro.props;
+const messages = locale === "ru" ? ru : en;
+const base = import.meta.env.BASE_URL;
+const fontFace = `@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400;font-display:swap;src:url("${base}fonts/JetBrainsMono-Regular.woff2") format("woff2");}@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:700;font-display:swap;src:url("${base}fonts/JetBrainsMono-Bold.woff2") format("woff2");}`;
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href={`${base}favicon.svg`} />
+    <link rel="alternate" hreflang="en" href={links.locale.en} />
+    <link rel="alternate" hreflang="ru" href={links.locale.ru} />
+    <link rel="alternate" hreflang="x-default" href={links.locale.en} />
+    <Fragment set:html={`<style>${fontFace}</style>`} />
+  </head>
+  <body>
+    <Header locale={locale} messages={messages} />
+    <main>
+      <slot />
+    </main>
+    <Footer messages={messages} />
+    <script is:inline>
+      (function () {
+        function apply() {
+          var hash = location.hash;
+          var links = document.querySelectorAll("[data-keep-hash]");
+          for (var i = 0; i < links.length; i++) {
+            var link = links[i];
+            var href = link.getAttribute("href") || "";
+            var url = new URL(href, location.href);
+            url.hash = hash;
+            link.setAttribute("href", url.pathname + url.search + url.hash);
+          }
+        }
+        apply();
+        window.addEventListener("hashchange", apply);
+        document.addEventListener("click", function (event) {
+          var node = event.target;
+          if (!node || !node.closest) return;
+          var link = node.closest("[data-keep-hash]");
+          if (!link) return;
+          apply();
+        });
+      })();
+    </script>
+  </body>
+</html>

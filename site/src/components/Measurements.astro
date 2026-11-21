@@ -1,0 +1,92 @@
+---
+import type { Messages } from "../i18n/types";
+import measurements from "../data/measurements.json";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+const facts = measurements.interpretation;
+
+function round3(value: number): string {
+  const negative = value < 0;
+  const rounded = Math.round(Math.abs(value) * 1000) / 1000;
+  const text = rounded.toFixed(3);
+  return negative && rounded !== 0 ? `−${text}` : text;
+}
+
+function signed3(value: number): string {
+  if (value > 0) return `+${round3(value)}`;
+  return round3(value);
+}
+
+const rows = [
+  ...facts.per_repo.map((row) => ({
+    repo: row.repo,
+    model: round3(row.model_recall_at_10pct),
+    baseline: round3(row.cov_lines_recall_at_10pct),
+    delta: signed3(row.delta_vs_cov_lines),
+    gate: `${row.gate} (${row.gate_reason}, n_C=${row.test_n_C})`,
+  })),
+  {
+    repo: messages.measurements.macro,
+    model: round3(facts.loro_macro_recall_at_10pct),
+    baseline: round3(facts.cov_lines_macro_recall_at_10pct),
+    delta: signed3(facts.delta_vs_cov_lines),
+    gate: "",
+  },
+];
+
+const pooled = messages.measurements.pooledValue
+  .replaceAll("{delta}", signed3(facts.pooled_test_delta))
+  .replaceAll("{lo}", round3(facts.pooled_test_ci95[0]))
+  .replaceAll("{hi}", round3(facts.pooled_test_ci95[1]))
+  .replaceAll("{n}", String(facts.pooled_test_n))
+  .replaceAll("{nC}", String(facts.pooled_test_n_C));
+
+function fileName(href: string): string {
+  const parts = href.split("/");
+  return parts[parts.length - 1] ?? href;
+}
+---
+
+<section class="section" id="measurements">
+  <div class="wrap">
+    <h2>{messages.measurements.title}</h2>
+    <p class="lead">{messages.measurements.lede}</p>
+    <div class="tablebox">
+      <table>
+        <thead>
+          <tr>
+            <th>{messages.measurements.col.repo}</th>
+            <th>{messages.measurements.col.model}</th>
+            <th>{messages.measurements.col.baseline}</th>
+            <th>{messages.measurements.col.delta}</th>
+            <th>{messages.measurements.col.gate}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            rows.map((row) => (
+              <tr>
+                <td>{row.repo}</td>
+                <td>{row.model}</td>
+                <td>{row.baseline}</td>
+                <td>{row.delta}</td>
+                <td>{row.gate}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="artifact-note">{messages.measurements.pooledLead}</p>
+    <p class="artifact-note">{pooled}</p>
+    {messages.measurements.limits.map((line) => <p class="artifact-note">{line}</p>)}
+    <p class="artifact-note">
+      <a class="link" href={measurements.href}>{fileName(measurements.href)}</a>
+      <a class="link" href={measurements.loro_href}>{fileName(measurements.loro_href)}</a>
+    </p>
+  </div>
+</section>

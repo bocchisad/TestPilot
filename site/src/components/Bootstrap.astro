@@ -1,0 +1,39 @@
+---
+import type { Messages } from "../i18n/types";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+---
+
+<section class="section" id="bootstrap">
+  <div class="wrap">
+    <h2>{messages.bootstrap.title}</h2>
+    <p class="lead">{messages.bootstrap.lede}</p>
+    <pre class="command">{messages.bootstrap.command}</pre>
+    <p class="defaults">{messages.bootstrap.defaults}</p>
+    <div class="rows">
+      {
+        messages.bootstrap.steps.map((step) => (
+          <div class="row">
+            <b>{step.name}</b>
+            <span>{step.body}</span>
+          </div>
+        ))
+      }
+    </div>
+    <h3 class="step-title">{messages.bootstrap.gateTitle}</h3>
+    <p class="gate">{messages.bootstrap.gate}</p>
+    <p class="less">{messages.bootstrap.less}</p>
+  </div>
+</section>
+
+<style>
+  .step-title {
+    margin: 28px 0 0;
+    color: var(--green);
+    font-size: 16px;
+  }
+</style>

@@ -1,0 +1,35 @@
+---
+import type { Messages } from "../i18n/types";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+---
+
+<section class="section" id="install">
+  <div class="wrap">
+    <h2>{messages.install.title}</h2>
+    <p class="lead">{messages.install.lede}</p>
+    <div class="installs">
+      <div class="install">
+        <h3>{messages.install.cli}</h3>
+        <pre>{messages.install.cliCommand}</pre>
+        <p class="prose">{messages.install.cliNote}</p>
+        <pre>{messages.install.trainCommand}</pre>
+        <p class="prose">{messages.install.trainNote}</p>
+      </div>
+      <div class="install">
+        <h3>{messages.install.plugin}</h3>
+        <pre>{messages.install.pluginCommand}</pre>
+        <p class="prose">{messages.install.pluginNote}</p>
+      </div>
+      <div class="install">
+        <h3>{messages.install.action}</h3>
+        <pre>{messages.install.actionCommand}</pre>
+        <p class="prose">{messages.install.actionNote}</p>
+      </div>
+    </div>
+  </div>
+</section>
