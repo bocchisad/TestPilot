@@ -51,16 +51,55 @@ testpilot-train train --data pairs.parquet --out /tmp/tp-model --features-schema
 
 Primary label is `new_fail` (see [`docs/specs/2026-11-09-testpilot-training-design.md`](docs/specs/2026-11-09-testpilot-training-design.md)). Package details: [`python/testpilot-train/README.md`](python/testpilot-train/README.md).
 
-### Mutation bootstrap (when real `new_fail` is absent)
+### Cold-start bootstrap (week 6)
 
-Historical green `main` histories (e.g. click/jinja) yield no ranking positives. Generate synthetic failures via AST mutants as real commits under `refs/testpilot/mutants/`, then dump with `--include-mutants`. Design: [`docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md`](docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md).
+One command: real backfill + mutation labels + train + quality gate. Prefer this over the low-level mutate script below. Design: [`docs/specs/2026-11-14-testpilot-bootstrap-design.md`](docs/specs/2026-11-14-testpilot-bootstrap-design.md).
+
+```bash
+cargo build -p testpilot-cli --release
+./target/release/testpilot bootstrap --repo "$REPO" --out "$MODEL_DIR" \
+  --max-commits 200 --mutants-per-commit 4 --jobs 2 --seed 42
+# Defaults are N=200 × K=4. Use --resume after interrupt; --force to restart;
+# --dry-run prints plan + time estimate (no writes).
+```
+
+`model.json` carries `ranker` (`model` or `cov_lines`) and `bootstrap.verdict` / `reason`. Sidecar `bootstrap_report.json` has step timings and mutate/backfill counters. `.testpilot/` is added to `.git/info/exclude` (not `.gitignore`) so the tree stays clean.
+
+Gate `use_baseline` reasons (select uses `cov_lines` from the same artifact — no `model.txt` required):
+
+- `insufficient_commit_idx` — unique `commit_idx` < 10; chrono_split never starts (cold path before the quality gate).
+- `insufficient_test_C` — split ran, but synth TEST has `n_C` < 10 (not a different “data insufficient” label for the cold path).
+
+After more history or a larger N, re-run with `--force`.
+
+**n_C widths** (why 200×4): see [`docs/measurements/mut2-80x5-click-jinja.json`](docs/measurements/mut2-80x5-click-jinja.json). **Measured step times / timeout rates / LORO:** [`docs/measurements/`](docs/measurements/) (do not invent numbers — open the JSON files). Dry-run estimates use [`docs/measurements/bootstrap_time_priors.json`](docs/measurements/bootstrap_time_priors.json).
+
+**Week 6 result (Click/Jinja/attrs):** on leave-one-repository-out evaluation, model macro recall@10% was **0.710** versus **0.716** for `cov_lines` (Δ **−0.006**). Per-repository deltas were attrs **+0.005**, Click **−0.021**, and Jinja **−0.002**. The pooled TEST estimate was Δ **+0.027** (95% CI **[0.005, 0.054]**, n=48, n_C=21), but it does not establish an advantage across held-out repositories.
+
+| Held-out repository | Model recall@10% | `cov_lines` | Δ | Bootstrap gate |
+|---|---:|---:|---:|---|
+| attrs | 0.854 | 0.850 | +0.005 | `use_baseline` (`insufficient_test_C`, n_C=5) |
+| Click | 0.407 | 0.428 | −0.021 | `use_baseline` (`insufficient_test_C`, n_C=5) |
+| Jinja | 0.868 | 0.870 | −0.002 | `use_model` (n_C=11) |
+
+Conclusion: the model is approximately tied with `cov_lines`; `cov_lines` dominates the feature gain. Keep `cov_lines` as the default. The dry-run estimate underpredicted measured wall time by **32–42%**. Click and attrs each had TEST n_C=5, below the gate's minimum of 10; widening the TEST fold is deferred to Week 7. `env.date_utc` records when the environment fingerprint was captured before the runs, not the run start time. Full metrics and script provenance are in [`docs/measurements/loro-w6-click-jinja-attrs/report.md`](docs/measurements/loro-w6-click-jinja-attrs/report.md) and [`docs/measurements/bootstrap-w6-click-jinja-attrs.json`](docs/measurements/bootstrap-w6-click-jinja-attrs.json).
+
+**Click on Linux:** install **`less`**. Without it, pager tests fail on every commit (persistent, not `new_fail`).
+
+Bootstrap resolves relative output paths from the invocation directory and passes its own executable to collection subprocesses, including when invoked by an absolute binary path outside the target repo.
+
+Historical test requirements can downgrade the runner to unsupported pytest versions. After project installs, backfill and mutate validate pytest; incompatible or unimportable runners are restored to pytest 8.3.4, pluggy >=1.5,<2 and py >=1.11,<2. Compatible historical pins remain in place. Backfill counts a result only when a finished clean real run with test results exists in SQLite; raw per-commit logs and runner versions stay under `.testpilot/bootstrap/backfill_logs/`.
+
+Bootstrap mutation workers use separate virtual environments (one per worker); installations are serialized while pytest executions may overlap. Dry-run wall/attempted calibration already includes concurrency and is not divided by jobs again. The supplied N=20 calibration is extrapolated to worker-local environments; their extra setup cost has not been measured. `scripts/measure_bootstrap_w6.sh` defaults to `--dry-run-only`; `--full` requires a separate decision after reviewing estimates. Existing `.cache/repos/` data is preserved: measurements use fresh temporary clones.
+
+### Mutation bootstrap (low-level; when real `new_fail` is absent)
+
+Historical green `main` histories yield no ranking positives. The CLI above wraps this path. Manual AST mutants: [`docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md`](docs/specs/2026-11-11-testpilot-mutation-bootstrap-design.md).
 
 ```bash
 python scripts/mutate_bootstrap.py --repo "$REPO" --db "$DB" --commits 5 --mutants-per-commit 3 --seed 42
 testpilot features dump --out pairs.parquet --include-mutants
 ```
-
-**Click on Linux:** install **`less`** (e.g. `apt install less`). Without it, every commit fails all `test_echo_via_pager` parametrizations for `less` — persistent env failures, not `new_fail`. Do not exclude those tests; install the pager.
 
 ## Select (week 4)
 
@@ -77,7 +116,7 @@ testpilot select \
   --format lines | xargs -r pytest
 ```
 
-Exactly one budget: `--budget-frac F` (0&lt;F≤1), `--max-tests N` (N≥1), or `--time-budget SECONDS`. Formats: `lines` (default), `table`, `json`. Use `--worktree` or `--head WORKTREE` for dirty trees (time features use **HEAD** author time, not wall clock).
+Exactly one budget: `--budget-frac F` (0<F≤1), `--max-tests N` (N≥1), or `--time-budget SECONDS`. Formats: `lines` (default), `table`, `json`. Use `--worktree` or `--head WORKTREE` for dirty trees (time features use **HEAD** author time, not wall clock).
 
 **Limitations:** models trained on mutation bootstrap may have near-constant history features (`t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag`); if `useful_on_val` is null the CLI warns that the model was validated on synthetic data only. Candidates are pytest nodeids (as in dump/train); parametrized ids from the base run are kept, but newly discovered defs are emitted bare (no param expansion — one bare id may expand to N collected nodeids). **Scanner change (PR #6):** `scan_python` now handles `#` comments, triple-quoted strings in paren continuations, and nested `@` correctly — change/import features that depend on def spans differ from earlier builds. **Retrain** models trained before this fix: re-run `features dump --include-mutants` + `testpilot-train` (no need to regenerate mutants). Design: [`docs/specs/2026-11-13-testpilot-select-design.md`](docs/specs/2026-11-13-testpilot-select-design.md). Latency: `scripts/bench_select.py` (pass **`--no-safe`** for Week-4 parity). Local scan vs collect check: `scripts/check_scan_collect_coverage.py`.
 

@@ -1,0 +1,46 @@
+{
+  "click": 1103.36,
+  "jinja": 1944.2,
+  "attrs": 4490.3,
+  "estimated_total_s": 8641.220000000001,
+  "max_est_s": 14400,
+  "actual_s": null,
+  "reason": "full_runs_not_authorized",
+  "N": 200,
+  "K": 4,
+  "jobs": 2,
+  "seed": 42,
+  "assumptions": "n_samples=attempted; n_new_cal=20; worker-local venv setup unmeasured",
+  "binary_version": "testpilot 0.1.0 (fd8546f0bac4)",
+  "components": {
+    "click": {
+      "raw": "docs/measurements/dry-run-click.txt",
+      "lines": [
+        "priors: docs/measurements/bootstrap_time_priors.json (embedded)",
+        "components_s: collect=2.4 backfill=734.6 mutate=362.15999999999997 dump_train=4.2",
+        "attempted_hat=120 density_per_history_commit=0.6 calibration_K=4 calibration_jobs=1 target_jobs=2 n_reused=0"
+      ]
+    },
+    "jinja": {
+      "raw": "docs/measurements/dry-run-jinja.txt",
+      "lines": [
+        "priors: docs/measurements/bootstrap_time_priors.json (embedded)",
+        "components_s: collect=2.6 backfill=1199.6000000000001 mutate=731.5000000000001 dump_train=10.5",
+        "attempted_hat=220.00000000000003 density_per_history_commit=1.1 calibration_K=4 calibration_jobs=2 target_jobs=2 n_reused=0"
+      ]
+    },
+    "attrs": {
+      "raw": "docs/measurements/dry-run-attrs.txt",
+      "lines": [
+        "priors: docs/measurements/bootstrap_time_priors.json (embedded)",
+        "components_s: collect=1.2 backfill=3385.2 mutate=1098.1999999999998 dump_train=5.7",
+        "attempted_hat=200 density_per_history_commit=1 calibration_K=4 calibration_jobs=2 target_jobs=2 n_reused=0"
+      ]
+    }
+  },
+  "pins": {
+    "click": "934813e4d421071a1b3db3973c02fe2721359a6e",
+    "jinja": "15206881c006c79667fe5154fe80c01c65410679",
+    "attrs": "598494a618410490cfbe0c896b7a544f6d23e0d9"
+  }
+}

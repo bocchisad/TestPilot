@@ -5,5 +5,7 @@
 mod parse;
 mod predict;
 
-pub use parse::{Booster, ModelMeta, load_model_dir};
+pub use parse::{
+    Booster, BootstrapMeta, ModelMeta, Ranker, embedded_schema_sha256, load_model_dir,
+};
 pub use predict::predict_raw;

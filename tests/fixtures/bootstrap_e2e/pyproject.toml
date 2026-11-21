@@ -1,0 +1,16 @@
+[project]
+name = "bootstrap-e2e"
+version = "0.0.1"
+description = "Mini fixture for testpilot bootstrap e2e (CI ≤2 min)"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pkg*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

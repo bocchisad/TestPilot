@@ -13,16 +13,14 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+from mutate.testpilot_bin import resolve_testpilot_bin  # noqa: E402
 
 
 def _testpilot() -> str:
-    for cand in (
-        ROOT / "target" / "debug" / "testpilot",
-        ROOT / "target" / "release" / "testpilot",
-    ):
-        if cand.is_file():
-            return str(cand)
-    pytest.skip("testpilot binary not built")
+    return resolve_testpilot_bin()
 
 
 def test_mutate_bootstrap_entrypoint_2x2(tmp_path: Path) -> None:

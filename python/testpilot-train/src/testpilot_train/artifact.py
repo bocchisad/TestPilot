@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +20,38 @@ def save_booster(booster: lgb.Booster, path: Path) -> None:
     booster.save_model(str(path))
 
 
+def _sanitize_jsonable(obj: Any) -> Any:
+    """Replace non-finite floats with None; recurse into dict/list."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _sanitize_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_jsonable(v) for v in obj]
+    if isinstance(obj, tuple):
+        return [_sanitize_jsonable(v) for v in obj]
+    # numpy scalars
+    try:
+        import numpy as np
+
+        if isinstance(obj, np.floating):
+            f = float(obj)
+            return f if math.isfinite(f) else None
+        if isinstance(obj, np.integer):
+            return int(obj)
+    except Exception:  # noqa: BLE001
+        pass
+    return obj
+
+
 def write_model_json(path: Path, payload: dict[str, Any]) -> None:
+    """Atomic strict JSON write (no NaN/Infinity literals)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    clean = _sanitize_jsonable(payload)
+    raw = json.dumps(clean, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(raw, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def write_reference_predictions(

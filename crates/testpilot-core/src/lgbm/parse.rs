@@ -14,6 +14,36 @@ use crate::features::schema::{FEATURES_VERSION, MODEL_FEATURE_NAMES};
 /// Bytes of repo-root `features_schema.json` (locked at compile time).
 pub const EMBEDDED_FEATURES_SCHEMA: &[u8] = include_bytes!("../../../../features_schema.json");
 
+/// How `select` ranks candidates (from `model.json` `ranker`, default `model`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ranker {
+    Model,
+    CovLines,
+}
+
+impl Ranker {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Model => "model",
+            Self::CovLines => "cov_lines",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "cov_lines" => Self::CovLines,
+            _ => Self::Model,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BootstrapMeta {
+    pub verdict: String,
+    pub reason: Option<String>,
+    pub gate: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ModelMeta {
     pub features_version: u32,
@@ -24,6 +54,8 @@ pub struct ModelMeta {
     pub model_sha256: String,
     /// True when useful-on-real gate is null / synthetic-only (A10).
     pub synthetic_only_warning: bool,
+    pub ranker: Ranker,
+    pub bootstrap: Option<BootstrapMeta>,
 }
 
 #[derive(Debug, Clone)]
@@ -51,14 +83,43 @@ pub fn embedded_schema_sha256() -> String {
 pub fn load_model_dir(dir: &Path) -> Result<Booster> {
     let txt_path = dir.join("model.txt");
     let json_path = dir.join("model.json");
+    let json_bytes = fs::read(&json_path)
+        .map_err(|e| Error::Other(format!("read {}: {e}", json_path.display())))?;
+    let meta_val: Value = serde_json::from_slice(&json_bytes)
+        .map_err(|e| Error::Other(format!("parse model.json: {e}")))?;
+    let ranker = Ranker::parse(
+        meta_val
+            .get("ranker")
+            .and_then(|x| x.as_str())
+            .unwrap_or("model"),
+    );
+
+    // R10: when ranker=cov_lines, selection hash is sha256(model.json bytes).
+    // Baseline-only dirs (no model.txt) are valid for that ranker.
+    if ranker == Ranker::CovLines && !txt_path.is_file() {
+        let model_sha256 = hex::encode(Sha256::digest(&json_bytes));
+        let mut meta =
+            validate_model_json(&meta_val, &model_sha256, /*require_booster*/ false)?;
+        meta.ranker = Ranker::CovLines;
+        meta.model_sha256 = model_sha256;
+        let feature_names = meta.feature_names.clone();
+        return Ok(Booster {
+            meta,
+            trees: vec![],
+            feature_names,
+        });
+    }
+
     let txt = fs::read_to_string(&txt_path)
         .map_err(|e| Error::Other(format!("read {}: {e}", txt_path.display())))?;
-    let json_raw = fs::read_to_string(&json_path)
-        .map_err(|e| Error::Other(format!("read {}: {e}", json_path.display())))?;
-    let model_sha256 = hex::encode(Sha256::digest(txt.as_bytes()));
-    let meta_val: Value = serde_json::from_str(&json_raw)
-        .map_err(|e| Error::Other(format!("parse model.json: {e}")))?;
-    let meta = validate_model_json(&meta_val, &model_sha256)?;
+    let model_sha256 = if ranker == Ranker::CovLines {
+        hex::encode(Sha256::digest(&json_bytes))
+    } else {
+        hex::encode(Sha256::digest(txt.as_bytes()))
+    };
+    let mut meta = validate_model_json(&meta_val, &model_sha256, /*require_booster*/ true)?;
+    meta.ranker = ranker;
+    meta.model_sha256 = model_sha256;
     let (header_names, mut trees) = parse_model_txt(&txt)?;
     if header_names != meta.feature_names {
         return Err(Error::Other(
@@ -80,7 +141,7 @@ pub fn load_model_dir(dir: &Path) -> Result<Booster> {
     })
 }
 
-fn validate_model_json(v: &Value, model_sha256: &str) -> Result<ModelMeta> {
+fn validate_model_json(v: &Value, model_sha256: &str, require_booster: bool) -> Result<ModelMeta> {
     let features_version = v
         .get("features_version")
         .and_then(|x| x.as_u64())
@@ -130,16 +191,18 @@ fn validate_model_json(v: &Value, model_sha256: &str) -> Result<ModelMeta> {
     let objective = v
         .get("objective")
         .and_then(|x| x.as_str())
-        .ok_or_else(|| Error::Other("model.json missing objective".into()))?
+        .unwrap_or("binary")
         .to_string();
-    let obj_ok = objective == "binary"
-        || objective.starts_with("binary ")
-        || objective == "lambdarank"
-        || objective.starts_with("lambdarank");
-    if !obj_ok {
-        return Err(Error::Other(format!(
-            "unsupported objective {objective:?}; expected binary or lambdarank"
-        )));
+    if require_booster {
+        let obj_ok = objective == "binary"
+            || objective.starts_with("binary ")
+            || objective == "lambdarank"
+            || objective.starts_with("lambdarank");
+        if !obj_ok {
+            return Err(Error::Other(format!(
+                "unsupported objective {objective:?}; expected binary or lambdarank"
+            )));
+        }
     }
     if let Some(c) = v.get("constraints") {
         if c.get("categorical") == Some(&Value::Bool(true)) {
@@ -162,9 +225,8 @@ fn validate_model_json(v: &Value, model_sha256: &str) -> Result<ModelMeta> {
     let best_iteration = v
         .get("best_iteration")
         .and_then(|x| x.as_u64())
-        .ok_or_else(|| Error::Other("model.json missing best_iteration".into()))?
-        as usize;
-    if best_iteration == 0 {
+        .unwrap_or(1) as usize;
+    if require_booster && best_iteration == 0 {
         return Err(Error::Other("best_iteration must be positive".into()));
     }
 
@@ -173,14 +235,25 @@ fn validate_model_json(v: &Value, model_sha256: &str) -> Result<ModelMeta> {
         || (v.get("useful_on_val_label").and_then(|x| x.as_str()) == Some("useful_on_real_val")
             && matches!(v.get("useful_on_val"), Some(Value::Null)));
 
+    let bootstrap = v.get("bootstrap").and_then(|b| {
+        let verdict = b.get("verdict")?.as_str()?.to_string();
+        Some(BootstrapMeta {
+            verdict,
+            reason: b.get("reason").and_then(|x| x.as_str()).map(str::to_string),
+            gate: b.get("gate").and_then(|x| x.as_str()).map(str::to_string),
+        })
+    });
+
     Ok(ModelMeta {
         features_version,
         schema_sha256,
         feature_names,
         objective,
-        best_iteration,
+        best_iteration: best_iteration.max(1),
         model_sha256: model_sha256.to_string(),
         synthetic_only_warning,
+        ranker: Ranker::parse(v.get("ranker").and_then(|x| x.as_str()).unwrap_or("model")),
+        bootstrap,
     })
 }
 

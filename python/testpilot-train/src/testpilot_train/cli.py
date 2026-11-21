@@ -44,6 +44,15 @@ def main(argv: list[str] | None = None) -> int:
             "Report still includes dual metrics when high-fail changes exist."
         ),
     )
+    p_train.add_argument(
+        "--allow-cold-baseline",
+        action="store_true",
+        default=False,
+        help=(
+            "If unique commit_idx < 10, write baseline-only model.json "
+            "(ranker=cov_lines) instead of failing. Used by `testpilot bootstrap` only."
+        ),
+    )
 
     p_eval = sub.add_parser("evaluate")
     p_eval.add_argument("--model", type=Path, required=True)
@@ -62,14 +71,34 @@ def main(argv: list[str] | None = None) -> int:
     schema_path = args.features_schema or (_repo_root() / "features_schema.json")
 
     if args.cmd == "train":
-        payload = train(
-            args.data,
-            args.out,
-            schema_path,
-            seed=args.seed,
-            exclude_high_fail_rate=args.exclude_high_fail_rate,
+        try:
+            payload = train(
+                args.data,
+                args.out,
+                schema_path,
+                seed=args.seed,
+                exclude_high_fail_rate=args.exclude_high_fail_rate,
+                allow_cold_baseline=args.allow_cold_baseline,
+            )
+        except Exception as e:  # noqa: BLE001 — surface InsufficientCommitsError cleanly
+            from testpilot_train.split import InsufficientCommitsError
+
+            if isinstance(e, InsufficientCommitsError):
+                print(f"error: {e}", file=sys.stderr)
+                return 2
+            raise
+        print(
+            json.dumps(
+                {
+                    "status": payload["status"],
+                    "out": str(args.out),
+                    "ranker": payload.get("ranker"),
+                    "bootstrap": payload.get("bootstrap"),
+                },
+                indent=2,
+                allow_nan=False,
+            )
         )
-        print(json.dumps({"status": payload["status"], "out": str(args.out)}, indent=2))
         return 0
 
     if args.cmd == "evaluate":
