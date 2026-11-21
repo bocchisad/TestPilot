@@ -1093,7 +1093,6 @@ def run_mutant(
             attrs_generated_init_typechecker_failure = (
                 rc == 1
                 and _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE.search(tail) is not None
-                and has_local_mutant_frame
                 and _mutant_negates_attrs_generated_init_expression(
                     repo, parent_sha, mutant_sha, "generated_body"
                 )
@@ -1117,6 +1116,7 @@ def run_mutant(
                     has_local_mutant_frame
                     or attrs_specification_import_failure
                     or attrs_class_var_import_failure
+                    or attrs_generated_init_typechecker_failure
                 )
             ):
                 parent_ok, parent_note = _parent_control_collection(

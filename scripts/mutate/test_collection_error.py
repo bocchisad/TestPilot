@@ -935,6 +935,7 @@ def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_contr
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])
+@pytest.mark.parametrize("include_mutant_frame", [True, False])
 @pytest.mark.parametrize(
     "mutation_kind", ["kw_only_separator", "generated_body", "other"]
 )
@@ -943,6 +944,7 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
+    include_mutant_frame: bool,
     mutation_kind: str,
     error_kind: str,
 ) -> None:
@@ -1010,7 +1012,11 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
         + parent_output
         + "esac\n"
         + "printf '%s\\n' 'Traceback (most recent call last):'\n"
-        + 'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 3, in _attrs_to_init_script"\n'
+        + (
+            'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 3, in _attrs_to_init_script"\n'
+            if include_mutant_frame
+            else ""
+        )
         + (
             "printf '%s\\n' \"SyntaxError: invalid syntax\"\n"
             if error_kind == "syntax"
@@ -1037,7 +1043,9 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
         ("generated_body", "typechecker"),
     }
     assert result.collection_error is (
-        parent_collects and matching_pair
+        parent_collects
+        and matching_pair
+        and (include_mutant_frame or error_kind == "typechecker")
     ), result.collect_note[-2000:]
 
 
