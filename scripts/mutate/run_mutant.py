@@ -172,6 +172,9 @@ _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE = re.compile(
 _NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE = re.compile(
     r"(?m)^AttributeError: 'NoneType' object has no attribute 'redefine'\s*$"
 )
+_NO_JUNIT_MUTANT_ANNOTATIONS_NONE_RE = re.compile(
+    r"(?m)^AttributeError: 'NoneType' object has no attribute 'get'\s*$"
+)
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
     r"jsonschema[/\\]_types\.py\", line \d+, in"
 )
@@ -339,10 +342,10 @@ def _has_mutant_worktree_frame(tail: str, worktree: Path) -> bool:
     return False
 
 
-def _mutant_makes_attrs_evolve_return_none(
-    repo: Path, parent_sha: str, mutant_sha: str
+def _mutant_attrs_function_returns_none(
+    repo: Path, parent_sha: str, mutant_sha: str, function_name: str
 ) -> bool:
-    """Recognize the specific attrs mutation that breaks jsonschema import."""
+    """Recognize an attrs function changed to return None by this mutant."""
     path = "src/attr/_make.py"
     try:
         parent_source = subprocess.run(
@@ -364,11 +367,11 @@ def _mutant_makes_attrs_evolve_return_none(
     except (OSError, subprocess.CalledProcessError, SyntaxError):
         return False
 
-    def evolve_returns_none(tree: ast.Module) -> bool:
+    def function_returns_none(tree: ast.Module) -> bool:
         for node in tree.body:
             if (
                 isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name == "evolve"
+                and node.name == function_name
             ):
                 return any(
                     isinstance(child, ast.Return)
@@ -378,7 +381,7 @@ def _mutant_makes_attrs_evolve_return_none(
                 )
         return False
 
-    return not evolve_returns_none(parent_tree) and evolve_returns_none(mutant_tree)
+    return not function_returns_none(parent_tree) and function_returns_none(mutant_tree)
 
 
 def _collected_count(output: str) -> int:
@@ -806,7 +809,17 @@ def run_mutant(
                 rc in {1, 3}
                 and _NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE.search(tail) is not None
                 and _JSONSCHEMA_TYPECHECKER_FRAME_RE.search(tail) is not None
-                and _mutant_makes_attrs_evolve_return_none(repo, parent_sha, mutant_sha)
+                and _mutant_attrs_function_returns_none(
+                    repo, parent_sha, mutant_sha, "evolve"
+                )
+            )
+            attrs_annotations_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_MUTANT_ANNOTATIONS_NONE_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_attrs_function_returns_none(
+                    repo, parent_sha, mutant_sha, "_get_annotations"
+                )
             )
             if (
                 not no_junit_mutant_control_error
@@ -816,6 +829,7 @@ def run_mutant(
                     or _NO_JUNIT_HYPOTHESIS_PROFILE_RE.search(tail) is not None
                     or _NO_JUNIT_MUTANT_INIT_TYPEERROR_RE.search(tail) is not None
                     or _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE.search(tail) is not None
+                    or attrs_annotations_failure
                 )
                 and has_local_mutant_frame
             ):
