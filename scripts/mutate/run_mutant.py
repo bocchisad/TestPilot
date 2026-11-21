@@ -191,7 +191,8 @@ _NO_JUNIT_ATTRS_INIT_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s
 _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE = re.compile(
     r"(?m)^AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
 )
-_NO_JUNIT_ATTRS_EQ_SYNTAX_RE = re.compile(
+_NO_JUNIT_ATTRS_EQ_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
+_NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE = re.compile(
     r"(?m)^SyntaxError: invalid syntax\. Perhaps you forgot a comma\?\s*$"
 )
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
@@ -626,9 +627,9 @@ def _mutant_negates_attrs_generated_init_expression(
 
 
 def _mutant_breaks_attrs_generated_eq_expression(
-    repo: Path, parent_sha: str, mutant_sha: str
+    repo: Path, parent_sha: str, mutant_sha: str, *, generated_header: bool = False
 ) -> bool:
-    """Recognize mutations that add a trailing `and` to attrs' generated eq."""
+    """Recognize mutations that break attrs' generated equality expression."""
     path = "src/attr/_make.py"
 
     def has_broken_final_attribute_check(source: str) -> bool:
@@ -645,7 +646,57 @@ def _mutant_breaks_attrs_generated_eq_expression(
             ):
                 return False
             try:
-                return ast.literal_eval(node.slice) == index
+                value = ast.literal_eval(node.slice)
+            except (ValueError, TypeError):
+                slice_node = node.slice
+                if not (
+                    isinstance(slice_node, ast.UnaryOp)
+                    and isinstance(slice_node.op, ast.Not)
+                ):
+                    return False
+                try:
+                    value = not ast.literal_eval(slice_node.operand)
+                except (ValueError, TypeError):
+                    return False
+            return value == index
+
+        def attrs_not_minus_one_index(node: ast.expr) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "attrs"
+                and isinstance(node.slice, ast.UnaryOp)
+                and isinstance(node.slice.op, ast.Not)
+            ):
+                return False
+            try:
+                return ast.literal_eval(node.slice.operand) == -1
+            except (ValueError, TypeError):
+                return False
+
+        def lines_not_minus_one_index(node: ast.expr) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "lines"
+                and isinstance(node.slice, ast.UnaryOp)
+                and isinstance(node.slice.op, ast.Not)
+            ):
+                return False
+            try:
+                return ast.literal_eval(node.slice.operand) == -1
+            except (ValueError, TypeError):
+                return False
+
+        def is_final_line_assignment(node: ast.expr) -> bool:
+            if not (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "lines"
+            ):
+                return False
+            try:
+                return ast.literal_eval(node.slice) == -1
             except (ValueError, TypeError):
                 return False
 
@@ -655,6 +706,19 @@ def _mutant_breaks_attrs_generated_eq_expression(
             if node.name != "_make_eq":
                 continue
             for child in ast.walk(node):
+                if generated_header:
+                    if (
+                        isinstance(child, ast.Assign)
+                        and any(
+                            is_final_line_assignment(target) for target in child.targets
+                        )
+                        and any(
+                            lines_not_minus_one_index(value)
+                            for value in ast.walk(child.value)
+                        )
+                    ):
+                        return True
+                    continue
                 if not isinstance(child, ast.If):
                     continue
                 test = child.test
@@ -665,7 +729,10 @@ def _mutant_breaks_attrs_generated_eq_expression(
                     and len(test.ops) == 1
                     and isinstance(test.ops[0], ast.IsNot)
                     and len(test.comparators) == 1
-                    and attrs_index(test.comparators[0], -2)
+                    and (
+                        attrs_index(test.comparators[0], -2)
+                        or attrs_not_minus_one_index(test.comparators[0])
+                    )
                 ):
                     return True
                 if (
@@ -1182,9 +1249,17 @@ def run_mutant(
                     repo, parent_sha, mutant_sha, "generated_body"
                 )
             )
-            attrs_generated_eq_syntax_failure = (
+            attrs_generated_eq_header_syntax_failure = (
                 rc == 1
                 and _NO_JUNIT_ATTRS_EQ_SYNTAX_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_breaks_attrs_generated_eq_expression(
+                    repo, parent_sha, mutant_sha, generated_header=True
+                )
+            )
+            attrs_generated_eq_trailing_and_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE.search(tail) is not None
                 and has_local_mutant_frame
                 and _mutant_breaks_attrs_generated_eq_expression(
                     repo, parent_sha, mutant_sha
@@ -1204,7 +1279,8 @@ def run_mutant(
                     or attrs_class_var_import_failure
                     or attrs_generated_init_syntax_failure
                     or attrs_generated_init_typechecker_failure
-                    or attrs_generated_eq_syntax_failure
+                    or attrs_generated_eq_header_syntax_failure
+                    or attrs_generated_eq_trailing_and_failure
                 )
                 and (
                     has_local_mutant_frame
@@ -1242,7 +1318,10 @@ def run_mutant(
                                     if attrs_generated_init_typechecker_failure
                                     else (
                                         "mutant breaks the attrs generated equality expression; "
-                                        if attrs_generated_eq_syntax_failure
+                                        if (
+                                            attrs_generated_eq_header_syntax_failure
+                                            or attrs_generated_eq_trailing_and_failure
+                                        )
                                         else ""
                                     )
                                 )

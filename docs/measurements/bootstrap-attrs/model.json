@@ -1,0 +1,1440 @@
+{
+  "baselines": {
+    "best_for_paired_gate": "cov_lines",
+    "test": {
+      "cc_max": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.2038113288724869,
+            0.6200980392156863
+          ],
+          "mean": 0.3962356171873058
+        }
+      },
+      "cov_lines": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.689268520019452,
+            0.9792713567839196
+          ],
+          "mean": 0.849752390987194
+        }
+      },
+      "fail_per_day": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09695808533170752,
+            0.09721176567123035
+          ],
+          "mean": 0.09708950679855191
+        }
+      },
+      "imp_dist": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.15381402754342247,
+            0.4766394855137164
+          ],
+          "mean": 0.30244723140243945
+        }
+      },
+      "random": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09965448940554385,
+            0.09990666023695811
+          ],
+          "mean": 0.09978527279271918
+        }
+      },
+      "t_fail_rate": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09695808533170752,
+            0.09721176567123035
+          ],
+          "mean": 0.09708950679855191
+        }
+      }
+    },
+    "test_synthetic": {
+      "cc_max": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.18744862726459405,
+            0.5992647058823529
+          ],
+          "mean": 0.3962356171873058
+        }
+      },
+      "cov_lines": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.6946574910844545,
+            0.9792713567839196
+          ],
+          "mean": 0.849752390987194
+        }
+      },
+      "fail_per_day": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09696265331195021,
+            0.09721490574974953
+          ],
+          "mean": 0.09708950679855191
+        }
+      },
+      "imp_dist": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.15318712297872805,
+            0.46935765759295167
+          ],
+          "mean": 0.30244723140243945
+        }
+      },
+      "random": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09965923857708957,
+            0.0999111745586874
+          ],
+          "mean": 0.09978527279271918
+        }
+      },
+      "t_fail_rate": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09696265331195021,
+            0.09721490574974953
+          ],
+          "mean": 0.09708950679855191
+        }
+      }
+    },
+    "val": {
+      "cc_max": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0
+        }
+      },
+      "cov_lines": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.5884955752212389,
+            0.8971238938053098
+          ],
+          "mean": 0.6913716814159292
+        }
+      },
+      "fail_per_day": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.09691960931630353,
+            0.09691960931630354
+          ],
+          "mean": 0.09691960931630353
+        }
+      },
+      "imp_dist": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.0,
+            0.07334558823529412
+          ],
+          "mean": 0.024448529411764706
+        }
+      },
+      "random": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.099625468164794,
+            0.099625468164794
+          ],
+          "mean": 0.099625468164794
+        }
+      },
+      "t_fail_rate": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.09691960931630353,
+            0.09691960931630354
+          ],
+          "mean": 0.09691960931630353
+        }
+      }
+    },
+    "val_synthetic": {
+      "cc_max": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.0,
+            0.0
+          ],
+          "mean": 0.0
+        }
+      },
+      "cov_lines": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.5884955752212389,
+            0.8971238938053098
+          ],
+          "mean": 0.6913716814159292
+        }
+      },
+      "fail_per_day": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.09691960931630353,
+            0.09691960931630354
+          ],
+          "mean": 0.09691960931630353
+        }
+      },
+      "imp_dist": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.0,
+            0.07334558823529412
+          ],
+          "mean": 0.024448529411764706
+        }
+      },
+      "random": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.099625468164794,
+            0.099625468164794
+          ],
+          "mean": 0.099625468164794
+        }
+      },
+      "t_fail_rate": {
+        "n": 4,
+        "recall@10%": {
+          "ci95": [
+            0.09691960931630353,
+            0.09691960931630354
+          ],
+          "mean": 0.09691960931630353
+        }
+      }
+    }
+  },
+  "best_baseline_val": "cov_lines",
+  "best_iteration": 3,
+  "bootstrap": {
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "insufficient_test_C",
+    "verdict": "use_baseline"
+  },
+  "candidates": [
+    {
+      "best_iteration": 46,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "binary",
+      "stopping_metric": "auc",
+      "val_recall@10%_new_fail": 0.3
+    },
+    {
+      "best_iteration": 3,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "lambdarank",
+      "stopping_metric": "ndcg",
+      "val_recall@10%_new_fail": 1.0
+    }
+  ],
+  "constraints": {
+    "categorical": false,
+    "linear_tree": false,
+    "num_threads_train": 1,
+    "use_missing": true,
+    "zero_as_missing": false
+  },
+  "diagnostics": {
+    "always_broken_tests": [
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None2]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None3]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None4]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestAddRepr::test_repr_works[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestAddRepr::test_repr_works[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_equal[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_equal[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_frozen_instance[None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[2-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[3-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[4-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[5-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[2-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[3-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[4-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs-rerun12",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[5-None]"
+      }
+    ],
+    "exclude_high_fail_rate": true,
+    "fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 194
+        },
+        {
+          "bin": "[1,2)",
+          "count": 12
+        },
+        {
+          "bin": "[2,5)",
+          "count": 41
+        },
+        {
+          "bin": "[5,10)",
+          "count": 20
+        },
+        {
+          "bin": "[10,20)",
+          "count": 1
+        },
+        {
+          "bin": "[20,50)",
+          "count": 6
+        },
+        {
+          "bin": "[50,100)",
+          "count": 0
+        },
+        {
+          "bin": "100+",
+          "count": 3
+        }
+      ],
+      "max": 199,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 5.0
+    },
+    "fail_per_change_mean": 3.5812274368231045,
+    "mutant_test_distinct_base_change": 5,
+    "mutant_test_new_fail_changes": 16,
+    "n_always_broken_tests": 38,
+    "n_changes": 277,
+    "n_changes_with_new_fail": 61,
+    "n_flaky": 0,
+    "n_high_fail_rate_changes": 0,
+    "n_label1": 992,
+    "n_orphan_vs_parent": 38,
+    "n_persistent": 95,
+    "n_persistent_among_label1": 95,
+    "n_rows_parent_missing": 1329,
+    "new_fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 216
+        },
+        {
+          "bin": "[1,2)",
+          "count": 12
+        },
+        {
+          "bin": "[2,5)",
+          "count": 21
+        },
+        {
+          "bin": "[5,10)",
+          "count": 18
+        },
+        {
+          "bin": "[10,20)",
+          "count": 1
+        },
+        {
+          "bin": "[20,50)",
+          "count": 6
+        },
+        {
+          "bin": "[50,100)",
+          "count": 1
+        },
+        {
+          "bin": "100+",
+          "count": 2
+        }
+      ],
+      "max": 199,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 4.400000000000006
+    },
+    "new_fail_per_change_mean": 3.0866425992779782,
+    "persistent_share_among_label1": 0.09576612903225806
+  },
+  "early_stopping_rounds": 50,
+  "feature_gain": [
+    {
+      "gain": 700.2875329554081,
+      "name": "cov_lines"
+    },
+    {
+      "gain": 196.345987085253,
+      "name": "cov_func"
+    },
+    {
+      "gain": 127.5199966430664,
+      "name": "cov_mod"
+    },
+    {
+      "gain": 75.82354974746704,
+      "name": "tfile_ntests"
+    },
+    {
+      "gain": 74.84732583910227,
+      "name": "cov_breadth"
+    },
+    {
+      "gain": 69.0185421705246,
+      "name": "cc_max"
+    },
+    {
+      "gain": 61.204978719353676,
+      "name": "t_obs"
+    },
+    {
+      "gain": 55.26114147901535,
+      "name": "dur"
+    },
+    {
+      "gain": 23.53788983821869,
+      "name": "t_age_days"
+    },
+    {
+      "gain": 17.53300976753235,
+      "name": "imp_dist"
+    },
+    {
+      "gain": 10.858199834823608,
+      "name": "imp_direct"
+    },
+    {
+      "gain": 7.6171698570251465,
+      "name": "ch_rm"
+    },
+    {
+      "gain": 6.358439922332764,
+      "name": "name_jac"
+    },
+    {
+      "gain": 3.5890668965876102,
+      "name": "name_file"
+    },
+    {
+      "gain": 0.0,
+      "name": "cc_sum"
+    },
+    {
+      "gain": 0.0,
+      "name": "name_func"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_known"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_file"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_lag"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_fail_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_fail_cnt"
+    },
+    {
+      "gain": 0.0,
+      "name": "pf_max"
+    },
+    {
+      "gain": 0.0,
+      "name": "pq_max"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_changed"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_flaky_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_nfiles"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_nsrc"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_add"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_nfunc"
+    }
+  ],
+  "feature_names": [
+    "cc_max",
+    "cc_sum",
+    "imp_dist",
+    "imp_direct",
+    "name_file",
+    "name_jac",
+    "name_func",
+    "cov_known",
+    "cov_file",
+    "cov_func",
+    "cov_lines",
+    "cov_breadth",
+    "cov_mod",
+    "cov_lag",
+    "t_fail_rate",
+    "t_fail_cnt",
+    "t_obs",
+    "pf_max",
+    "pq_max",
+    "t_age_days",
+    "dur",
+    "tfile_ntests",
+    "t_changed",
+    "t_flaky_rate",
+    "ch_nfiles",
+    "ch_nsrc",
+    "ch_add",
+    "ch_rm",
+    "ch_nfunc"
+  ],
+  "feature_value_stats_synthetic": [
+    {
+      "n_rows": 102317,
+      "n_unique": 1,
+      "name": "cov_lag",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 1,
+      "name": "t_changed",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 1,
+      "name": "t_flaky_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "imp_direct",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "name_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "name_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "cov_known",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "cov_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "cov_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "cov_mod",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "ch_nfiles",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "ch_nsrc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 2,
+      "name": "ch_add",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 3,
+      "name": "name_jac",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 3,
+      "name": "ch_nfunc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 4,
+      "name": "t_fail_cnt",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 5,
+      "name": "imp_dist",
+      "sentinel": 99,
+      "sentinel_share": 0.3165358640304153
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 9,
+      "name": "cov_lines",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 9,
+      "name": "ch_rm",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 11,
+      "name": "pq_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.16949285065042954
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 19,
+      "name": "pf_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.07785607474808683
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 31,
+      "name": "tfile_ntests",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 52,
+      "name": "t_fail_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 102,
+      "name": "t_obs",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 323,
+      "name": "cc_max",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 323,
+      "name": "cc_sum",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 329,
+      "name": "dur",
+      "sentinel": -1,
+      "sentinel_share": 0.0003713947828806552
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 498,
+      "name": "t_age_days",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 102317,
+      "n_unique": 585,
+      "name": "cov_breadth",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    }
+  ],
+  "features_version": 2,
+  "foil_baseline_mutation_bootstrap": "cov_lines",
+  "lambdarank_truncation_level": 132,
+  "lightgbm_version": "4.5.0",
+  "loro": {
+    "reason": "need \u22652 repos",
+    "skipped": true
+  },
+  "metrics_test_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.0032351312890365204,
+        0.22550079174017884
+      ],
+      "mean": 0.07915296302848981,
+      "n_changes": 16
+    },
+    "apfd": {
+      "ci95": [
+        0.8266142107320451,
+        0.9983732039605583
+      ],
+      "mean": 0.9414775395836186,
+      "n_changes": 16
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0007463566566366315,
+        0.12226462845582561
+      ],
+      "mean": 0.03872109351165126,
+      "n_changes": 16
+    },
+    "recall@10%": {
+      "ci95": [
+        0.577889447236181,
+        1.0
+      ],
+      "mean": 0.8542713567839196,
+      "n_changes": 16
+    },
+    "recall@20%": {
+      "ci95": [
+        0.6,
+        1.0
+      ],
+      "mean": 0.875,
+      "n_changes": 16
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5554438860971523,
+        1.0
+      ],
+      "mean": 0.8332286432160804,
+      "n_changes": 16
+    }
+  },
+  "metrics_test_new_fail_real": {},
+  "metrics_test_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.003339186305804416,
+        0.2266948215909251
+      ],
+      "mean": 0.07915296302848981,
+      "n_changes": 16
+    },
+    "apfd": {
+      "ci95": [
+        0.8260337795545991,
+        0.9983456732036264
+      ],
+      "mean": 0.9414775395836186,
+      "n_changes": 16
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0007464544343257572,
+        0.12226462845582563
+      ],
+      "mean": 0.03872109351165126,
+      "n_changes": 16
+    },
+    "recall@10%": {
+      "ci95": [
+        0.5778894472361809,
+        1.0
+      ],
+      "mean": 0.8542713567839196,
+      "n_changes": 16
+    },
+    "recall@20%": {
+      "ci95": [
+        0.6,
+        1.0
+      ],
+      "mean": 0.875,
+      "n_changes": 16
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5554438860971523,
+        1.0
+      ],
+      "mean": 0.8332286432160804,
+      "n_changes": 16
+    }
+  },
+  "metrics_val_label_no_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.0056179775280898875,
+        0.013764044943820225
+      ],
+      "mean": 0.008614232209737827,
+      "n_changes": 4
+    },
+    "apfd": {
+      "ci95": [
+        0.9919662921348315,
+        0.9969101123595505
+      ],
+      "mean": 0.994747191011236,
+      "n_changes": 4
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.000749063670411985,
+        0.004400749063670412
+      ],
+      "mean": 0.001966292134831461,
+      "n_changes": 4
+    },
+    "recall@10%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@20%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@5%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    }
+  },
+  "metrics_val_label_with_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.0056179775280898875,
+        0.013764044943820225
+      ],
+      "mean": 0.008614232209737827,
+      "n_changes": 4
+    },
+    "apfd": {
+      "ci95": [
+        0.9919662921348315,
+        0.9969101123595505
+      ],
+      "mean": 0.994747191011236,
+      "n_changes": 4
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.000749063670411985,
+        0.004400749063670412
+      ],
+      "mean": 0.001966292134831461,
+      "n_changes": 4
+    },
+    "recall@10%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@20%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@5%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    }
+  },
+  "metrics_val_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.008614232209737827,
+        0.008614232209737827
+      ],
+      "mean": 0.008614232209737827,
+      "n_changes": 4
+    },
+    "apfd": {
+      "ci95": [
+        0.9947471910112359,
+        0.9947471910112359
+      ],
+      "mean": 0.9947471910112359,
+      "n_changes": 4
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.001966292134831461,
+        0.001966292134831461
+      ],
+      "mean": 0.001966292134831461,
+      "n_changes": 4
+    },
+    "recall@10%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@20%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@5%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    }
+  },
+  "metrics_val_new_fail_real": {},
+  "metrics_val_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.008614232209737827,
+        0.008614232209737827
+      ],
+      "mean": 0.008614232209737827,
+      "n_changes": 4
+    },
+    "apfd": {
+      "ci95": [
+        0.9947471910112359,
+        0.9947471910112359
+      ],
+      "mean": 0.9947471910112359,
+      "n_changes": 4
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.001966292134831461,
+        0.001966292134831461
+      ],
+      "mean": 0.001966292134831461,
+      "n_changes": 4
+    },
+    "recall@10%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@20%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    },
+    "recall@5%": {
+      "ci95": [
+        1.0,
+        1.0
+      ],
+      "mean": 1.0,
+      "n_changes": 4
+    }
+  },
+  "ndcg_eval_at": 132,
+  "note": "synthetic data present: test needs \u226520 mutant changes with \u22651 new_fail and \u226510 distinct base_change; metrics shown but no conclusions",
+  "note_gate": "bootstrap verdict=use_baseline ranker=cov_lines reason=insufficient_test_C (accept on synth TEST cluster CI only; val is report-only)",
+  "note_real_gate": "useful_on_real_val=null: no real new_fail changes on val (data_insufficient for the real gate)",
+  "num_boost_round": 500,
+  "objective": "lambdarank",
+  "paired_delta_ci_synthetic_test_cov_lines": {
+    "ci95": [
+      -0.045840014231499054,
+      0.07106963388370423
+    ],
+    "mean": 0.004518965796725562,
+    "n": 16,
+    "n_C": 5,
+    "n_mutants": 16
+  },
+  "paired_delta_ci_synthetic_val_cov_lines": {
+    "ci95": [
+      0.3086283185840708,
+      0.3086283185840708
+    ],
+    "mean": 0.3086283185840708,
+    "n": 4
+  },
+  "paired_delta_ci_test": {
+    "ci95": [
+      -0.045768500948766604,
+      0.07106963388370423
+    ],
+    "mean": 0.004518965796725562,
+    "n": 16
+  },
+  "paired_delta_ci_val": {
+    "ci95": [
+      0.3086283185840708,
+      0.3086283185840708
+    ],
+    "mean": 0.3086283185840708,
+    "n": 4
+  },
+  "paired_delta_ci_val_cov_lines": {
+    "ci95": [
+      0.3086283185840708,
+      0.3086283185840708
+    ],
+    "mean": 0.3086283185840708,
+    "n": 4
+  },
+  "params": {
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "bagging_seed": 21624,
+    "data_random_seed": 21624,
+    "deterministic": true,
+    "eval_at": [
+      132
+    ],
+    "feature_fraction": 0.8,
+    "feature_fraction_seed": 21624,
+    "force_col_wise": true,
+    "label_gain": [
+      0,
+      1
+    ],
+    "lambdarank_truncation_level": 132,
+    "learning_rate": 0.05,
+    "linear_tree": false,
+    "metric": "ndcg",
+    "min_data_in_leaf": 50,
+    "num_leaves": 31,
+    "num_threads": 1,
+    "objective": "lambdarank",
+    "seed": 21624,
+    "use_missing": true,
+    "verbosity": -1,
+    "zero_as_missing": false
+  },
+  "parent_for_new_fail": "first_parent",
+  "predict_raw_score": true,
+  "ranker": "cov_lines",
+  "schema_sha256": "9e5e9243326d8870bd33dcf8c59b49d34a76d60e921435f501638db23e2c5269",
+  "seed": 21624,
+  "sentinel_notes": {
+    "dur": -1,
+    "imp_dist": 99,
+    "pf_max": -1,
+    "pq_max": -1
+  },
+  "splits": {
+    "chrono": {
+      "attrs-rerun12": {
+        "n_changes": {
+          "test": 49,
+          "train": 194,
+          "val": 34
+        },
+        "test": [
+          171,
+          200
+        ],
+        "train": [
+          1,
+          140
+        ],
+        "val": [
+          141,
+          170
+        ]
+      }
+    },
+    "n_changes_with_new_fail": {
+      "test": 16,
+      "train": 41,
+      "val": 4
+    }
+  },
+  "status": "data_insufficient",
+  "stopping_metric": "ndcg",
+  "useful_on_synthetic_test": false,
+  "useful_on_synthetic_test_label": "useful_on_synthetic_test",
+  "useful_on_synthetic_val": true,
+  "useful_on_synthetic_val_label": "useful_on_synthetic_val",
+  "useful_on_val": null,
+  "useful_on_val_label": "useful_on_real_val"
+}

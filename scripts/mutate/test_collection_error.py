@@ -1051,9 +1051,18 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
 
 @pytest.mark.parametrize("parent_collects", [True, False])
 @pytest.mark.parametrize(
-    "mutation_kind", ["index_minus_two", "negated_compare", "other"]
+    "mutation_kind",
+    [
+        "index_minus_two",
+        "negated_compare",
+        "not_minus_one_index",
+        "lines_not_minus_one_index",
+        "other",
+    ],
 )
-@pytest.mark.parametrize("error_kind", ["trailing_and", "other"])
+@pytest.mark.parametrize(
+    "error_kind", ["trailing_and", "generated_header_syntax", "other"]
+)
 def test_attrs_generated_eq_syntax_error_requires_matching_mutation_and_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1085,6 +1094,10 @@ def test_attrs_generated_eq_syntax_error_requires_matching_mutation_and_parent_c
         after = before.replace(
             "if a is not attrs[-1]:", "if not a is not attrs[-1]:", 1
         )
+    elif mutation_kind == "not_minus_one_index":
+        after = before.replace("attrs[-1]", "attrs[not -1]", 1)
+    elif mutation_kind == "lines_not_minus_one_index":
+        after = before.replace('f"{lines[-1]} and"', 'f"{lines[not -1]} and"', 1)
     else:
         after = before.replace(
             "def other(value):\n    return value",
@@ -1117,11 +1130,11 @@ def test_attrs_generated_eq_syntax_error_requires_matching_mutation_and_parent_c
     )
     if not parent_collects:
         parent_output = "exit 1\n"
-    error = (
-        "SyntaxError: invalid syntax. Perhaps you forgot a comma?"
-        if error_kind == "trailing_and"
-        else "SyntaxError: invalid syntax"
-    )
+    error = {
+        "trailing_and": "SyntaxError: invalid syntax. Perhaps you forgot a comma?",
+        "generated_header_syntax": "SyntaxError: invalid syntax",
+        "other": "TypeError: unrelated mutation failure",
+    }[error_kind]
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"
@@ -1148,9 +1161,14 @@ def test_attrs_generated_eq_syntax_error_requires_matching_mutation_and_parent_c
         timeout_override=60,
     )
     assert result.pytest_rc == 1
-    matching_pair = mutation_kind in {"index_minus_two", "negated_compare"}
+    matching_pair = (mutation_kind, error_kind) in {
+        ("index_minus_two", "trailing_and"),
+        ("negated_compare", "trailing_and"),
+        ("not_minus_one_index", "trailing_and"),
+        ("lines_not_minus_one_index", "generated_header_syntax"),
+    }
     assert result.collection_error is (
-        parent_collects and matching_pair and error_kind == "trailing_and"
+        parent_collects and matching_pair
     ), result.collect_note[-2000:]
 
 
