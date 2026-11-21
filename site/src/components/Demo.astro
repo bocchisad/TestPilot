@@ -1,0 +1,205 @@
+---
+import type { Messages } from "../i18n/types";
+import demo from "../data/demo.json";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+const cases = demo.cases;
+const current = cases[0];
+const measuredAt =
+  demo.source && "model_measured_at" in demo.source ? demo.source.model_measured_at : "";
+
+function gloss(table: Record<string, string>, code: string, recentK: number | null): string | null {
+  const text = table[code];
+  if (!text) return null;
+  if (code === "recent_fail" && recentK === null) return null;
+  if (recentK === null) return text;
+  return text.replaceAll("{k}", String(recentK));
+}
+
+const copy = {
+  savedMissing: messages.demo.savedMissing,
+  caughtMissing: messages.demo.caughtMissing,
+  caughtNone: messages.demo.caughtNone,
+  caughtYes: messages.demo.caughtYes,
+  caughtNo: messages.demo.caughtNo,
+  nothingToCatch: messages.demo.nothingToCatch,
+  onlyFlaky: messages.demo.onlyFlaky,
+  missedBudget: messages.demo.missedBudget,
+  planted: messages.demo.planted,
+  safe: messages.demo.safe,
+  synthetic: messages.demo.synthetic,
+  scoreNote: messages.demo.scoreNote,
+  reason: messages.reason,
+  safeReason: messages.safeReason,
+};
+
+function caughtValue(item: { caught: boolean | null; caught_reason?: string | null }): string {
+  if (item.caught === true) return messages.demo.caughtYes;
+  if (item.caught === false) return messages.demo.caughtNo;
+  if (item.caught_reason === "no_outcomes") return messages.demo.caughtMissing;
+  return messages.demo.caughtNone;
+}
+
+function caughtCaption(item: {
+  caught: boolean | null;
+  caught_reason?: string | null;
+  synthetic: boolean;
+  new_fail_n?: number | null;
+  new_fail_selected?: number | null;
+  budget_frac?: number | null;
+}): string {
+  if (item.caught === true && item.synthetic) return messages.demo.planted;
+  if (item.caught === false) {
+    const pct = Math.round((item.budget_frac ?? 0) * 100);
+    return messages.demo.missedBudget
+      .replaceAll("{pct}", String(pct))
+      .replaceAll("{failed}", String(item.new_fail_n ?? 0))
+      .replaceAll("{selected}", String(item.new_fail_selected ?? 0));
+  }
+  if (item.caught_reason === "nothing_to_catch") return messages.demo.nothingToCatch;
+  if (item.caught_reason === "only_flaky") return messages.demo.onlyFlaky;
+  return "";
+}
+
+const json = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c");
+---
+
+<section class="section" id="demo">
+  <div class="wrap">
+    <div class="demohead">
+      <div>
+        <h2>{messages.demo.title}</h2>
+        <p class="lead">{messages.demo.lede}</p>
+        {
+          measuredAt && (
+            <p class="note">{messages.demo.measured.replaceAll("{time}", measuredAt)}</p>
+          )
+        }
+      </div>
+      {demo.placeholder && <span class="tag">{messages.demo.badge}</span>}
+    </div>
+    {
+      demo.placeholder || !current ? (
+        <p class="empty">{messages.demo.empty}</p>
+      ) : (
+        <div class="demogrid">
+          <div class="panel">
+            <div class="panelhead">
+              <span>{messages.demo.commits}</span>
+              <span>{messages.demo.diff}</span>
+            </div>
+            <div class="commitdiff">
+              <div class="commits">
+                {cases.map((item, index) => (
+                  <button
+                    type="button"
+                    class="commit"
+                    data-case={index}
+                    aria-pressed={index === 0 ? "true" : "false"}
+                  >
+                    <span>{item.subject}</span>
+                    <span class="when">{item.authored_at}</span>
+                    {item.synthetic && <span class="tag">{messages.demo.synthetic}</span>}
+                  </button>
+                ))}
+              </div>
+              <div class="diff">
+                <pre id="demo-diff">
+                  {current.diff.split("\n").map((line) => (
+                    <span
+                      class:list={[
+                        line.startsWith("+") && !line.startsWith("+++") && "plus",
+                        line.startsWith("-") && !line.startsWith("---") && "minus",
+                      ]}
+                    >
+                      {line}
+                      {"\n"}
+                    </span>
+                  ))}
+                </pre>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="metrics" aria-live="polite">
+              <div class="metric">
+                <strong id="demo-selected">
+                  {current.n_selected} / {current.n_candidates}
+                </strong>
+                <small>{messages.demo.selected}</small>
+              </div>
+              <div class="metric">
+                <strong id="demo-saved">
+                  {current.saved_ms === null ? messages.demo.savedMissing : current.saved_ms}
+                </strong>
+                <small>{messages.demo.saved}</small>
+              </div>
+              <div class="metric">
+                <strong id="demo-caught">{caughtValue(current)}</strong>
+                <small>{messages.demo.caught}</small>
+                <span id="demo-synthetic-metric" class="tag" hidden={!current.synthetic}>
+                  {messages.demo.synthetic}
+                </span>
+              </div>
+            </div>
+            <p id="demo-caught-note" class="caught-note" hidden={!caughtCaption(current)}>
+              {caughtCaption(current)}
+            </p>
+            <p id="demo-score-note" class="score-note">
+              {messages.demo.scoreNote.replaceAll("{ranker}", current.ranker)}
+            </p>
+            <div class="rank">
+              <div class="panelhead">
+                <span>{messages.demo.ranked}</span>
+              </div>
+              <div id="demo-tests">
+                {current.tests.map((test) => {
+                  const text = gloss(messages.reason, test.reason, current.recent_k);
+                  return (
+                    <div class="rankrow">
+                      <span class="ranknum">{test.rank}</span>
+                      <div class="testname">
+                        <span>{test.test_id}</span>
+                        {text ? (
+                          <span class="why">
+                            <code>{test.reason}</code> {text}
+                          </span>
+                        ) : (
+                          <span class="why unknown">{test.reason}</span>
+                        )}
+                      </div>
+                      <span class="score">{test.score}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div id="demo-safe" class="safe" hidden={!current.safe_fallback}>
+              <p>{messages.demo.safe}</p>
+              <ul id="demo-safe-reasons">
+                {current.safe_reasons.map((code) => {
+                  const text = messages.safeReason[code as keyof typeof messages.safeReason];
+                  return (
+                    <li>
+                      <code class:list={[!text && "unknown"]}>{code}</code>
+                      {text ? ` ${text}` : ""}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    <script type="application/json" id="demo-data" set:html={json(demo)} />
+    <script type="application/json" id="demo-copy" set:html={json(copy)} />
+  </div>
+</section>
+<script>
+  import "../scripts/demo.ts";
+</script>

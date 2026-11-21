@@ -1,0 +1,52 @@
+---
+import type { Messages } from "../i18n/types";
+import { links } from "../i18n/en";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+---
+
+<section class="section" id="comparison">
+  <div class="wrap">
+    <h2>{messages.comparison.title}</h2>
+    <p class="lead">{messages.comparison.lede}</p>
+    <div class="tablebox">
+      <table>
+        <thead>
+          <tr>
+            <th>{messages.comparison.col.tool}</th>
+            <th>{messages.comparison.col.approach}</th>
+            <th>{messages.comparison.col.source}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            links.comparison.map((row) => (
+              <tr>
+                <td>{row.name}</td>
+                <td>{messages.cmp[row.approach]}</td>
+                <td>
+                  {row.hrefs.map((href) => (
+                    <a class="link" href={href}>
+                      {href}
+                    </a>
+                  ))}
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<style>
+  td a {
+    display: block;
+    overflow-wrap: anywhere;
+  }
+</style>

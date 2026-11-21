@@ -1,0 +1,23 @@
+---
+import Base from "../layouts/Base.astro";
+import Hero from "../components/Hero.astro";
+import Problem from "../components/Problem.astro";
+import Pipeline from "../components/Pipeline.astro";
+import Demo from "../components/Demo.astro";
+import Bootstrap from "../components/Bootstrap.astro";
+import Install from "../components/Install.astro";
+import Measurements from "../components/Measurements.astro";
+import Comparison from "../components/Comparison.astro";
+import { messages } from "../i18n/en";
+---
+
+<Base locale="en" title={`${messages.brand} — ${messages.hero.title}`} description={messages.hero.lede}>
+  <Hero messages={messages} />
+  <Problem messages={messages} />
+  <Pipeline messages={messages} />
+  <Demo messages={messages} />
+  <Bootstrap messages={messages} />
+  <Install messages={messages} />
+  <Measurements messages={messages} />
+  <Comparison messages={messages} />
+</Base>

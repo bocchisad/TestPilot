@@ -1,0 +1,52 @@
+{
+  "git_sha": "20f45a96fdd23f1a541308cde25f8bcbc562722e",
+  "href": "https://github.com/bocchisad/TestPilot/blob/20f45a96fdd23f1a541308cde25f8bcbc562722e/docs/measurements/bootstrap-w6-click-jinja-attrs.json",
+  "loro_href": "https://github.com/bocchisad/TestPilot/blob/20f45a96fdd23f1a541308cde25f8bcbc562722e/docs/measurements/loro-w6-click-jinja-attrs/report.md",
+  "interpretation": {
+    "conclusion": "model approximately ties cov_lines; cov_lines dominates feature gain",
+    "cov_lines_macro_recall_at_10pct": 0.7157546412443209,
+    "default_ranker": "cov_lines",
+    "delta_vs_cov_lines": -0.005859520781038352,
+    "limitations": [
+      "dry-run underpredicted measured wall time by 32\u201342%",
+      "Click and attrs have TEST n_C=5 (<10); widen TEST in Week 7"
+    ],
+    "loro_macro_recall_at_10pct": 0.7098951204632825,
+    "per_repo": [
+      {
+        "cov_lines_recall_at_10pct": 0.849752390987194,
+        "delta_vs_cov_lines": 0.004518965796725616,
+        "gate": "use_baseline",
+        "gate_reason": "insufficient_test_C",
+        "model_recall_at_10pct": 0.8542713567839196,
+        "repo": "attrs",
+        "test_n_C": 5
+      },
+      {
+        "cov_lines_recall_at_10pct": 0.42792188538570725,
+        "delta_vs_cov_lines": -0.020575126341097427,
+        "gate": "use_baseline",
+        "gate_reason": "insufficient_test_C",
+        "model_recall_at_10pct": 0.4073467590446098,
+        "repo": "click",
+        "test_n_C": 5
+      },
+      {
+        "cov_lines_recall_at_10pct": 0.8695896473600615,
+        "delta_vs_cov_lines": -0.0015224017987430782,
+        "gate": "use_model",
+        "gate_reason": "synth_test_ci_low_ge_0",
+        "model_recall_at_10pct": 0.8680672455613184,
+        "repo": "jinja",
+        "test_n_C": 11
+      }
+    ],
+    "pooled_test_ci95": [
+      0.004897452006012426,
+      0.053819629480489704
+    ],
+    "pooled_test_delta": 0.026567906847545734,
+    "pooled_test_n": 48,
+    "pooled_test_n_C": 21
+  }
+}

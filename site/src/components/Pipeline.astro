@@ -1,0 +1,26 @@
+---
+import type { Messages } from "../i18n/types";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+---
+
+<section class="section" id="pipeline">
+  <div class="wrap">
+    <h2>{messages.pipeline.title}</h2>
+    <div class="flow">
+      {
+        messages.pipeline.steps.map((step, index) => (
+          <div class="step">
+            <span class="num">{String(index + 1).padStart(2, "0")}</span>
+            <b>{step.name}</b>
+            <p>{step.body}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

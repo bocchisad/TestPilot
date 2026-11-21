@@ -1,0 +1,17 @@
+---
+import type { Messages } from "../i18n/types";
+
+interface Props {
+  messages: Messages;
+}
+
+const { messages } = Astro.props;
+---
+
+<section class="section" id="problem">
+  <div class="wrap">
+    <h2>{messages.problem.title}</h2>
+    <p class="lead">{messages.problem.lede}</p>
+    <p class="lead">{messages.problem.failopen}</p>
+  </div>
+</section>
