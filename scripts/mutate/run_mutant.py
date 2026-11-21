@@ -187,6 +187,7 @@ _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE = re.compile(
 _NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE = re.compile(
     r"(?m)^TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
 )
+_NO_JUNIT_ATTRS_INIT_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
     r"jsonschema[/\\]_types\.py\", line \d+, in"
 )
@@ -545,6 +546,56 @@ def _mutant_inverts_attrs_own_attribute_sentinel(
     except (OSError, subprocess.CalledProcessError):
         return False
     return not has_inverted_check(parent_source) and has_inverted_check(mutant_source)
+
+
+def _mutant_negates_attrs_generated_init_expression(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize bool-flip mutations that corrupt attrs' generated init source."""
+    path = "src/attr/_make.py"
+
+    def has_negated_fstring_condition(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != "_attrs_to_init_script":
+                continue
+            for child in ast.walk(node):
+                if not isinstance(child, ast.FormattedValue):
+                    continue
+                value = child.value
+                if (
+                    isinstance(value, ast.UnaryOp)
+                    and isinstance(value.op, ast.Not)
+                    and isinstance(value.operand, ast.IfExp)
+                ):
+                    return True
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not has_negated_fstring_condition(
+        parent_source
+    ) and has_negated_fstring_condition(mutant_source)
 
 
 def _collected_count(output: str) -> int:
@@ -1007,6 +1058,14 @@ def run_mutant(
                     repo, parent_sha, mutant_sha, "_is_class_var"
                 )
             )
+            attrs_generated_init_syntax_failure = (
+                rc == 1
+                and _NO_JUNIT_ATTRS_INIT_SYNTAX_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_negates_attrs_generated_init_expression(
+                    repo, parent_sha, mutant_sha
+                )
+            )
             if (
                 not no_junit_mutant_control_error
                 and rc in {1, 3}
@@ -1019,6 +1078,7 @@ def run_mutant(
                     or attrs_metadata_bool_failure
                     or attrs_specification_import_failure
                     or attrs_class_var_import_failure
+                    or attrs_generated_init_syntax_failure
                 )
                 and (
                     has_local_mutant_frame
@@ -1047,7 +1107,11 @@ def run_mutant(
                         else (
                             "mutant changes _is_class_var to return None; "
                             if attrs_class_var_import_failure
-                            else ""
+                            else (
+                                "mutant negates an attrs generated-init f-string expression; "
+                                if attrs_generated_init_syntax_failure
+                                else ""
+                            )
                         )
                     )
                 )

@@ -935,6 +935,103 @@ def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_contr
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])
+@pytest.mark.parametrize(
+    "mutation_kind", ["kw_only_separator", "generated_body", "other"]
+)
+def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    parent_collects: bool,
+    mutation_kind: str,
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    before = textwrap.dedent(
+        """\
+        def _attrs_to_init_script(args, kw_only_args, lines, NL):
+            if kw_only_args:
+                args += f"{', ' if args else ''}*, {', '.join(kw_only_args)}"
+            return f\"\"\"def __init__(self, {args}):
+            {NL.join(lines) if lines else 'pass'}
+        \"\"\"
+
+        def other(value):
+            return value
+        """
+    )
+    if mutation_kind == "kw_only_separator":
+        after = before.replace("{', ' if args else ''}", "{not (', ' if args else '')}")
+    elif mutation_kind == "generated_body":
+        after = before.replace(
+            "{NL.join(lines) if lines else 'pass'}",
+            "{not (NL.join(lines) if lines else 'pass')}",
+        )
+    else:
+        after = before.replace(
+            "def other(value):\n    return value",
+            "def other(value):\n    return not (value if value else '')",
+        )
+    source.write_text(before, encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline attrs package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text(after, encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant breaks generated init script")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+
+    wrapper = tmp_path / "pytest_wrap"
+    parent_output = (
+        "cat > \"$junit\" <<'XML'\n"
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<testsuites><testsuite name="tests" tests="1">'
+        '<testcase classname="tests.test_basic" name="test_ok"/>'
+        "</testsuite></testsuites>\n"
+        "XML\n"
+        "echo '1 test collected'\n"
+        "exit 0\n"
+    )
+    if not parent_collects:
+        parent_output = "exit 1\n"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "junit=''\n"
+        'for arg in "$@"; do case "$arg" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n'
+        'case "$PWD" in *wt-parent-*)\n'
+        + parent_output
+        + "esac\n"
+        + "printf '%s\\n' 'Traceback (most recent call last):'\n"
+        + 'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 3, in _attrs_to_init_script"\n'
+        + "printf '%s\\n' \"SyntaxError: invalid syntax\"\n"
+        + "exit 1\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+    assert result.pytest_rc == 1
+    assert result.collection_error is (
+        parent_collects and mutation_kind != "other"
+    ), result.collect_note[-2000:]
+
+
+@pytest.mark.parametrize("parent_collects", [True, False])
 @pytest.mark.parametrize("error_kind", ["unexpected_keyword", "missing_opaque"])
 @pytest.mark.parametrize("mutation_kind", ["sentinel", "class_var", "other"])
 def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_control(
