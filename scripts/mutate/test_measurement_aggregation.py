@@ -52,7 +52,16 @@ def test_labels_subtract_parent_and_flaky_and_timeouts_are_explicit(tmp_path):
     assert result['timeout_pairs'] == ['C:1']
     con.execute("INSERT INTO test_results(run_id,test_pk,outcome,duration_ms) VALUES(2,2,'fail',1)")
     con.commit()
-    assert collect_mutants(tmp_path)['labels'] == {'M':'kill'}
+    result = collect_mutants(tmp_path)
+    assert result['labels'] == {'M':'survive'}
+    assert result['label_details']['M']['new_fail_tests'] == []
+    assert result['label_details']['M']['missing_from_base_tests'] == ['new']
+    con.execute("INSERT INTO test_results(run_id,test_pk,outcome,duration_ms) VALUES(1,2,'pass',1)")
+    con.commit()
+    result = collect_mutants(tmp_path)
+    assert result['labels'] == {'M':'kill'}
+    assert result['label_details']['M']['new_fail_tests'] == ['new']
+    assert result['label_details']['M']['missing_from_base_tests'] == []
     con.close()
 
 
@@ -80,6 +89,22 @@ def test_level_b_only_ignores_explicitly_matching_collection_errors():
     mismatched = {**row, 'collection_error_shas':[]}
     result = compare_level_b(row, mismatched)
     assert not result['label_match']
+
+
+def test_level_b_reports_per_test_label_changes():
+    gold = {'m_shas_non_timeout':['M'], 'timeout_shas':[], 'label_details':{
+        'M':{'new_fail_tests':['missing-in-base'],'flaky_tests':[]}}}
+    second = {'m_shas_non_timeout':['M'], 'timeout_shas':[], 'label_details':{
+        'M':{'new_fail_tests':[],'missing_from_base_tests':['missing-in-base'],'flaky_tests':[]}}}
+
+    result = compare_level_b(gold, second)
+
+    assert not result['label_match']
+    assert result['n_label_changes'] == 1
+    assert result['changed_labels'] == [{
+        'sha':'M', 'old_new_fail_tests':['missing-in-base'], 'new_new_fail_tests':[],
+        'removed_tests':['missing-in-base'], 'added_tests':[]
+    }]
 
 
 def test_level_b_excludes_union_of_timeouts_and_flaky_tests():

@@ -317,7 +317,8 @@ def run_details(con, sha, synthetic):
     rows = con.execute("""SELECT t.test_id, r.outcome, r.flaky FROM test_results r
         JOIN tests t ON t.id=r.test_pk WHERE r.run_id=?""", (row[0],)).fetchall()
     return ({t for t, outcome, flaky in rows if outcome in ('fail', 'error') and not flaky},
-            {t for t, _, flaky in rows if flaky})
+            {t for t, _, flaky in rows if flaky},
+            {t for t, _, _ in rows})
 
 
 def collect_mutants(repo: Path) -> dict:
@@ -352,12 +353,16 @@ def collect_mutants(repo: Path) -> dict:
                 collection_error_shas.append(sha)
                 continue
             base, _ = pair.rsplit(':', 1)
-            fails_c, flaky_c = run_details(con, base, 0)
-            fails_m, flaky_m = run_details(con, sha, 1)
+            fails_c, flaky_c, present_c = run_details(con, base, 0)
+            fails_m, flaky_m, present_m = run_details(con, sha, 1)
             flaky = flaky_c | flaky_m | set(event.get('flaky_tests', []))
-            new = (fails_m - fails_c) - flaky
+            shared = present_c & present_m
+            new = (fails_m - fails_c) & shared - flaky
+            missing_from_base = (fails_m - present_c) - flaky
             labels[sha] = 'kill' if new else 'survive'
-            details[sha] = {'new_fail_tests': sorted(new), 'flaky_tests': sorted(flaky)}
+            details[sha] = {'new_fail_tests': sorted(new),
+                            'missing_from_base_tests': sorted(missing_from_base),
+                            'flaky_tests': sorted(flaky)}
     return {'m_shas_non_timeout': sorted(set(non_timeout)), 'labels': labels, 'label_details': details,
             'timeout_pairs': timeout_pairs, 'timeout_shas': sorted(set(timeout_shas)),
             'collection_error_pairs': collection, 'collection_error_shas': sorted(set(collection_error_shas)),
@@ -374,6 +379,7 @@ def compare_level_b(gold: dict, second: dict) -> dict:
     common = left & right
     label_match = True
     n_compared = 0
+    changed = []
     left_collection_errors = set(gold.get('collection_error_shas', []))
     right_collection_errors = set(second.get('collection_error_shas', []))
     for sha in common:
@@ -389,13 +395,95 @@ def compare_level_b(gold: dict, second: dict) -> dict:
         if not all(isinstance(row.get(key), list) for row in (a, b) for key in ('new_fail_tests', 'flaky_tests')):
             raise ValueError(f'malformed label details for comparable mutant {sha}')
         flaky = set(a['flaky_tests']) | set(b['flaky_tests'])
-        label_match = label_match and bool(set(a['new_fail_tests'])-flaky) == bool(set(b['new_fail_tests'])-flaky)
+        old_tests = set(a['new_fail_tests']) - flaky
+        new_tests = set(b['new_fail_tests']) - flaky
+        if old_tests != new_tests:
+            label_match = False
+            changed.append({'sha': sha, 'old_new_fail_tests': sorted(old_tests),
+                            'new_new_fail_tests': sorted(new_tests),
+                            'removed_tests': sorted(old_tests - new_tests),
+                            'added_tests': sorted(new_tests - old_tests)})
         n_compared += 1
     return {'gold': gold, 'run_b': second, 'excluded_timeout_shas': sorted(excluded),
             'sha_match': left == right, 'label_match': label_match,
+            'changed_labels': changed, 'n_label_changes': len(changed),
             'n_compared': n_compared, 'n_collection_error_compared': sum(
                 sha in left_collection_errors and sha in right_collection_errors for sha in common
             )}
+
+
+def write_level_b_delta(root: Path, gold: dict, second: dict, comparison: dict) -> None:
+    old_kills = sum(value == 'kill' for value in gold.get('labels', {}).values())
+    new_kills = sum(value == 'kill' for value in second.get('labels', {}).values())
+    missing_pairs = [
+        {'sha': sha, 'tests': detail['missing_from_base_tests']}
+        for sha, detail in sorted(second['label_details'].items())
+        if detail.get('missing_from_base_tests')
+    ]
+    report = {
+        'scope': 'Week 6 click Level-B only',
+        'label_rule': 'new_fail requires a failing non-flaky test ID present in both base and head',
+        'source_paths': {
+            'saved_gold': 'docs/measurements/bootstrap-click/level_b_gold.json',
+            'recalculated_runs': '<repos-root>/click/.testpilot/{db.sqlite,bootstrap/mutate_outcomes.jsonl}',
+        },
+        'n_compared_mutants': comparison['n_compared'],
+        'old_kill_mutants': old_kills,
+        'shared_test_kill_mutants': new_kills,
+        'kill_mutant_delta': new_kills - old_kills,
+        'n_changed_mutant_labels': comparison['n_label_changes'],
+        'n_changed_test_labels': sum(
+            len(row['removed_tests']) + len(row['added_tests'])
+            for row in comparison['changed_labels']
+        ),
+        'changed_labels': comparison['changed_labels'],
+        'labels_match': comparison['label_match'],
+        'n_pairs_with_failures_missing_from_base': len(missing_pairs),
+        'n_failures_missing_from_base': sum(len(row['tests']) for row in missing_pairs),
+        'missing_from_base_pairs': missing_pairs,
+        'sha_match': comparison['sha_match'],
+    }
+    out = root / 'docs/measurements/week7'
+    out.mkdir(parents=True, exist_ok=True)
+    (out / 'week6-level-b-delta.json').write_text(
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + '\n', encoding='utf-8'
+    )
+    lines = [
+        '# Week 6 Level-B label recalculation',
+        '',
+        'Scope: click Level-B; saved gold vs labels recalculated using shared test IDs.',
+        '',
+        'Inputs: `docs/measurements/bootstrap-click/level_b_gold.json` and the original local W6 click clone supplied via `--repos-root` (`.testpilot/db.sqlite` and `bootstrap/mutate_outcomes.jsonl`).',
+        '',
+        '| Measure | Saved labels | Shared-test labels | Delta |',
+        '| --- | ---: | ---: | ---: |',
+        f"| Kill mutants | {old_kills} | {new_kills} | {new_kills - old_kills:+d} |",
+        f"| Changed mutant labels | — | {comparison['n_label_changes']} | — |",
+        f"| Changed test labels | — | {report['n_changed_test_labels']} | — |",
+        f"| Pairs with failures missing from base | — | {len(missing_pairs)} | — |",
+        '',
+        f"Compared mutants: {comparison['n_compared']}. SHA sets match: {comparison['sha_match']}.",
+        '',
+        '## Per-mutant test-label changes',
+        '',
+    ]
+    if comparison['changed_labels']:
+        lines.extend(['| Mutant SHA | Removed from new_fail | Added to new_fail |', '| --- | --- | --- |'])
+        for row in comparison['changed_labels']:
+            removed = ', '.join(f"`{test}`" for test in row['removed_tests']) or '—'
+            added = ', '.join(f"`{test}`" for test in row['added_tests']) or '—'
+            lines.append(f"| `{row['sha']}` | {removed} | {added} |")
+    else:
+        lines.append('No per-test labels changed (0).')
+    lines.extend(['', '## Failures missing from base', ''])
+    if missing_pairs:
+        lines.extend(['| Mutant SHA | Test IDs |', '| --- | --- |'])
+        for row in missing_pairs:
+            tests = ', '.join(f"`{test}`" for test in row['tests'])
+            lines.append(f"| `{row['sha']}` | {tests} |")
+    else:
+        lines.append('No head failures were absent from base (0).')
+    (out / 'week6-level-b-delta.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
 def repo_block(root: Path, name: str) -> dict:
@@ -498,9 +586,11 @@ def main() -> int:
     if not gold_path.is_file():
         raise ValueError('missing first click gold snapshot')
     second = collect_mutants(args.repos_root/'click')
-    level = compare_level_b(load(gold_path), second)
-    if not level['sha_match'] or not level['label_match'] or not level['n_compared']:
-        raise ValueError('level-b mutant sets or nonflaky labels differ')
+    gold = load(gold_path)
+    level = compare_level_b(gold, second)
+    if not level['sha_match'] or not level['n_compared']:
+        raise ValueError('level-b mutant sets differ or no non-error mutants were comparable')
+    write_level_b_delta(root, gold, second, level)
     b_report = load(args.level_b_out/'bootstrap_report.json')
     per['click_level_b'] = {k: b_report.get(k) for k in ('step_timings_s', 'n_timeout', 'timeout_rate', 'n_actual')}
     loro = normalize_attrs_run_name(run_loro(root))

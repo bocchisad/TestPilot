@@ -141,14 +141,15 @@ def budget_frac(doc: dict) -> float:
 
 def caught(
     selected_ids: list[str], outcomes: dict | None
-) -> tuple[bool | None, str | None, int | None, int | None, list[str]]:
-    """Return caught, caught_reason, new_fail_n, new_fail_selected, new_fail_tests.
+) -> tuple[bool | None, str | None, int | None, int | None, list[str], int | None, list[str]]:
+    """Return caught status and shared new failures plus missing-base failures.
 
     A new failure is fail/error on this run, not fail/error on the base run,
-    and not marked flaky on either run.
+    present in both runs, and not marked flaky on either run. Failing tests
+    absent from base are returned separately and never count as new failures.
     """
     if outcomes is None or outcomes.get("complete") is not True:
-        return None, "no_outcomes", None, None, []
+        return None, "no_outcomes", None, None, [], None, []
     head = outcome_rows(outcomes.get("tests"), "outcomes.tests")
     base_doc = outcomes.get("base")
     if not isinstance(base_doc, dict) or base_doc.get("complete") is not True:
@@ -160,19 +161,24 @@ def caught(
     def fails(rows: dict[str, tuple[str, bool]]) -> set[str]:
         return {test_id for test_id, (outcome, flag) in rows.items() if outcome in {"fail", "error"} and not flag}
 
-    new = (fails(head) - fails(base)) - flaky
+    head_fails = fails(head)
+    base_fails = fails(base)
+    shared = set(head) & set(base)
+    new = ((head_fails - base_fails) & shared) - flaky
+    missing_from_base = (head_fails - set(base)) - flaky
     names = sorted(new)
+    missing_names = sorted(missing_from_base)
     if new:
         selected_new = new.intersection(selected_ids)
-        return bool(selected_new), None, len(new), len(selected_new), names
+        return bool(selected_new), None, len(new), len(selected_new), names, len(missing_names), missing_names
     flaky_failures = {
         test_id
         for test_id, (outcome, _) in head.items()
         if outcome in {"fail", "error"} and test_id in flaky
     }
     if flaky_failures:
-        return None, "only_flaky", None, None, []
-    return None, "nothing_to_catch", None, None, []
+        return None, "only_flaky", None, None, [], len(missing_names), missing_names
+    return None, "nothing_to_catch", 0, 0, [], len(missing_names), missing_names
 
 
 def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
@@ -267,6 +273,8 @@ def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
         "new_fail_n": verdict[2],
         "new_fail_selected": verdict[3],
         "new_fail_tests": verdict[4],
+        "missing_from_base_test_count": verdict[5],
+        "missing_from_base_tests": verdict[6],
         "budget_frac": budget_frac(doc),
         "synthetic": synthetic,
         "safe_fallback": safe.get("fallback_all") is True,
