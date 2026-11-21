@@ -74,7 +74,7 @@ export const messages = {
     nothingToCatch: "Outcomes are recorded, and there are no new failures. There is nothing to catch.",
     onlyFlaky: "Only an unstable test failed, and that does not count.",
     missedBudget:
-      "New failures exist, but they missed the 10% budget. {failed} failed, {selected} of them are in the selection.",
+      "New failures exist, but they missed the {pct}% budget. {failed} failed, {selected} of them are in the selection.",
     planted:
       "On a synthetic commit this is the mutant run, so a caught failure was planted by the mutant.",
     scoreNote:

@@ -76,7 +76,7 @@ export const messages: Messages = {
     nothingToCatch: "Исходы есть, новых падений нет — ловить нечего.",
     onlyFlaky: "Упал только нестабильный тест, он не считается.",
     missedBudget:
-      "Новые падения есть, но не попали в бюджет 10%. Упало {failed}, в выборке {selected}.",
+      "Новые падения есть, но не попали в бюджет {pct}%. Упало {failed}, в выборке {selected}.",
     planted: "На synthetic-коммите это прогон мутанта, и пойманное падение посажено мутацией.",
     scoreNote:
       "Сырой score, ranker {ranker}. Для model это LightGBM predict_raw. Для cov_lines это число покрытых строк. Не вероятность.",

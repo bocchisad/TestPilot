@@ -126,14 +126,29 @@ def outcome_rows(mapping: object, label: str) -> dict[str, tuple[str, bool]]:
     return rows
 
 
-def caught(selected_ids: list[str], outcomes: dict | None) -> tuple[bool | None, str | None, int | None, int | None]:
-    """Return caught, caught_reason, new_fail_n, new_fail_selected.
+def budget_frac(doc: dict) -> float:
+    budget = as_dict(doc.get("budget"), "budget")
+    if budget.get("kind") != "frac":
+        fail("budget.kind must be frac")
+    try:
+        value = float(budget.get("value"))
+    except (TypeError, ValueError):
+        fail("budget.value must be a number")
+    if not 0 < value <= 1:
+        fail("budget.value must be in (0, 1]")
+    return value
+
+
+def caught(
+    selected_ids: list[str], outcomes: dict | None
+) -> tuple[bool | None, str | None, int | None, int | None, list[str]]:
+    """Return caught, caught_reason, new_fail_n, new_fail_selected, new_fail_tests.
 
     A new failure is fail/error on this run, not fail/error on the base run,
     and not marked flaky on either run.
     """
     if outcomes is None or outcomes.get("complete") is not True:
-        return None, "no_outcomes", None, None
+        return None, "no_outcomes", None, None, []
     head = outcome_rows(outcomes.get("tests"), "outcomes.tests")
     base_doc = outcomes.get("base")
     if not isinstance(base_doc, dict) or base_doc.get("complete") is not True:
@@ -146,17 +161,18 @@ def caught(selected_ids: list[str], outcomes: dict | None) -> tuple[bool | None,
         return {test_id for test_id, (outcome, flag) in rows.items() if outcome in {"fail", "error"} and not flag}
 
     new = (fails(head) - fails(base)) - flaky
+    names = sorted(new)
     if new:
         selected_new = new.intersection(selected_ids)
-        return bool(selected_new), None, len(new), len(selected_new)
+        return bool(selected_new), None, len(new), len(selected_new), names
     flaky_failures = {
         test_id
         for test_id, (outcome, _) in head.items()
         if outcome in {"fail", "error"} and test_id in flaky
     }
     if flaky_failures:
-        return None, "only_flaky", None, None
-    return None, "nothing_to_catch", None, None
+        return None, "only_flaky", None, None, []
+    return None, "nothing_to_catch", None, None, []
 
 
 def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
@@ -250,6 +266,8 @@ def build_case(inp: Path, ranking_path: Path, clone: Path, model: dict) -> dict:
         "caught_reason": verdict[1],
         "new_fail_n": verdict[2],
         "new_fail_selected": verdict[3],
+        "new_fail_tests": verdict[4],
+        "budget_frac": budget_frac(doc),
         "synthetic": synthetic,
         "safe_fallback": safe.get("fallback_all") is True,
         "safe_reasons": reasons,

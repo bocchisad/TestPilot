@@ -50,10 +50,13 @@ function caughtCaption(item: {
   synthetic: boolean;
   new_fail_n?: number | null;
   new_fail_selected?: number | null;
+  budget_frac?: number | null;
 }): string {
   if (item.caught === true && item.synthetic) return messages.demo.planted;
   if (item.caught === false) {
+    const pct = Math.round((item.budget_frac ?? 0) * 100);
     return messages.demo.missedBudget
+      .replaceAll("{pct}", String(pct))
       .replaceAll("{failed}", String(item.new_fail_n ?? 0))
       .replaceAll("{selected}", String(item.new_fail_selected ?? 0));
   }

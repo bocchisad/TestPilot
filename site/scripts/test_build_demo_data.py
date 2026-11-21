@@ -265,6 +265,8 @@ class BuildDemoDataTest(unittest.TestCase):
         self.assertIsNone(case["caught_reason"])
         self.assertEqual(case["new_fail_n"], 1)
         self.assertEqual(case["new_fail_selected"], 1)
+        self.assertEqual(case["new_fail_tests"], ["t::a"])
+        self.assertEqual(case["budget_frac"], 0.1)
 
     def test_caught_incomplete_is_null(self) -> None:
         repo, sha = init_repo()
@@ -303,6 +305,7 @@ class BuildDemoDataTest(unittest.TestCase):
         self.assertIsNone(case["caught_reason"])
         self.assertEqual(case["new_fail_n"], 1)
         self.assertEqual(case["new_fail_selected"], 0)
+        self.assertEqual(case["new_fail_tests"], ["t::missed"])
 
     def test_caught_only_flaky(self) -> None:
         repo, sha = init_repo()
@@ -328,6 +331,7 @@ class BuildDemoDataTest(unittest.TestCase):
         case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
         self.assertIsNone(case["caught"])
         self.assertEqual(case["caught_reason"], "only_flaky")
+        self.assertEqual(case["new_fail_tests"], [])
 
     def test_persistent_failure_is_nothing_to_catch(self) -> None:
         repo, sha = init_repo()
@@ -349,6 +353,20 @@ class BuildDemoDataTest(unittest.TestCase):
         case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
         self.assertIsNone(case["caught"])
         self.assertEqual(case["caught_reason"], "nothing_to_catch")
+        self.assertEqual(case["new_fail_tests"], [])
+
+    def test_budget_frac_comes_from_select(self) -> None:
+        repo, sha = init_repo()
+        inp = write_input(repo, sha, "model", "model")
+        payload = ranking(sha, ranker="model")
+        payload["budget"]["value"] = 0.25
+        (inp / "rankings" / f"{sha}.json").write_text(json.dumps(payload), encoding="utf-8")
+        out = Path(tempfile.mkdtemp()) / "demo.json"
+        result = run_script(["--input", str(inp), "--out", str(out)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
+        self.assertEqual(case["budget_frac"], 0.25)
+        self.assertEqual(case["new_fail_tests"], [])
 
     def test_local_origin_keeps_public_url_and_stamps_generated_at(self) -> None:
         repo, sha = init_repo()

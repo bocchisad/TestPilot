@@ -18,6 +18,7 @@ type DemoCase = {
   caught_reason: string | null;
   new_fail_n: number | null;
   new_fail_selected: number | null;
+  budget_frac: number;
   synthetic: boolean;
   safe_fallback: boolean;
   safe_reasons: string[];
@@ -129,7 +130,9 @@ function caughtValue(item: DemoCase, copy: Copy): string {
 function caughtCaption(item: DemoCase, copy: Copy): string {
   if (item.caught === true && item.synthetic) return copy.planted;
   if (item.caught === false) {
+    const pct = Math.round(item.budget_frac * 100);
     return copy.missedBudget
+      .replaceAll("{pct}", String(pct))
       .replaceAll("{failed}", String(item.new_fail_n ?? 0))
       .replaceAll("{selected}", String(item.new_fail_selected ?? 0));
   }
