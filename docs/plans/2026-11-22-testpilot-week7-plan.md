@@ -152,6 +152,8 @@
 
 **Pilot evidence:** `docs/measurements/week7/real-pair-pilot.md` records 9.57 s for the first full-suite base+head pass and 15.31 s across two passes per tree; the fresh-venv/dependency/base-install/head-install steps took 3.95 s with a warm pip cache. This is one click pair and does not predict installation cost for other repos.
 
+**Primary Task 2A count:** track positive real pairs with at least one failure outside the added regression-test function(s), divided by all audited positive real pairs. Initial pilot value is 0/1 (0%); excluding both added click functions removes all 12 parametrized cases and leaves 0 positives. The 31,000 deselected cases per pytest run are Click stress tests selected out by its `addopts`.
+
 **Estimate:** Full-history screening volume is not yet known. Use the pilot timing for a new total after the full-history candidate count is known; plan 1–2 engineering days for tool, validation, and audit workflow, excluding user-run tests.
 
 - [ ] Add tests for malformed code-only reverts, accidentally omitted regression tests/fixtures, unchanged/shared outcomes, fixture-required cases, and duplicate bug/fix pairs.

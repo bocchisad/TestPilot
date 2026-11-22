@@ -16,9 +16,13 @@
 | base, repeat | 2110 passed, 25 skipped, 1 xfailed; exit 0 | 2.46 s |
 | head, repeat | 2101 passed, 9 failed, 25 skipped, 1 xfailed; exit 1 | 3.28 s |
 
+Each run reports 31,000 deselected tests because Click's `addopts` marks its stress tests out of the default suite.
+
 - Shared test IDs: 2136. No test IDs were absent from base among head failures.
 - Positive pair: **yes**; 9 shared tests failed on head and passed on base. Outcomes repeated consistently; no flaky IDs observed.
 - Failing tests outside the newly added regression tests: **0**. Positive pairs with another failure: **0/1 (0%)**.
+- Without the added regression tests: **0 positives**. This metric removes both test functions, `test_show_envvar_empty` and `test_missing_envvar_sequence`, in full: all 12 parametrized cases (not only the 9 failing IDs). The 9 failures are all among these 12 cases.
+- Week 7's primary real-pair signal counter starts at **0/1 positive pairs with any failure outside the new regression test**. Keep numerator and denominator cumulative as Task 2A adds audited pairs.
 
 ## Setup and runtime
 

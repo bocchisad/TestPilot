@@ -13,6 +13,8 @@ Inputs: `docs/measurements/bootstrap-click/level_b_gold.json` and the original l
 
 Compared mutants: 132. SHA sets match: True.
 
+`labels_match=false` records a collection-error classification mismatch for four mutants; it does not mean that any `new_fail` test label changed. All four are collection-error mutants in the saved W6 gold. Their reported module-level IDs (`tests.test_info_dict` and `tests.test_options`) are collection failures, not newly added tests and not shared test-level positives. The recalculated shared-test labels still have zero changed mutant labels and zero changed test labels.
+
 ## Per-mutant test-label changes
 
 No per-test labels changed (0).
@@ -25,3 +27,5 @@ No per-test labels changed (0).
 | `4d4d4a303ab74e8f315f7eaa71e781aa8aea3157` | `tests.test_info_dict` |
 | `53f01e33ddfea66b5cb6f243c3528a06bb13004d` | `tests.test_info_dict`, `tests.test_options` |
 | `c416c54bbfc39e8edda4b4d9c0a89eb5338d1fe7` | `tests.test_info_dict`, `tests.test_options` |
+
+These four `missing from base` entries are the same collection-error cases described above, not evidence of four new tests or new failures in individual shared test cases.

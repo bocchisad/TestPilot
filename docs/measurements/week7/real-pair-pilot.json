@@ -133,7 +133,25 @@
     "A first install command referenced requirements/tests.txt, which is absent at the selected historical commit. It was not an environment failure; pytest 9.0.2 from that commit’s uv.lock was installed instead.",
     "Both base and head built/installed on Python 3.13.18. Two runs per tree had identical outcome sets, with no observed flaky test IDs.",
     "All 9 shared new-fail test IDs are parametrized cases from the added regression tests; no other shared test failed. The positive-pair fraction with a non-new-test failure is 0/1.",
-    "The pilot demonstrates this candidate’s regression but is not a model comparison or part of the final real dataset until Task 2A audit."
+    "The pilot demonstrates this candidate’s regression but is not a model comparison or part of the final real dataset until Task 2A audit.",
+    "Each run deselected 31,000 stress tests via Click pytest addopts.",
+    "The without-regression-test metric excludes both added test functions in full (12 parametrized cases), leaving zero positives; it does not remove only the nine failing IDs.",
+    "The Week 7 primary real-pair counter starts at 0 pairs with an outside-regression-test failure among 1 audited positive pair."
   ],
-  "local_artifact_location": "Temporary local directory; exact path was reported in the work session. Raw logs are intentionally not tracked."
+  "local_artifact_location": "Temporary local directory; exact path was reported in the work session. Raw logs are intentionally not tracked.",
+  "metrics_without_regression_tests": {
+    "excluded_test_functions": [
+      "tests.test_options::test_show_envvar_empty",
+      "tests.test_options::test_missing_envvar_sequence"
+    ],
+    "excluded_parametrized_case_count": 12,
+    "positive_test_ids": [],
+    "positive_count": 0,
+    "positive_pair": false
+  },
+  "week7_primary_real_pair_counter": {
+    "positive_pairs_with_failure_outside_added_regression_test": 0,
+    "audited_positive_pairs": 1,
+    "fraction": 0.0
+  }
 }
