@@ -73,11 +73,13 @@
 
 **Position:** Immediately after 0.1 and before 0.2/0.3. The pilot checks the procedure and environment; it is not part of final metrics unless re-collected under Task 2A's full audit rules.
 
-- [ ] Choose one plausible pair from the existing offline shortlist; document buggy/fixed SHAs and the code-only revert while retaining the regression test/fixtures.
-- [ ] Prepare commands for Python 3.13 install/build on both trees and shared-test runs on base/head. Classify install/build incompatibility as `env_incompatible`.
-- [ ] Give the user the command, scope, and time estimate. The user runs the pilot and returns logs; do not start it on the user's behalf.
-- [ ] Report setup/install/build/test wall times separately; record shared-test failures, missing-from-base failures, and whether a failure other than the new regression test appeared.
-- [ ] Use measured pilot timing to estimate Task 2A test-running cost.
+**Artifacts:** `docs/measurements/week7/real-pair-pilot.json` and `.md`.
+
+- [x] Choose one plausible pair from the existing offline shortlist; document buggy/fixed SHAs and the code-only revert while retaining the regression test/fixtures.
+- [x] Prepare commands for Python 3.13 install/build on both trees and shared-test runs on base/head. Classify install/build incompatibility as `env_incompatible`.
+- [x] Run the pilot on the user's behalf after the user explicitly asked the agent to run it.
+- [x] Report setup/install/build/test wall times; record shared-test failures, missing-from-base failures, repeat consistency, and whether any failure other than the new regression test appeared.
+- [x] Use measured pilot timing to estimate Task 2A test-running cost.
 
 **Acceptance:** A reproducible pilot report exists before Task 0.2 begins; no pilot result is presented as model evidence.
 
@@ -148,7 +150,9 @@
 - Manifest row records repo/pin, source bug/fix commits, fixed `base`, code-reverted `head`, reverted code paths, retained test/fixture paths, environment ID, all shared test outcomes, wall time, and inclusion/exclusion reason.
 - A pair is positive when at least one non-flaky shared test fails on head and passes on base; include every such test ID, not only the newly added test.
 
-**Estimate:** Full-history screening volume is not yet known. Use the pilot timing to estimate user-run tests; plan 1–2 engineering days for tool, validation, and audit workflow, excluding user-run tests.
+**Pilot evidence:** `docs/measurements/week7/real-pair-pilot.md` records 9.57 s for the first full-suite base+head pass and 15.31 s across two passes per tree; the fresh-venv/dependency/base-install/head-install steps took 3.95 s with a warm pip cache. This is one click pair and does not predict installation cost for other repos.
+
+**Estimate:** Full-history screening volume is not yet known. Use the pilot timing for a new total after the full-history candidate count is known; plan 1–2 engineering days for tool, validation, and audit workflow, excluding user-run tests.
 
 - [ ] Add tests for malformed code-only reverts, accidentally omitted regression tests/fixtures, unchanged/shared outcomes, fixture-required cases, and duplicate bug/fix pairs.
 - [ ] Check existing local artifacts/caches for CI run logs without network or credentials. If none are available, use the offline bug-fix-pair fallback; do not query remote CI or fetch history.
