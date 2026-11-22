@@ -8,7 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from mutate.testpilot_bin import resolve_testpilot_bin  # noqa: E402
 

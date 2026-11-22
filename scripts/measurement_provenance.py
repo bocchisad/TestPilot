@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Capture the code and binary versions used by a measurement run."""
+
 from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -62,6 +64,10 @@ def capture_provenance(
             f"measurement binary --version failed (exit {version.returncode}): "
             f"{bin_version or 'empty or malformed version output'}"
         )
+    try:
+        binary_sha256 = hashlib.sha256(Path(binary).read_bytes()).hexdigest()
+    except OSError as exc:
+        raise RuntimeError(f"cannot hash measurement binary {binary}: {exc}") from exc
 
     rows = []
     for relative in sorted(set(required_paths)):
@@ -98,7 +104,9 @@ def capture_provenance(
     for relative in sorted(set(optional_paths)):
         path = Path(relative)
         if path.is_absolute() or ".." in path.parts:
-            raise ValueError(f"optional script path must be repository-relative: {relative}")
+            raise ValueError(
+                f"optional script path must be repository-relative: {relative}"
+            )
         if not (root / path).is_file():
             missing_optional.append(path.as_posix())
         else:
@@ -113,8 +121,11 @@ def capture_provenance(
 
     return {
         "head_sha": head_sha,
-        "captured_at_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "captured_at_utc": datetime.now(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "bin_version": bin_version,
+        "binary_sha256": binary_sha256,
         "scripts": sorted(rows, key=lambda row: row["path"]),
         "missing_optional_scripts": missing_optional,
     }
@@ -131,7 +142,9 @@ def main() -> int:
     except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as exc:
         parser.error(str(exc))
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.out.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(f"wrote provenance snapshot to {args.out}")
     return 0
 

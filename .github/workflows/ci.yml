@@ -40,6 +40,7 @@ jobs:
           mkdir -p /tmp/tp-wheels
           pip download -d /tmp/tp-wheels pytest coverage
       - run: ruff check python/pytest-testpilot
+      - run: ruff check --select E4,E7,E9,F scripts/
       - name: Pytest
         env:
           TESTPILOT_WHEELHOUSE: /tmp/tp-wheels
@@ -69,6 +70,7 @@ jobs:
           mkdir -p /tmp/tp-wheels
           pip download -d /tmp/tp-wheels pytest coverage
       - run: ruff check python/pytest-testpilot
+      - run: ruff check --select E4,E7,E9,F scripts/
       - name: Pytest without xdist installed
         # Do not filter with -k; xdist tests use importorskip / dedicated venv.
         env:

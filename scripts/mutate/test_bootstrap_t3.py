@@ -205,7 +205,7 @@ def test_jobs_same_counts_and_parallel(tmp_path: Path, monkeypatch: pytest.Monke
         work_root=tmp_path / "wt1",
         jobs=1,
     )
-    calls1 = calls["n"]
+    _calls1 = calls["n"]
     max1 = active["max"]
     calls["n"] = 0
     active["max"] = 0

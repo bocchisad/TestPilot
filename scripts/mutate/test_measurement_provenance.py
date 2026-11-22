@@ -1,8 +1,10 @@
 """Tests for immutable measurement provenance snapshots."""
+
 from __future__ import annotations
 
 import subprocess
 import importlib.util
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -54,6 +56,10 @@ def test_clean_script_records_matching_committed_and_worktree_blobs(tmp_path: Pa
     assert row["commit_blob_sha1"] == row["worktree_blob_sha1"]
     assert row["dirty"] is False
     assert manifest["bin_version"] == "testpilot 0.1.0"
+    assert (
+        manifest["binary_sha256"]
+        == hashlib.sha256(binary(tmp_path).read_bytes()).hexdigest()
+    )
     assert manifest["head_sha"] == git(root, "rev-parse", "HEAD")
 
 
