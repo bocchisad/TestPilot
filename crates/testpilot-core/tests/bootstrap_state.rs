@@ -467,10 +467,10 @@ fn calibrated_wall_rate_is_not_divided_by_jobs_again() {
 fn warm_backfill_zero_still_has_pending_mutations_but_resume_can_finish() {
     let priors = default_priors();
     let mut est = estimate_wall(200, 4, 2, "click", &priors, 200);
-    est.remaining(&priors, 0, 200, 0);
+    est.remaining(&priors, 0, 200, 0, true);
     assert_eq!(est.backfill_s, 0.0);
     assert!(est.mutate_s > 0.0);
-    est.remaining(&priors, 0, 200, 120);
+    est.remaining(&priors, 0, 200, 120, true);
     assert_eq!(est.mutate_s, 0.0);
     assert_eq!(
         estimate_wall(200, 4, 2, "click", &priors, 0).total_s,

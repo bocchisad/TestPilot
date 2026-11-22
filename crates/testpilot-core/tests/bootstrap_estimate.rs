@@ -30,7 +30,7 @@ fn backfill_count_changes_only_backfill_component() {
     let priors = default_priors();
     let mut estimate = estimate_wall(200, 4, 2, "click", &priors, 200);
     let original_mutate = estimate.mutate_s;
-    estimate.remaining(&priors, 30, 5, 0);
+    estimate.remaining(&priors, 30, 5, 0, true);
     near(estimate.backfill_s, 149.86);
     near(estimate.mutate_s, original_mutate);
     assert_eq!(estimate.backfill_shas_hat, 30);
@@ -38,17 +38,31 @@ fn backfill_count_changes_only_backfill_component() {
 }
 
 #[test]
-fn k_and_completed_attempts_scale_attempted_and_eligible_hats() {
+fn k_scales_full_workload_and_completed_attempts_only_reduce_mutations() {
     let priors = default_priors();
     let k4 = estimate_wall(200, 4, 2, "click", &priors, 200);
     let k2 = estimate_wall(200, 2, 2, "click", &priors, 200);
     near(k2.attempted_hat, k4.attempted_hat / 2.0);
     near(k2.eligible_hat, k4.eligible_hat / 2.0);
 
+    let full_eligible_hat = k4.eligible_hat;
     let mut resumed = k4;
-    resumed.remaining(&priors, 200, 0, 20);
+    resumed.remaining(&priors, 200, 0, 20, true);
     near(resumed.attempted_hat, 100.0);
-    near(resumed.eligible_hat, 100.0 * 110.0 / 142.0);
+    near(resumed.eligible_hat, full_eligible_hat);
+}
+
+#[test]
+fn completed_mutations_do_not_shrink_pending_dump_workload() {
+    let priors = default_priors();
+    let mut estimate = estimate_wall(200, 4, 2, "click", &priors, 200);
+    let full_dump_cost = estimate.features_dump_s;
+    estimate.remaining(&priors, 200, 0, u32::MAX, true);
+    assert_eq!(estimate.mutate_s, 0.0);
+    near(estimate.features_dump_s, full_dump_cost);
+
+    estimate.remaining(&priors, 200, 0, u32::MAX, false);
+    assert_eq!(estimate.features_dump_s, 0.0);
 }
 
 #[test]

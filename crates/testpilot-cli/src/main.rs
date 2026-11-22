@@ -800,6 +800,30 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             .filter(|s| s.fingerprint == fp)
             .map(|s| s.mutate_completed_pairs.len() as u32)
             .unwrap_or(0);
+        let dump_pending = if snapshot_db.is_file() {
+            let snapshot_store = Store::open(&snapshot_db)?;
+            let current_dump_fp = DbDumpFingerprint::from_store(&snapshot_store)?;
+            let stored_dump_fp = existing
+                .as_ref()
+                .filter(|s| s.fingerprint == fp)
+                .and_then(|s| s.dump_fingerprint.as_ref());
+            let dry_out_dir = opts
+                .out
+                .clone()
+                .unwrap_or_else(|| repo.join(".testpilot/model"));
+            let dry_out_dir = if dry_out_dir.is_absolute() {
+                dry_out_dir
+            } else {
+                std::env::current_dir()?.join(dry_out_dir)
+            };
+            dump_needs_refresh(
+                dry_out_dir.join("pairs.parquet").is_file(),
+                stored_dump_fp,
+                &current_dump_fp,
+            )
+        } else {
+            true
+        };
         // Warm samples can extend beyond the cold FP limb; include their candidate history.
         let history_width = (b_set.len() as u32).max(last_fp_available);
         let mut est = estimate_wall(
@@ -810,11 +834,11 @@ fn cmd_bootstrap(opts: BootstrapCli) -> Result<()> {
             &priors,
             history_width,
         );
-        est.remaining(&priors, new, reused, completed);
+        est.remaining(&priors, new, reused, completed, dump_pending);
         if existing.as_ref().is_some_and(|s| {
             s.fingerprint == fp && s.steps.get("mutate") == Some(&StepStatus::Done)
         }) {
-            est.remaining(&priors, new, reused, u32::MAX);
+            est.remaining(&priors, new, reused, u32::MAX, dump_pending);
         }
         print!(
             "{}",

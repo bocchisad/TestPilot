@@ -153,15 +153,26 @@ impl SuiteSeconds {
 }
 
 impl TimeEstimate {
-    pub fn remaining(&mut self, priors: &BootstrapPriors, new: u32, reused: u32, completed: u32) {
+    pub fn remaining(
+        &mut self,
+        priors: &BootstrapPriors,
+        new: u32,
+        reused: u32,
+        completed: u32,
+        features_dump_pending: bool,
+    ) {
         self.backfill_shas_hat = new;
         self.backfill_reused = reused;
         self.backfill_s = f64::from(new) * suite_pick(&priors.backfill_s_per_commit, &self.suite);
         self.attempted_hat = (self.attempted_hat - f64::from(completed)).max(0.0);
         self.mutate_s = self.attempted_hat * suite_pick(&priors.mutate_s_per_mutant, &self.suite);
-        self.eligible_hat = self.attempted_hat * self.eligible_per_attempted;
-        self.features_dump_s =
-            self.eligible_hat * suite_pick(&priors.features_dump_s_per_eligible, &self.suite);
+        // The dump materializes every eligible pair already in the DB, including
+        // pairs from completed mutations. Only omit its cost when the output is current.
+        self.features_dump_s = if features_dump_pending {
+            self.eligible_hat * suite_pick(&priors.features_dump_s_per_eligible, &self.suite)
+        } else {
+            0.0
+        };
         self.train_s = suite_pick(&priors.train_s, &self.suite);
         self.total_s = self.collect_git_s
             + self.backfill_s
