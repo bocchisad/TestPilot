@@ -143,6 +143,7 @@
 
 **Files:**
 - Create: `scripts/collect_real_bugfix_pairs.py`
+- Create: `scripts/run_pr_intermediate_feasibility.py`
 - Test: `scripts/mutate/test_real_bugfix_pairs.py`
 - Create: `docs/measurements/week7/real-bug-pairs.jsonl` and `real-pair-audit.md`
 
@@ -152,11 +153,11 @@
 
 **Pilot evidence:** `docs/measurements/week7/real-pair-pilot.md` records 9.57 s for the first full-suite base+head pass and 15.31 s across two passes per tree; the fresh-venv/dependency/base-install/head-install steps took 3.95 s with a warm pip cache. This is one click pair and does not predict installation cost for other repos.
 
-**Primary Task 2A count:** track PR-intermediate pairs with at least one stable failure among tests already present in base; report both positive pairs and distinct sampled PRs with positives. New regression tests are excluded by construction because their test IDs are absent from base. Revert-fix is a secondary negative result: 0/25 pairs had failures outside changed regression-test functions (click 0/13, Jinja 0/12; rule-of-three upper bound ≈12%). The PR-intermediate feasibility and the 31,000 Click stress tests deselected by `addopts` are documented in `real-pair-candidate-screening.md`.
+**Primary Task 2A count:** the sample-size unit is a unique set of stable failures among tests already present in base, within a PR group connected by shared head SHA. Deduplicate pair runs by head SHA, and report `test_modified_in_head` separately. New PR regression tests are excluded by construction because their IDs are absent from base. Revert-fix is secondary: 0/25 pairs had failures outside changed regression-test functions (click 0/13, Jinja 0/12; rule-of-three upper bound ≈12%). The feasibility recount and CI inventory are in `real-pair-candidate-screening.md`.
 
 **Estimate:** The revert-fix calibration has ended as a negative design result: 0/25 positive pairs had failures outside changed test functions (click 0/13, Jinja 0/12); remaining revert-fix leads are not to be run. The new primary source is PR-intermediate commits. Its bounded feasibility inventory and ≤30 min batch are reported in `real-pair-candidate-screening.md`; full 2A requires another explicit OK.
 
-- [ ] Add focused tests for PR-intermediate shared-test extraction, two-repeat outcomes, and `batch_deadline` versus pair `timeout` classification.
+- [ ] Add focused tests for PR/head SHA dedupe, unique failing-test-set counts, `test_modified_in_head`, CI classification/fallback sampling, two-repeat outcomes, and `batch_deadline` versus pair `timeout` classification.
 - [x] Add a patch-id regression test covering one fix on a branch, its first-parent merge commit, and a stable-branch cherry-pick; assert they dedupe to one lead.
 - [x] Test old click/Jinja package layouts, all-extension source paths, `bugfix` matching, quoted Revert exclusion, and patch-id dedupe across a cherry-pick and first-parent merge diff.
 - [x] Explicitly scan merge commits against first parent while retaining internal commits; sort the deduplicated shortlist newest-first.
@@ -164,16 +165,17 @@
 - [x] Remove machine-specific absolute paths from the screening report; add optional SHA-256 for the measurement binary provenance.
 - [x] Check existing local artifacts/caches for CI run logs without network or credentials. No matching CI/workflow/action log files were found; used the offline bug-fix-pair fallback and did not query remote CI or fetch history.
 - [x] Scan the full locally available history, not a fixed recent-commit window. Record message/changelog matches, source+test changes, and test-code heuristic counts in `docs/measurements/week7/real-pair-candidate-screening.md`; details are also retained in the ignored local candidate JSONL artifacts.
-- [ ] Audit PR-intermediate positive pairs against the commit diffs; record any false positives, environmental artifacts, and accepted/rejected cases before creating the real dataset.
+- [ ] Audit each unique positive failure set against its head diff and grouped PR history; record accepted/rejected changes before creating the real dataset.
 - [x] Complete the secondary revert-fix calibration; record its 0/25 outside-test result and stop remaining revert-fix leads.
 - [x] Classify Python 3.13 install/build failures as `env_incompatible`, separately from pair timeouts and incomplete artifacts.
-- [x] Provide and execute the user-authorized PR-intermediate feasibility batch: newest 10 PRs per repo, total budget ≤30 minutes including inventory, pair limit 5 minutes; report counts, statuses, median/p90 and raw artifacts.
+- [x] Complete the first PR-intermediate feasibility batch and recount by unique head SHA/failure set.
+- [x] Run the CI-only inventory for newest 10 PRs per repo; record check-run conclusions, shared-head dedup, CI fallback, time forecast, and stop before pytest pending approval.
 - [ ] Audit the PR-intermediate positive pairs manually, then request approval before expanding to full 2A. Preserve commit/test/environment identities and produce a data inventory with positives by repo and chronological fold.
 - [ ] Commit collection logic and tests; keep raw clones/databases/parquets out of Git unless the user approves storing them.
 
 **Acceptance:** No candidate enters the real dataset without both buggy-fail and fixed-pass evidence; pair grouping and failure reasons are auditable; incomplete attempts do not become positives.
 
-**Real pair semantics:** The primary pair uses `base=merge-base(PR, main)` and `head=each PR commit after base`. A positive must be a non-flaky test ID present in base that passes in both base runs and fails in both head runs; new PR test IDs do not count. The old revert-fix design is secondary only; its 0/25 outside-regression-test result (95% rule-of-three upper bound ≈12%) is a negative finding and remaining leads are not run.
+**Real pair semantics:** The primary pair uses `base=merge-base(PR, main)` and each intermediate commit as a candidate `head`. Deduplicate shared head SHA across PRs and count each unique failing-test-ID set once per connected PR group. `test_modified_in_head` records whether the head changed the file of a failing test. Run every CI-failure commit plus a seeded random 10% of CI-success commits; when CI is unavailable, fall back to the first commit per PR. The old revert-fix design is secondary only; its 0/25 outside-regression-test result (95% rule-of-three upper bound ≈12%) is negative and remaining leads are not run.
 
 ## Task 2B: Evaluate real/synthetic data, ablations, source weights, and reranker
 
@@ -199,8 +201,8 @@
 - [ ] Evaluate five feature hypotheses from the spec and record real/synthetic sentinel coverage and conditional contribution; do not interpret synthetic-empty co-change/failure history as a real result.
 - [ ] Implement and test the `cov_lines` reranker correction. Choose correction strength on validation only and compare on identical real TEST examples.
 - [ ] Produce real/synthetic `recall@10/20/30%` for each LORO fold and aggregate; paired CI and per-repo Δ use the same held-out real cases.
-- [ ] Before computing/reporting comparative metrics, require at least 10 confirmed real-positive changes per repo for numeric per-repo Δ; otherwise serialize that repo as `data_insufficient` without numeric Δ. Criterion 2.4 is not satisfied while any repo is underpowered.
-- [ ] Report comparisons with and without the added regression test and the fraction of positive pairs with another failing test.
+- [ ] Before computing/reporting comparative metrics, require at least 10 confirmed unique positive failure sets per repo for numeric per-repo Δ; otherwise serialize that repo as `data_insufficient` without numeric Δ. Criterion 2.4 is not satisfied while any repo is underpowered.
+- [ ] Report comparisons by `test_modified_in_head` and the unique positive failure-set count.
 - [ ] Produce budget curves using real `dur` milliseconds; report `dur=-1` coverage and leave unknown savings unavailable.
 - [ ] Apply the real-only success criterion verbatim. If it fails or is underpowered, say “real-data superiority not demonstrated” and keep `cov_lines` default.
 - [ ] Report commands, stdout/stderr paths, artifact paths, counts, uncompleted analysis, and reason. Commit and open this stage’s PR after local checks; wait for green CI.

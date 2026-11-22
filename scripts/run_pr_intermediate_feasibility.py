@@ -4,16 +4,25 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import random
 import shutil
 import statistics
 import subprocess
 import time
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from run_real_pair_calibration import _install, _junit, _run
+
+_GITHUB_REPOS = {
+    "click": "pallets/click",
+    "jinja": "pallets/jinja",
+    "attrs": "python-attrs/attrs",
+}
 
 
 def _git(repo: Path, *args: str, deadline: float | None = None) -> str:
@@ -89,6 +98,272 @@ def inventory_repository(name: str, repo: Path, main_ref: str, deadline: float) 
     }
 
 
+def _unique_commit_rows(samples: dict[str, list[dict]]) -> dict[str, list[dict]]:
+    unique: dict[str, list[dict]] = {}
+    for name, prs in samples.items():
+        by_sha: dict[str, dict] = {}
+        for pr in prs:
+            for index, sha in enumerate(pr["commits"], 1):
+                row = by_sha.setdefault(
+                    sha,
+                    {
+                        "repo": name,
+                        "head": sha,
+                        "base": pr["base"],
+                        "commit_count": pr["commit_count"],
+                        "pr_numbers": [],
+                        "pr_commit_indices": [],
+                    },
+                )
+                row["pr_numbers"].append(pr["pr"])
+                row["pr_commit_indices"].append(
+                    {"pr": pr["pr"], "index": index, "count": pr["commit_count"]}
+                )
+        for row in by_sha.values():
+            row["pr_numbers"] = sorted(set(row["pr_numbers"]), key=int)
+            row["pr"] = row["pr_numbers"][0]
+            row["commit_index"] = min(
+                link["index"] for link in row["pr_commit_indices"]
+            )
+        unique[name] = sorted(
+            by_sha.values(),
+            key=lambda row: (row["pr_commit_indices"][0]["index"], row["head"]),
+        )
+    return unique
+
+
+def _classify_check_runs(payload: dict) -> dict:
+    runs = payload.get("check_runs") or []
+    if not runs:
+        return {"status": "unavailable", "check_run_count": 0, "conclusions": []}
+    latest: dict[tuple[str, str], dict] = {}
+    for run in runs:
+        key = (run.get("name", ""), (run.get("app") or {}).get("slug", ""))
+        stamp = run.get("completed_at") or run.get("started_at") or ""
+        previous = latest.get(key)
+        previous_stamp = (
+            previous.get("completed_at") or previous.get("started_at") or ""
+            if previous
+            else ""
+        )
+        if previous is None or stamp >= previous_stamp:
+            latest[key] = run
+    conclusions = [run.get("conclusion") for run in latest.values()]
+    failed = {"failure", "timed_out", "startup_failure"}
+    successful = {"success", "neutral", "skipped"}
+    if any(value in failed for value in conclusions):
+        status = "failure"
+    elif conclusions and all(value in successful for value in conclusions):
+        status = "success"
+    else:
+        status = "unavailable"
+    return {
+        "status": status,
+        "check_run_count": len(runs),
+        "latest_check_count": len(latest),
+        "conclusions": sorted(str(value) for value in conclusions),
+        "failure_check_names": sorted(
+            run.get("name", "")
+            for run in latest.values()
+            if run.get("conclusion") in failed
+        ),
+    }
+
+
+def _fetch_check_runs(slug: str, sha: str) -> dict:
+    endpoint = f"repos/{slug}/commits/{sha}/check-runs?per_page=100"
+    result = subprocess.run(
+        ["gh", "api", "--paginate", "--slurp", endpoint],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    if result.returncode:
+        return {
+            "status": "unavailable",
+            "error": (result.stderr or result.stdout)[-1000:],
+        }
+    try:
+        pages = json.loads(result.stdout)
+        payload = {
+            "check_runs": [run for page in pages for run in page.get("check_runs", [])]
+        }
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return {"status": "unavailable", "error": "invalid_check_runs_response"}
+    return _classify_check_runs(payload)
+
+
+def _load_ci_inventory(
+    samples: dict[str, list[dict]], github_repos: dict[str, str], cache_path: Path
+) -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    unique = _unique_commit_rows(samples)
+    cache = (
+        json.loads(cache_path.read_text(encoding="utf-8"))
+        if cache_path.is_file()
+        else {}
+    )
+    requests = []
+    for name, rows in unique.items():
+        slug = github_repos.get(name)
+        for row in rows:
+            key = f"{slug}:{row['head']}"
+            if key not in cache:
+                if slug:
+                    requests.append((key, slug, row["head"]))
+                else:
+                    cache[key] = {"status": "unavailable", "error": "missing_repo_slug"}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {
+            pool.submit(_fetch_check_runs, slug, sha): key
+            for key, slug, sha in requests
+        }
+        for future, key in futures.items():
+            try:
+                cache[key] = future.result()
+            except (OSError, subprocess.SubprocessError) as exc:
+                cache[key] = {"status": "unavailable", "error": str(exc)}
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(cache, indent=2) + "\n", encoding="utf-8")
+
+    ci_rows: dict[str, dict] = {}
+    selected: dict[str, list[dict]] = {}
+    rng = random.Random(20261122)
+    for name, rows in unique.items():
+        slug = github_repos.get(name, "")
+        for row in rows:
+            row["ci"] = cache.get(f"{slug}:{row['head']}", {"status": "unavailable"})
+            ci_rows[f"{name}:{row['head']}"] = row
+        unavailable = [row for row in rows if row["ci"]["status"] == "unavailable"]
+        failures = [row for row in rows if row["ci"]["status"] == "failure"]
+        successes = [row for row in rows if row["ci"]["status"] == "success"]
+        by_pr: dict[str, list[tuple[dict, dict]]] = {}
+        for row in rows:
+            for link in row["pr_commit_indices"]:
+                by_pr.setdefault(link["pr"], []).append((row, link))
+        chosen: dict[str, dict] = {}
+        selection_reasons: dict[str, set[str]] = {}
+        fallback_prs = []
+        eligible_failures: dict[str, dict] = {}
+        eligible_successes: dict[str, dict] = {}
+        for pr_number, linked_rows in by_pr.items():
+            ordered = sorted(linked_rows, key=lambda item: item[1]["index"])
+            pr_rows = {row["head"]: row for row, _link in ordered}
+            if any(row["ci"]["status"] == "unavailable" for row in pr_rows.values()):
+                fallback_prs.append(pr_number)
+                first = ordered[0][0]
+                chosen[first["head"]] = first
+                selection_reasons.setdefault(first["head"], set()).add(
+                    "fallback_first_commit_for_pr"
+                )
+                continue
+            for row in pr_rows.values():
+                if row["ci"]["status"] == "failure":
+                    eligible_failures[row["head"]] = row
+                elif row["ci"]["status"] == "success":
+                    eligible_successes[row["head"]] = row
+        for head, row in eligible_failures.items():
+            chosen[head] = row
+            selection_reasons.setdefault(head, set()).add("ci_failure")
+        count = math.ceil(0.1 * len(eligible_successes)) if eligible_successes else 0
+        sampled_successes = (
+            rng.sample(list(eligible_successes.values()), count) if count else []
+        )
+        for row in sampled_successes:
+            chosen[row["head"]] = row
+            selection_reasons.setdefault(row["head"], set()).add(
+                "random_10_percent_ci_success"
+            )
+        for head, row in chosen.items():
+            row["selection_reasons"] = sorted(selection_reasons.get(head, set()))
+        selected[name] = list(chosen.values())
+        ci_rows[f"{name}:summary"] = {
+            "github_repo": slug,
+            "raw_commit_appearances": sum(len(pr["commits"]) for pr in samples[name]),
+            "unique_commit_shas": len(rows),
+            "shared_commit_duplicates_removed": sum(
+                len(pr["commits"]) for pr in samples[name]
+            )
+            - len(rows),
+            "ci_failure_commits": len(failures),
+            "ci_success_commits": len(successes),
+            "ci_unavailable_commits": len(unavailable),
+            "selected_failure_commits": len(eligible_failures),
+            "sampled_success_commits": len(sampled_successes),
+            "fallback_pr_count": len(fallback_prs),
+            "fallback_pr_numbers": sorted(fallback_prs, key=int),
+            "selected_for_pytest": len(selected[name]),
+            "selection_policy": "fallback_first_commit_for_pr_when_ci_unavailable; otherwise all_failure_plus_seeded_random_10_percent_success",
+            "unavailable_shas": [row["head"] for row in unavailable],
+        }
+    return ci_rows, selected
+
+
+def _head_test_change_details(
+    repo: Path, head: str, test_ids: list[str], deadline: float
+) -> dict:
+    changed_paths = set(
+        _git(
+            repo, "diff", "--name-only", f"{head}^1", head, deadline=deadline
+        ).splitlines()
+    )
+    tree_files = set(
+        _git(repo, "ls-tree", "-r", "--name-only", head, deadline=deadline).splitlines()
+    )
+    test_files = set()
+    unresolved = []
+    for test_id in test_ids:
+        module = test_id.split("::", 1)[0].split(".")
+        resolved = None
+        for end in range(len(module), 0, -1):
+            candidate = "/".join(module[:end]) + ".py"
+            if candidate in tree_files:
+                resolved = candidate
+                break
+        if resolved:
+            test_files.add(resolved)
+        else:
+            unresolved.append(test_id)
+    return {
+        "changed_paths": sorted(changed_paths),
+        "positive_test_files": sorted(test_files),
+        "test_modified_in_head": (
+            bool(changed_paths & test_files) if test_ids and not unresolved else None
+        ),
+        "unresolved_positive_test_ids": unresolved,
+    }
+
+
+def _pr_groups(samples: dict[str, list[dict]]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    for prs in samples.values():
+        if not prs:
+            continue
+        parent = {pr["pr"]: pr["pr"] for pr in prs}
+
+        def find(pr: str) -> str:
+            while parent[pr] != pr:
+                parent[pr] = parent[parent[pr]]
+                pr = parent[pr]
+            return pr
+
+        unique = _unique_commit_rows({prs[0]["repo"]: prs})[prs[0]["repo"]]
+        for row in unique:
+            numbers = row["pr_numbers"]
+            for number in numbers[1:]:
+                left, right = find(numbers[0]), find(number)
+                if left != right:
+                    parent[right] = left
+        components: dict[str, list[str]] = {}
+        for pr in parent:
+            components.setdefault(find(pr), []).append(pr)
+        for component in components.values():
+            merged = sorted(component, key=int)
+            for pr in component:
+                groups[pr] = merged
+    return groups
+
+
 def _run_pair(
     repo: Path, row: dict, work_root: Path, python: Path, timeout_s: int
 ) -> dict:
@@ -104,10 +379,14 @@ def _run_pair(
     result = {
         "repo": row["repo"],
         "pr": row["pr"],
+        "pr_numbers": row.get("pr_numbers", [row["pr"]]),
+        "pr_group": row.get("pr_group", row.get("pr_numbers", [row["pr"]])),
+        "pr_commit_indices": row.get("pr_commit_indices", []),
         "pr_commit_index": row["commit_index"],
         "pr_commit_count": row["commit_count"],
         "base": row["base"],
         "head": row["head"],
+        "ci": row.get("ci", {}),
         "status": "preflight",
         "tests_started": False,
         "positive": False,
@@ -190,6 +469,22 @@ def _run_pair(
             positive_test_ids=positive_ids,
             test_id_policy="test IDs present in base; all four runs shared; repeated pass on base and fail on head",
         )
+        result.update(
+            _head_test_change_details(repo, row["head"], positive_ids, deadline)
+        )
+        if positive_ids:
+            key = json.dumps(
+                {
+                    "repo": row["repo"],
+                    "pr_numbers": row.get(
+                        "pr_group", row.get("pr_numbers", [row["pr"]])
+                    ),
+                    "test_ids": positive_ids,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            result["unique_change_id"] = hashlib.sha256(key.encode()).hexdigest()
     except subprocess.TimeoutExpired:
         result.update(status="timeout", reason="pair_timeout")
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
@@ -216,6 +511,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--sample-prs", type=int, default=10)
     parser.add_argument("--pair-timeout-s", type=int, default=300)
     parser.add_argument("--batch-timeout-s", type=int, default=1800)
+    parser.add_argument("--inventory-only", action="store_true")
+    parser.add_argument(
+        "--github-repo", action="append", default=[], metavar="NAME=OWNER/REPO"
+    )
+    parser.add_argument("--ci-cache", type=Path)
     args = parser.parse_args(argv)
     batch_started = time.monotonic()
     batch_budget = min(args.batch_timeout_s, 1800)
@@ -244,46 +544,95 @@ def main(argv: Sequence[str] | None = None) -> int:
     samples = {
         name: data["sample"][: args.sample_prs] for name, data in inventories.items()
     }
-    rounds = max(
-        (
-            max((len(pr["commits"]) for pr in prs), default=0)
-            for prs in samples.values()
-        ),
-        default=0,
+    github_repos = dict(_GITHUB_REPOS)
+    github_repos.update(value.split("=", 1) for value in args.github_repo)
+    cache_path = args.ci_cache or out_dir / "check-runs-cache.json"
+    ci_rows, selected = _load_ci_inventory(samples, github_repos, cache_path)
+    groups = _pr_groups(samples)
+    for name, rows in selected.items():
+        for row in rows:
+            row["pr_group"] = groups[row["pr"]]
+    ci_report = {"seed": 20261122, "repositories": {}, "commits": {}}
+    for name in samples:
+        summary = ci_rows[f"{name}:summary"]
+        selected_shas = {row["head"] for row in selected[name]}
+        ci_report["repositories"][name] = {
+            **summary,
+            "selected_commits": [
+                {
+                    "head": row["head"],
+                    "pr_numbers": row["pr_numbers"],
+                    "commit_indices": row["pr_commit_indices"],
+                    "ci_status": row["ci"]["status"],
+                    "ci_conclusions": row["ci"].get("conclusions", []),
+                    "selection_reasons": row.get("selection_reasons", []),
+                }
+                for row in selected[name]
+            ],
+        }
+        for row in _unique_commit_rows(samples)[name]:
+            ci_report["commits"][f"{name}:{row['head']}"] = {
+                "pr_numbers": row["pr_numbers"],
+                "commit_indices": row["pr_commit_indices"],
+                "ci": ci_rows[f"{name}:{row['head']}"]["ci"],
+                "selected_for_pytest": row["head"] in selected_shas,
+            }
+    (out_dir / "ci-inventory.json").write_text(
+        json.dumps(ci_report, indent=2) + "\n", encoding="utf-8"
     )
+    if args.inventory_only:
+        prior_summary_path = out_dir / "summary.json"
+        prior_summary = (
+            json.loads(prior_summary_path.read_text(encoding="utf-8"))
+            if prior_summary_path.is_file()
+            else {}
+        )
+        for name, summary in ci_report["repositories"].items():
+            prior = prior_summary.get("repositories", {}).get(name, {})
+            median = prior.get("median_pair_s")
+            p90 = prior.get("p90_pair_s")
+            summary["forecast_median_s"] = (
+                round(summary["selected_for_pytest"] * median, 1)
+                if median is not None
+                else None
+            )
+            summary["forecast_p90_s"] = (
+                round(summary["selected_for_pytest"] * p90, 1)
+                if p90 is not None
+                else None
+            )
+        ci_report["elapsed_s"] = round(time.monotonic() - batch_started, 2)
+        ci_report["inventory_elapsed_s"] = round(inventory_finished - batch_started, 2)
+        (out_dir / "ci-inventory.json").write_text(
+            json.dumps(ci_report, indent=2) + "\n", encoding="utf-8"
+        )
+        print(json.dumps(ci_report["repositories"], indent=2))
+        return 0
     results = []
     pair_file = out_dir / "pairs.jsonl"
-    for index in range(rounds):
-        for name, repo in repos.items():
-            for pr in samples[name]:
-                if index >= len(pr["commits"]):
-                    continue
-                if deadline - time.monotonic() < 1:
-                    break
-                row = {
-                    **pr,
-                    "repo": name,
-                    "head": pr["commits"][index],
-                    "commit_index": index + 1,
-                }
-                batch_remaining = max(0, int(deadline - time.monotonic()))
-                remaining = min(args.pair_timeout_s, batch_remaining)
-                result = _run_pair(repo, row, work_root, python, remaining)
-                if result["status"] == "timeout" and remaining < args.pair_timeout_s:
-                    result.update(
-                        status="batch_deadline",
-                        reason="batch_budget_exhausted_before_pair_timeout",
-                    )
-                results.append(result)
-                with pair_file.open("a", encoding="utf-8") as out:
-                    out.write(json.dumps(result, sort_keys=True) + "\n")
-                print(
-                    f"{name} PR#{pr['pr']} {row['head'][:10]}: {result['status']} {result['wall_seconds']}s positive={result['positive']}",
-                    flush=True,
+    if pair_file.is_file() and pair_file.stat().st_size:
+        parser.error(
+            "--out-dir already contains pairs.jsonl; choose a fresh output directory for a pytest run"
+        )
+    for name, repo in repos.items():
+        for row in selected[name]:
+            if deadline - time.monotonic() < 1:
+                break
+            batch_remaining = max(0, int(deadline - time.monotonic()))
+            remaining = min(args.pair_timeout_s, batch_remaining)
+            result = _run_pair(repo, row, work_root, python, remaining)
+            if result["status"] == "timeout" and remaining < args.pair_timeout_s:
+                result.update(
+                    status="batch_deadline",
+                    reason="batch_budget_exhausted_before_pair_timeout",
                 )
-        else:
-            continue
-        break
+            results.append(result)
+            with pair_file.open("a", encoding="utf-8") as out:
+                out.write(json.dumps(result, sort_keys=True) + "\n")
+            print(
+                f"{name} PRs#{','.join(result['pr_numbers'])} {row['head'][:10]}: {result['status']} {result['wall_seconds']}s positive={result['positive']}",
+                flush=True,
+            )
     summary = {
         "python": "3.13",
         "main_ref": args.main_ref,
@@ -304,19 +653,39 @@ def main(argv: Sequence[str] | None = None) -> int:
             "pr_with_at_least_two_commits": inventory["pr_with_at_least_two_commits"],
             "sample_prs": len(sample),
             "sample_intermediate_commits": sum(len(pr["commits"]) for pr in sample),
+            "unique_intermediate_head_shas": len(
+                _unique_commit_rows({name: sample})[name]
+            ),
+            "ci_selected_heads": ci_report["repositories"][name]["selected_for_pytest"],
             "attempted_pairs": len(own),
             "started_pairs": sum(row["tests_started"] for row in own),
             "completed_pairs": sum(row["status"] == "completed" for row in own),
             "positive_pairs": sum(
                 row["status"] == "completed" and row["positive"] for row in own
             ),
+            "unique_positive_changes": len(
+                {row["unique_change_id"] for row in own if row.get("unique_change_id")}
+            ),
+            "test_modified_positive_pairs": sum(
+                row.get("test_modified_in_head") is True
+                for row in own
+                if row.get("positive")
+            ),
             "positive_prs": sorted(
                 {
-                    row["pr"]
+                    pr
                     for row in own
                     if row["status"] == "completed" and row["positive"]
+                    for pr in row.get("pr_numbers", [row["pr"]])
                 },
                 key=int,
+            ),
+            "positive_pr_groups": sorted(
+                {
+                    ",".join(row.get("pr_group", row.get("pr_numbers", [row["pr"]])))
+                    for row in own
+                    if row["status"] == "completed" and row["positive"]
+                }
             ),
             "env_incompatible": sum(row["status"] == "env_incompatible" for row in own),
             "git_objects_missing": sum(

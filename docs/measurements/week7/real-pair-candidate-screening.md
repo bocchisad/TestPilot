@@ -38,17 +38,33 @@ The primary 2A design now uses PR-intermediate commits: `base=merge-base(PR, mai
 
 ### Feasibility result (2026-11-22)
 
-Inventory against each clone's `refs/remotes/upstream/main` found **282 click, 162 Jinja, and 510 attrs PRs** with at least two commits. We selected the 10 newest PRs per repository. Their commit counts in `merge-base..PR head` were 43, 184, and 37 intermediate commits respectively. The exact sample is in `.cache/measurements/week7/pr-intermediate/inventory.json`; main SHAs were click `08b803c`, Jinja `5ef7011`, attrs `f830e60`.
+Inventory against each clone's `refs/remotes/upstream/main` found **282 click, 162 Jinja, and 510 attrs PRs** with at least two commits. We sampled the 10 newest PRs per repo; their `merge-base..PR head` commit counts were 43, 184, and 37. Main SHAs were click `08b803c`, Jinja `5ef7011`, attrs `f830e60`. Sample details are in `.cache/measurements/week7/pr-intermediate/inventory.json`.
 
-| Repo | Eligible PRs (≥2 commits) | Sampled PRs | Pairs attempted | Completed | Positive pairs | Sampled PRs with ≥1 positive | `env_incompatible` | Pair timeout | Batch deadline | Median / p90 seconds |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| click | 282 | 10 | 26 | 26 | 7 | 3/10 | 0 | 0 | 0 | 23.639 / 25.974 |
-| Jinja | 162 | 10 | 25 | 25 | 4 | 2/10 | 0 | 0 | 0 | 12.501 / 14.791 |
-| attrs | 510 | 10 | 24 | 23 | 0 | 0/10 | 0 | 0 | 1 | 28.081 / 32.265 |
+#### Recount using unique changes
 
-All 10 sampled PRs in each repository had their first intermediate commit tested. Because the batch limit also includes subsequent commits, sampling continued round-robin until the deadline: 75 attempts total, 74 complete outcomes, and 11 positive pair outcomes (7 click, 4 Jinja, 0 attrs). Five distinct sampled PRs had at least one positive pair (click #3833/#3872/#3873; Jinja #2242/#2256). Positive pairs require the same base-present test IDs to pass twice on base and fail twice on head. No pair was classified `env_incompatible`, `git_objects_missing`, or a 5-minute pair timeout. One attrs pair (PR #1644, commit 3/4) reached the overall batch deadline with about 2 seconds remaining and did not start pytest; it is recorded separately as `batch_deadline`, not as a pair timeout or a negative outcome.
+I recalculated the earlier feasibility batch by unique `head` SHA and then by the exact set of stable failing, base-present test IDs within each connected PR group. PRs that share commits are one group. This removes the duplicate click appearances for PR #3872/#3873 (and #3917/#3919). The prior raw pair rows are preserved as `pairs-raw-before-dedup.jsonl`; `pairs.jsonl` now contains the SHA-deduplicated rows.
 
-The overall elapsed time was **1,799.87 s**, of which **121.89 s** was inventory. The pair medians and p90s use attempts where pytest started (n=26/25/23). Click's test command deselected 31,000 stress cases via repository `addopts`; this is also recorded in the per-run logs. These are feasibility outcomes only, not manually audited real-bug labels or model-vs-`cov_lines` metrics. The repeated positives on a few PRs are not independent PR-level evidence; the next decision should use audited pairs and the pre-registered minimum of 10 confirmed real positives per repository.
+| Repo | Unique heads attempted | Completed | Positive heads | Unique positive failure sets | Positive PR groups | `test_modified_in_head` true / false |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| click | 20 | 20 | 4 | **2** | 2 | 0 / 4 |
+| Jinja | 25 | 25 | 4 | **2** | 2 | 0 / 4 |
+| attrs | 24 | 23 | 0 | **0** | 0 | n/a |
+
+The unique click changes are (a) PR group #3872/#3873, whose three intermediate heads have the same failure set, and (b) PR #3833. Jinja has one unique failure set each in PR #2256 and #2242. Thus the feasibility count is **click 2, Jinja 2, attrs 0**, below the threshold of 10 unique positive changes per repo. Every positive head had `test_modified_in_head=false`: none of the failing tests' files was changed by that head commit. The per-pair flag and resolved test paths are recorded in the deduplicated JSONL.
+
+The 30-minute batch finished at **1,799.87 s**, including **121.89 s** for PR inventory. There were 69 unique-head attempts, 68 completed pairs, 8 positive head outcomes, and one attrs `batch_deadline` before pytest; after failure-set deduplication these are four unique positive changes across click/Jinja. No pair was `env_incompatible`, `git_objects_missing`, or a 5-minute pair timeout. The attrs deadline row is not a negative outcome. Click deselected 31,000 stress cases via `addopts`. These are feasibility results, not manually audited real-bug labels or model-vs-`cov_lines` metrics.
+
+#### CI prefilter inventory (2026-11-22; no pytest)
+
+For the same newest 10 PRs per repo, the CI inventory queried `check-runs` once per unique head SHA. It used the latest completed run for each check name/app: any latest `failure`, `timed_out`, or `startup_failure` makes the commit CI-failure; all latest `success`, `neutral`, or `skipped` means success; otherwise the status is unavailable. If any commit status is unavailable within a PR, that PR falls back to its first commit only. Fully classifiable PRs contribute every CI-failure commit plus a seeded random 10% sample of success commits (seed `20261122`).
+
+| Repo | PRs ≥2 commits overall | Sample PRs | Raw commit appearances | Unique heads | Shared-head duplicates removed | CI failure | CI success | CI unavailable | Fallback PRs | Heads selected | Forecast median / p90 pair time |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| click | 282 | 10 | 43 | 37 | 6 | 8 | 18 | 11 | 3 | 12 | 282.3 / 311.7 s |
+| Jinja | 162 | 10 | 184 | 184 | 0 | 13 | 9 | 162 | 4 | 16 | 200.0 / 236.7 s |
+| attrs | 510 | 10 | 37 | 37 | 0 | 13 | 15 | 9 | 6 | 16 | 449.3 / 516.2 s |
+
+In the selected set, click has 8 CI-failure heads and 1 sampled success, Jinja 11 failures and 1 sampled success, attrs 9 failures and 1 sampled success; fallback first heads are deduplicated with those selections. Forecasts multiply selected heads by the deduplicated feasibility median/p90 (click 23.528/25.974 s, Jinja 12.501/14.791 s, attrs 28.081/32.265 s); they cover pair runs only. The sample's fallback PR numbers, selected heads, CI conclusions and seed are in `.cache/measurements/week7/pr-intermediate/ci-inventory.json`; raw API response cache is in `check-runs-cache.json`. **This CI inventory launched no pytest.** Attrs remains at the already measured 0/10 unique positive changes; no expanded attrs sample was run.
 
 Selected first intermediate commits (PR and commit counts):
 
@@ -58,7 +74,7 @@ Selected first intermediate commits (PR and commit counts):
 | Jinja | #2277 (2), #2275 (2), #2266 (2), #2256 (3), #2254 (2), #2253 (2), #2251 (158), #2249 (3), #2248 (3), #2242 (7) |
 | attrs | #1646 (6), #1660 (2), #1659 (2), #1654 (3), #1656 (3), #1644 (4), #1652 (6), #1650 (4), #1631 (3), #1648 (4) |
 
-The exact attempted-pair rows and JUnit/log artifacts are in `.cache/measurements/week7/pr-intermediate/pairs.jsonl` and `.cache/measurements/week7/pr-intermediate/work/pairs/`; summary and captured command output are `summary.json`, `run.stdout.txt`, and `run.stderr.txt` in the same directory. `run.stderr.txt` was empty.
+Deduplicated pair rows, the preserved raw rows, JUnit/log artifacts, and summaries are in `.cache/measurements/week7/pr-intermediate/`; `run.stderr.txt` from the prior feasibility batch and `ci-inventory.stderr.txt` were empty.
 
 Reproduction (from the TestPilot checkout; set `W6_REPOS` to the directory containing the three local clones):
 
@@ -76,10 +92,11 @@ python3.13 scripts/run_pr_intermediate_feasibility.py \
   --main-ref refs/remotes/upstream/main \
   --python python3.13 --sample-prs 10 \
   --pair-timeout-s 300 --batch-timeout-s 1800 \
+  --inventory-only \
   --out-dir .cache/measurements/week7/pr-intermediate
 ```
 
-The inventory summary was 282/162/510 eligible PRs; the capped run summary was 26/25/24 attempted pairs, 26/25/23 complete pairs, 7/4/0 positive pairs, zero `env_incompatible`, zero pair timeouts, and one attrs `batch_deadline`. See `summary.json` for medians/p90s and `pairs.jsonl` for each row.
+This command inventories check-runs and calculates the fallback selection and forecast, then exits before pytest. It uses `gh api repos/<owner>/<repo>/commits/<sha>/check-runs`; `ci-inventory.json` records per-SHA conclusions and selection. Do not remove `--inventory-only` until the CI-filtered run is separately authorized.
 
 Commands (run from the TestPilot checkout; `W6_REPOS` points to the local Week 6 clones):
 
