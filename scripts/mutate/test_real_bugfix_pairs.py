@@ -160,7 +160,16 @@ def test_patch_id_deduplicates_cherry_pick_and_merge_using_first_parent(tmp_path
     )
     merge = git(repo, "rev-parse", "HEAD")
     git(repo, "checkout", "-b", "stable", root)
-    git(repo, "cherry-pick", fix)
+    git(
+        repo,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "cherry-pick",
+        "-x",
+        fix,
+    )
 
     result = scan_repository("click", repo)
 
