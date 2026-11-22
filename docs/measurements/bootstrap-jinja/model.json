@@ -1111,7 +1111,7 @@
   "lambdarank_truncation_level": 83,
   "lightgbm_version": "4.5.0",
   "loro": {
-    "reason": "need \u22652 repos",
+    "reason": "need ≥2 repos",
     "skipped": true
   },
   "metrics_test_new_fail": {
@@ -1755,8 +1755,10 @@
       },
       "classifier": {
         "path": "scripts/mutate/run_mutant.py",
-        "commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
-        "blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b"
+        "assessment": "exact_runtime_source_unconfirmed",
+        "candidate_commit_from_binary": "b4d5bfaf9e18316895970058c87e105b0a404293",
+        "candidate_blob_from_binary": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b",
+        "evidence": "The saved run ledger records mutant M4c044f with pytest_rc=4 and collect_note. The b4d5bfa source only recognizes no-JUnit collection errors for rc=2; rc=4 handling appears in later source. Binary version alone does not identify the Python classifier loaded for this row."
       },
       "aggregator": {
         "path": "scripts/aggregate_bootstrap_w6.py",

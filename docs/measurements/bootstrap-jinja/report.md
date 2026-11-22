@@ -290,6 +290,6 @@
 
 ## Provenance
 
-- Mutation classifier (`scripts/mutate/run_mutant.py`): commit `b4d5bfaf9e18316895970058c87e105b0a404293`, blob `dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b`.
+- Mutation classifier (`scripts/mutate/run_mutant.py`): exact runtime source is unconfirmed. The binary identifies candidate commit `b4d5bfaf9e18316895970058c87e105b0a404293` / blob `dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b`, but the saved ledger records `M4c044f` with `pytest_rc=4` and `collect_note`; the candidate source handles missing-JUnit collection errors for rc=2 only, while rc=4 handling appears in later source. The binary version alone does not prove which Python classifier was loaded for that row.
 - Mutation ledger (`scripts/mutate_bootstrap.py`): commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `2f09ab29a91b597369cb7d76dfbade9dc397ecca`.
 - Aggregator (`scripts/aggregate_bootstrap_w6.py`): commit `092d6cc30a09f409aea1b1413ab62976d60430fd`, blob `0a7c3bb9ad7ebde626c75ae2266abd30ae254302`.
