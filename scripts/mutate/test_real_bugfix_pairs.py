@@ -146,7 +146,18 @@ def test_patch_id_deduplicates_cherry_pick_and_merge_using_first_parent(tmp_path
         },
     )
     git(repo, "checkout", "main")
-    git(repo, "merge", "--no-ff", "fix", "-m", "Merge bugfix from fix branch")
+    git(
+        repo,
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "merge",
+        "--no-ff",
+        "fix",
+        "-m",
+        "Merge bugfix from fix branch",
+    )
     merge = git(repo, "rev-parse", "HEAD")
     git(repo, "checkout", "-b", "stable", root)
     git(repo, "cherry-pick", fix)
