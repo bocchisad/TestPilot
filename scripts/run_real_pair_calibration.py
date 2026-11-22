@@ -233,7 +233,7 @@ def run_pair(
             )
             result.update(
                 status=(
-                    "env_incompatible"
+                    "worktree_setup_error"
                     if commit_check.returncode == 0
                     else "git_objects_missing"
                 ),
@@ -475,6 +475,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "revert_conflict": sum(row["status"] == "revert_conflict" for row in own),
             "git_objects_missing": sum(
                 row["status"] == "git_objects_missing" for row in own
+            ),
+            "worktree_setup_error": sum(
+                row["status"] == "worktree_setup_error" for row in own
             ),
             "timeout": sum(row["status"] == "timeout" for row in own),
             "positive": sum(
