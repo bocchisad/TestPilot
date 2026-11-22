@@ -2429,7 +2429,10 @@ progress: {\"pair\":\"abc:0\"}\n\
         let path = dir.path().join(".testpilot/bootstrap/priors.json");
         if path.exists() {
             let priors = load_priors_file(&path).unwrap();
-            assert_eq!(priors.mutate_s_per_mutant.click, 3.018);
+            assert_eq!(
+                priors.mutate_s_per_mutant.click,
+                default_priors().mutate_s_per_mutant.click
+            );
         }
     }
 
