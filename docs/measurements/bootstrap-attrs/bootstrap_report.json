@@ -453,46 +453,77 @@
   "timeout_rate": 0.0,
   "train_threads": 1,
   "provenance": {
-    "measurement_runner": {
-      "path": "scripts/measure_bootstrap_w6.sh",
-      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
-      "git_blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7"
-    },
-    "mutation_ledger": {
-      "path": "scripts/mutate_bootstrap.py",
-      "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
-      "git_blob_sha1": "2f09ab29a91b597369cb7d76dfbade9dc397ecca"
-    },
-    "labeling_classifier": {
-      "path": "scripts/mutate/run_mutant.py",
-      "click": {
-        "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
-        "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81"
+    "historical_week6": {
+      "source": "reconstructed from Git history; original run-time snapshot not retained",
+      "run_time_snapshot_available": false,
+      "measurement_runner": {
+        "path": "scripts/measure_bootstrap_w6.sh",
+        "commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
+        "blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7"
       },
-      "jinja": {
-        "git_commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
-        "git_blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b"
+      "mutation_ledger": {
+        "path": "scripts/mutate_bootstrap.py",
+        "commit_candidates": [
+          "092d6cc30a09f409aea1b1413ab62976d60430fd",
+          "9e863f1d0283c274c05f49d1124550e5151251b5",
+          "978b50b77513c0ae8ff53ece4c04222cd85a17bd"
+        ],
+        "blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+        "assessment": "corrected_by_git_history; exact per-pair version not recorded"
       },
-      "attrs_pairs": [
-        {
+      "classifier": {
+        "path": "scripts/mutate/run_mutant.py",
+        "assessment": "corrected_by_git_history",
+        "exact_per_pair_version_recorded": false,
+        "last_run": {
           "count": 36,
-          "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
-          "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
-          "period": "last run"
+          "reported_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+          "mutate_bootstrap.py_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+          "run_mutant.py_blob_at_978b50b": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+          "attribution_note": "count describes the last run; exact script version per pair is not recorded"
         },
-        {
+        "git_history_facts": {
+          "mutate_bootstrap.py_at_092d6cc_and_9e863f1_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+          "mutate_bootstrap.py_at_978b50b_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+          "run_mutant.py_at_9e863f1_blob_sha1": "7cdb0938e52c44b7733cb3b1213048e21069a539",
+          "run_mutant.py_at_092d6cc_blob_sha1": "b47ec90fc498f6ca59011ee487fe8df5fcabd18a",
+          "run_mutant.py_at_978b50b_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79"
+        },
+        "early_runs": {
           "count": 76,
-          "git_commit": null,
-          "git_blob_sha1": null,
-          "period": "estimated early runs across classifier versions before 978b50b",
-          "ledger_committed": false
+          "description": "estimate across varying classifier versions before 978b50b",
+          "pair_level_ledger_committed": false
         }
-      ]
-    },
-    "aggregator": {
-      "path": "scripts/aggregate_bootstrap_w6.py",
-      "git_commit": "092d6cc30a09f409aea1b1413ab62976d60430fd",
-      "git_blob_sha1": "0a7c3bb9ad7ebde626c75ae2266abd30ae254302"
+      },
+      "aggregator": {
+        "path": "scripts/aggregate_bootstrap_w6.py",
+        "commit": "092d6cc30a09f409aea1b1413ab62976d60430fd",
+        "blob_sha1": "0a7c3bb9ad7ebde626c75ae2266abd30ae254302"
+      },
+      "attrs_pair_attribution": {
+        "path": "scripts/mutate/run_mutant.py",
+        "assessment": "corrected_by_git_history",
+        "exact_per_pair_version_recorded": false,
+        "last_run": {
+          "count": 36,
+          "reported_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+          "mutate_bootstrap.py_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+          "run_mutant.py_blob_at_978b50b": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+          "attribution_note": "count describes the last run; exact script version per pair is not recorded"
+        },
+        "git_history_facts": {
+          "mutate_bootstrap.py_at_092d6cc_and_9e863f1_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+          "mutate_bootstrap.py_at_978b50b_blob_sha1": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+          "run_mutant.py_at_9e863f1_blob_sha1": "7cdb0938e52c44b7733cb3b1213048e21069a539",
+          "run_mutant.py_at_092d6cc_blob_sha1": "b47ec90fc498f6ca59011ee487fe8df5fcabd18a",
+          "run_mutant.py_at_978b50b_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79"
+        },
+        "early_runs": {
+          "count": 76,
+          "description": "estimate across varying classifier versions before 978b50b",
+          "pair_level_ledger_committed": false
+        }
+      }
     }
   }
 }

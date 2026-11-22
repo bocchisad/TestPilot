@@ -132,6 +132,10 @@ echo "=== build release ==="
 cargo build -p testpilot-cli --release --locked
 BIN="$ROOT/target/release/testpilot"
 export TESTPILOT_BIN="$BIN"
+PROVENANCE_JSON="$MEASURE_ROOT/measurement-provenance.json"
+python3 "$ROOT/scripts/measurement_provenance.py" \
+  --root "$ROOT" --bin "$BIN" --out "$PROVENANCE_JSON"
+echo "measurement_provenance=$PROVENANCE_JSON"
 
 echo "=== dry-run estimates ==="
 mkdir -p docs/measurements
@@ -163,6 +167,7 @@ open("docs/measurements/dry-run-estimates.json", "w").write(
         "N": $N, "K": $K, "jobs": $JOBS, "seed": $SEED,
         "assumptions": "n_samples=attempted; n_new_cal=20; worker-local venv setup unmeasured",
         "binary_version": __import__("subprocess").check_output(["$BIN", "--version"], text=True).strip(),
+        "measurement_provenance": __import__("json").loads(open("$PROVENANCE_JSON", encoding="utf-8").read()),
         "components": {r: {"raw": "docs/measurements/dry-run-"+r+".txt", "lines": [line for line in open("docs/measurements/dry-run-"+r+".txt").read().splitlines() if line.startswith(("components_s:", "attempted_hat=", "priors:"))]} for r in ("click", "jinja", "attrs")},
         "pins": {"click": "$PINS_CLICK_SHA", "jinja": "$PINS_JINJA_SHA", "attrs": "$PINS_ATTRS_SHA"},
     }, indent=2) + "\\n"
@@ -236,6 +241,7 @@ echo "=== LORO ×3 + summary ==="
 python3 "$ROOT/scripts/aggregate_bootstrap_w6.py" \
   --root "$ROOT" --repos-root "$MEASURE_REPOS" \
   --level-b-out "$LEVEL_B_OUT" --bootstrap-wall-s "$((BOOTSTRAP_END - START))" \
+  --provenance "$PROVENANCE_JSON" \
   --pins-click "$PINS_CLICK_SHA:$PINS_CLICK_TAG" \
   --pins-jinja "$PINS_JINJA_SHA:$PINS_JINJA_TAG" \
   --pins-attrs "$PINS_ATTRS_SHA:$PINS_ATTRS_TAG"

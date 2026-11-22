@@ -224,6 +224,6 @@
 
 ## Provenance
 
-- Mutation classifier (`scripts/mutate/run_mutant.py`): estimated split; 36 pairs in the last run at `978b50b77513c0ae8ff53ece4c04222cd85a17bd` (blob `3a6f035b688d6e35f507d07ae4b1211f2ada4d79`); 76 pairs from early runs on varying versions before 978b50b. The per-pair ledger was not committed.
-- Mutation ledger (`scripts/mutate_bootstrap.py`): commit `d7c73f1e1a8fdf207c8f044ba0f160dbb9288912`, blob `2f09ab29a91b597369cb7d76dfbade9dc397ecca`.
+- Attrs pair split is corrected by Git history, but the pair-level ledger was not committed: 36 pairs are attributed to the last run reported at `978b50b`; exact per-pair script versions are unrecorded. `scripts/mutate_bootstrap.py` has blob `548fcc2e98285d7d6bd2dea29d8e4c4b144b4620` at `092d6cc`, `9e863f1`, and `978b50b`. `scripts/mutate/run_mutant.py` differs across those commits (`b47ec90…`, `7cdb093…`, and `3a6f035…` respectively), so do not infer one exact classifier version for all 36 pairs.
+- The other 76 of 112 pairs are an estimate across varying classifier versions before `978b50b`; the pair-level ledger is absent.
 - Aggregator (`scripts/aggregate_bootstrap_w6.py`): commit `092d6cc30a09f409aea1b1413ab62976d60430fd`, blob `0a7c3bb9ad7ebde626c75ae2266abd30ae254302`.

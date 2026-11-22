@@ -100,18 +100,18 @@
 
 **Estimate:** 3–5 engineering hours.
 
-- [ ] Add helper tests for a clean script, an edited script, a missing optional script, and `bin --version` failure.
-- [ ] Implement commit-tree blob lookup and worktree blob hashing as separate values so a dirty script cannot be misrepresented as a committed blob.
-- [ ] Add runner invocation before measurement starts and retain the JSON with measurement outputs.
-- [ ] Replace hardcoded `measurement_provenance()` revisions with loading the captured snapshot; fail closed on missing required scripts or malformed version output.
-- [ ] Make the canonical repository label an explicit export input (`repo_name=attrs`) in `scripts/features_reference.py`/the measurement exporter; add a test that exported Week 7 attrs rows never use `attrs-rerun12`.
-- [ ] Remove `normalize_attrs_run_name()` and its one-off key/path rewrites from `aggregate_bootstrap_w6.py`; do not replace them with a second report-only normalization.
-- [ ] Trace attrs provenance from local git history and available run logs. Record the fact that `mutate_bootstrap.py` at `092d6cc` and `9e863f1` has blob `548fcc2`; `run_mutant.py` at `9e863f1` has blob `7cdb0938…`, while `092d6cc` and `978b50b` have different blobs. Because the pair ledger is not committed and `9e863f1` also changes `run_mutant.py`, state that the 36 pair attribution is “corrected by git history” and exact per-pair version is unrecorded; do not claim all pairs used one precise blob without evidence.
-- [ ] Preserve the 76 early attrs pairs as an estimate across earlier classifier versions; say the pair-level ledger is absent.
-- [ ] Add provenance tests that assert all JSON outputs contain the same snapshot and no hardcoded stale SHAs remain.
-- [ ] Commit: `fix: capture measurement provenance at run time`.
+- [x] Add helper tests for a clean script, an edited script, a missing optional script, and failed/malformed `bin --version`.
+- [x] Record commit-tree blob and worktree blob separately, with a dirty flag for each script.
+- [x] Add runner invocation before measurement starts, retain the snapshot with measurement outputs, and pass it to the aggregator.
+- [x] Replace hardcoded current-run revisions with the captured snapshot; fail closed on missing required scripts or malformed version output.
+- [x] Make the canonical repository label an explicit `--repo-name` export input; test that an `attrs-rerun12` checkout exports under `attrs` when requested.
+- [x] Remove `normalize_attrs_run_name()` and its one-off key/path rewrites from `aggregate_bootstrap_w6.py`; no report-only normalization replaces it.
+- [x] Trace attrs provenance from Git history. `mutate_bootstrap.py` at `092d6cc`, `9e863f1`, and `978b50b` has blob `548fcc2`; `run_mutant.py` differs at those commits. The 36 pair attribution is corrected by Git history, but exact per-pair versions are unrecorded because the ledger is absent.
+- [x] Preserve the 76 early attrs pairs as an estimate across varying classifier versions before `978b50b`; mark the pair-level ledger as absent.
+- [x] Add provenance tests for identical snapshots in report outputs and absence of obsolete hardcoded revisions.
+- [x] Commit: `fix: capture measurement provenance at run time`.
 
-**Acceptance:** A clean or dirty run yields auditable commit/blob pairs and `bin_version`; aggregated Week 6 provenance cites the evidence and uncertainty; no `rerun12` normalization remains in the aggregator.
+**Acceptance:** Clean/dirty fixture runs yield auditable commit/blob pairs and `bin_version`; the runner captures a single snapshot before measurement and the aggregator reuses it; historical Week 6 provenance cites Git evidence and uncertainty; no `rerun12` normalization remains in the aggregator. Full Week 6 measurement was not rerun.
 
 ## Task 0.3: Calibrate dry-run by observed steps
 

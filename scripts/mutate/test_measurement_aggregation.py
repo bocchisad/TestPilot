@@ -5,7 +5,16 @@ import sqlite3
 
 import pytest
 
-from aggregate_bootstrap_w6 import collect_mutants, compare_level_b, git_blob_sha1, paired_ci, test_nc as counts, run_loro
+from aggregate_bootstrap_w6 import (
+    attach_provenance,
+    collect_mutants,
+    compare_level_b,
+    git_blob_sha1,
+    load_provenance_snapshot,
+    paired_ci,
+    test_nc as counts,
+    run_loro,
+)
 from mutate.run_mutant import MutantRunResult
 from mutate_bootstrap import _append_outcome
 
@@ -198,3 +207,44 @@ def test_strict_json_loader_rejects_non_finite_constants(tmp_path):
     with pytest.raises(ValueError,match='non-finite'):
         import aggregate_bootstrap_w6 as agg
         agg.load(path)
+
+
+def test_provenance_snapshot_is_required_and_reused_for_every_report(tmp_path):
+    snapshot = {
+        'head_sha': 'a' * 40,
+        'captured_at_utc': '2026-11-22T00:00:00Z',
+        'bin_version': 'testpilot 0.1.0',
+        'scripts': [
+            {'path': path, 'commit_blob_sha1': 'b' * 40, 'worktree_blob_sha1': 'b' * 40, 'dirty': False}
+            for path in (
+                'scripts/mutate_bootstrap.py',
+                'scripts/mutate/run_mutant.py',
+                'scripts/aggregate_bootstrap_w6.py',
+                'scripts/features_reference.py',
+                'scripts/measurement_provenance.py',
+                'scripts/measure_bootstrap_w6.sh',
+            )
+        ],
+    }
+    source = tmp_path / 'provenance.json'
+    source.write_text(json.dumps(snapshot))
+    loaded = load_provenance_snapshot(source)
+    for filename in ('report.json', 'model.json', 'bootstrap_report.json'):
+        output = tmp_path / filename
+        output.write_text('{}')
+        attach_provenance(output, loaded)
+        assert json.loads(output.read_text())['provenance']['run_snapshot'] == snapshot
+
+
+def test_provenance_snapshot_rejects_stale_or_malformed_records(tmp_path):
+    source = tmp_path / 'provenance.json'
+    source.write_text(json.dumps({'head_sha': 'a' * 40, 'scripts': []}))
+    with pytest.raises(ValueError, match='bin_version'):
+        load_provenance_snapshot(source)
+
+
+def test_aggregator_has_no_obsolete_hardcoded_measurement_revisions():
+    source = (ROOT / 'scripts' / 'aggregate_bootstrap_w6.py').read_text()
+    assert 'd7c73f1e1a8fdf207c8f044ba0f160dbb9288912' not in source
+    assert '2f09ab29a91b597369cb7d76dfbade9dc397ecca' not in source
+    assert 'normalize_attrs_run_name' not in source
