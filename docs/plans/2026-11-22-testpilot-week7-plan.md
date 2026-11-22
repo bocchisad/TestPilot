@@ -147,16 +147,16 @@
 - Create: `docs/measurements/week7/real-bug-pairs.jsonl` and `real-pair-audit.md`
 
 **Interfaces:**
-- Manifest row records repo/pin, source bug/fix commits, fixed `base`, code-reverted `head`, reverted code paths, retained test/fixture paths, environment ID, all shared test outcomes, wall time, and inclusion/exclusion reason.
-- A pair is positive when at least one non-flaky shared test fails on head and passes on base; include every such test ID, not only the newly added test.
+- Manifest row records repository/PR, merge-base `base`, intermediate commit `head`, changed paths, environment ID, all shared-test outcomes, wall time, and inclusion/exclusion reason.
+- A pair is positive when at least one non-flaky test ID already present in base passes in both base runs and fails in both head runs; new PR test IDs never count.
 
 **Pilot evidence:** `docs/measurements/week7/real-pair-pilot.md` records 9.57 s for the first full-suite base+head pass and 15.31 s across two passes per tree; the fresh-venv/dependency/base-install/head-install steps took 3.95 s with a warm pip cache. This is one click pair and does not predict installation cost for other repos.
 
-**Primary Task 2A count:** track positive real pairs with at least one failure outside the added regression-test function(s), divided by all audited positive real pairs. Initial pilot value is 0/1 (0%); excluding both added click functions removes all 12 parametrized cases and leaves 0 positives. The 31,000 deselected cases per pytest run are Click stress tests selected out by its `addopts`.
+**Primary Task 2A count:** track PR-intermediate pairs with at least one stable failure among tests already present in base; report both positive pairs and distinct sampled PRs with positives. New regression tests are excluded by construction because their test IDs are absent from base. Revert-fix is a secondary negative result: 0/25 pairs had failures outside changed regression-test functions (click 0/13, Jinja 0/12; rule-of-three upper bound ≈12%). The PR-intermediate feasibility and the 31,000 Click stress tests deselected by `addopts` are documented in `real-pair-candidate-screening.md`.
 
-**Estimate:** After patch-id dedupe the scan has 1,183/968/593 leads for click/jinja/attrs; source+test filters leave 452/334/210 leads. The ≤30 min calibration batch measured per-repo medians and p90 values; see `real-pair-candidate-screening.md`. Attrs has missing Git objects in the first 15 leads and no valid pair-time estimate. Forecasts replace the old ~175 min cross-repository proxy. The 1–2 engineering day estimate for tool, validation, and audit workflow excludes additional pair runs.
+**Estimate:** The revert-fix calibration has ended as a negative design result: 0/25 positive pairs had failures outside changed test functions (click 0/13, Jinja 0/12); remaining revert-fix leads are not to be run. The new primary source is PR-intermediate commits. Its bounded feasibility inventory and ≤30 min batch are reported in `real-pair-candidate-screening.md`; full 2A requires another explicit OK.
 
-- [ ] Add tests for malformed code-only reverts, accidentally omitted regression tests/fixtures, unchanged/shared outcomes, and fixture-required cases.
+- [ ] Add focused tests for PR-intermediate shared-test extraction, two-repeat outcomes, and `batch_deadline` versus pair `timeout` classification.
 - [x] Add a patch-id regression test covering one fix on a branch, its first-parent merge commit, and a stable-branch cherry-pick; assert they dedupe to one lead.
 - [x] Test old click/Jinja package layouts, all-extension source paths, `bugfix` matching, quoted Revert exclusion, and patch-id dedupe across a cherry-pick and first-parent merge diff.
 - [x] Explicitly scan merge commits against first parent while retaining internal commits; sort the deduplicated shortlist newest-first.
@@ -164,17 +164,16 @@
 - [x] Remove machine-specific absolute paths from the screening report; add optional SHA-256 for the measurement binary provenance.
 - [x] Check existing local artifacts/caches for CI run logs without network or credentials. No matching CI/workflow/action log files were found; used the offline bug-fix-pair fallback and did not query remote CI or fetch history.
 - [x] Scan the full locally available history, not a fixed recent-commit window. Record message/changelog matches, source+test changes, and test-code heuristic counts in `docs/measurements/week7/real-pair-candidate-screening.md`; details are also retained in the ignored local candidate JSONL artifacts.
-- [ ] Triage potential candidates, confirm regression-test intent from commit diff, and record rejected candidates with reasons.
-- [ ] Construct an isolated `head` by reverting only production-code fixes from fixed `base`, retaining the regression test and fixtures; persist the exact patch and tree identities.
-- [ ] Classify Python 3.13 install/build failures as `env_incompatible`, separately from tests that run but do not establish a regression.
-- [ ] Provide run commands and time estimates before the user executes pairs. Any run over 30 minutes requires the user's explicit OK.
-- [x] Run the user-authorized calibration batch (first 15 source+test leads per repo after dedupe, ≤30 min). Persist pair logs and report statuses, outcome positives, outside-test counter, median/p90, and remaining-time forecast.
-- [ ] Run the remaining accepted pairs after the user's next OK; preserve commit/test/environment identities and produce a data inventory with positives by repo and chronological fold.
+- [ ] Audit PR-intermediate positive pairs against the commit diffs; record any false positives, environmental artifacts, and accepted/rejected cases before creating the real dataset.
+- [x] Complete the secondary revert-fix calibration; record its 0/25 outside-test result and stop remaining revert-fix leads.
+- [x] Classify Python 3.13 install/build failures as `env_incompatible`, separately from pair timeouts and incomplete artifacts.
+- [x] Provide and execute the user-authorized PR-intermediate feasibility batch: newest 10 PRs per repo, total budget ≤30 minutes including inventory, pair limit 5 minutes; report counts, statuses, median/p90 and raw artifacts.
+- [ ] Audit the PR-intermediate positive pairs manually, then request approval before expanding to full 2A. Preserve commit/test/environment identities and produce a data inventory with positives by repo and chronological fold.
 - [ ] Commit collection logic and tests; keep raw clones/databases/parquets out of Git unless the user approves storing them.
 
 **Acceptance:** No candidate enters the real dataset without both buggy-fail and fixed-pass evidence; pair grouping and failure reasons are auditable; incomplete attempts do not become positives.
 
-**Real pair semantics:** `base` is the fixed commit; `head` is the fixed commit with only the production-code fix reverted, keeping the regression test and required fixtures. The `base → head` diff is the real, potentially multi-line change passed to `select`. Positives are all non-flaky shared test IDs failing on head and passing on base. Report metrics both with and without the added regression test, plus the fraction of positive pairs with at least one other failing test. The new test was written against the fixed lines and may favor `cov_lines`.
+**Real pair semantics:** The primary pair uses `base=merge-base(PR, main)` and `head=each PR commit after base`. A positive must be a non-flaky test ID present in base that passes in both base runs and fails in both head runs; new PR test IDs do not count. The old revert-fix design is secondary only; its 0/25 outside-regression-test result (95% rule-of-three upper bound ≈12%) is a negative finding and remaining leads are not run.
 
 ## Task 2B: Evaluate real/synthetic data, ablations, source weights, and reranker
 

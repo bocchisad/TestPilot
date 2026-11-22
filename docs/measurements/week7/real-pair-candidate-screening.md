@@ -28,9 +28,58 @@ Calibration summary (first 15 source+test leads per repository after deduplicati
 | jinja | 968 | 334 | 15 | 15 | 0 | 0 | 0 | 0 | 12 | 0/12 (0%) | 9.832 | 10.473 | 3,136.4 s (52.3 min) |
 | attrs | 593 | 210 | 15 | 0 | 0 | 0 | 15 | 0 | 0 | not applicable | not applicable | not applicable | not estimable: no pair reached pytest |
 
-The click and Jinja “outside-test” counters are both 0 among the outcome-positive pairs. The earlier click pilot `c53d373` reproduced 9 shared positives across 2,136 shared test IDs and remains 0 outside its two changed test functions. This result is consistent with regression tests driving the labels; it is not a model-vs-`cov_lines` evaluation. Attrs’ 15 candidates could not be paired because their Git diffs/commit trees are missing from the local cache; they are not zero-positive observations.
+**Accepted revert-fix result:** revert-fix pairs give no signal outside their regression tests: **0/25** positive pairs (click **0/13**, Jinja **0/12**). The 95% upper bound by the rule of three is approximately **12%** (3/25). This is a negative result about the revert-fix construction; it does not measure the PR-intermediate source and is not a model-vs-`cov_lines` evaluation. Attrs’ 15 candidates could not be paired because their Git diffs/commit trees are missing from the local cache; they are not zero-positive observations.
 
 The run used 507.33 s (8 min 27 s). No pair hit the 5-minute timeout. An initial runner invocation was discarded before tests because it used a relative worktree path; no tests ran in that invocation. The corrected run above is the only calibration batch summarized here.
+
+## PR-intermediate source and feasibility
+
+The primary 2A design now uses PR-intermediate commits: `base=merge-base(PR, main)`, with each commit after base evaluated as a head. Only test IDs already present in base can be positive; they must pass in both base runs and fail in both head runs. Repeated outcomes are required, so a one-off failure cannot count as a positive. The feasibility batch was capped at 30 minutes including inventory, with a 5-minute maximum per pair. No remaining revert-fix leads were run.
+
+### Feasibility result (2026-11-22)
+
+Inventory against each clone's `refs/remotes/upstream/main` found **282 click, 162 Jinja, and 510 attrs PRs** with at least two commits. We selected the 10 newest PRs per repository. Their commit counts in `merge-base..PR head` were 43, 184, and 37 intermediate commits respectively. The exact sample is in `.cache/measurements/week7/pr-intermediate/inventory.json`; main SHAs were click `08b803c`, Jinja `5ef7011`, attrs `f830e60`.
+
+| Repo | Eligible PRs (≥2 commits) | Sampled PRs | Pairs attempted | Completed | Positive pairs | Sampled PRs with ≥1 positive | `env_incompatible` | Pair timeout | Batch deadline | Median / p90 seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| click | 282 | 10 | 26 | 26 | 7 | 3/10 | 0 | 0 | 0 | 23.639 / 25.974 |
+| Jinja | 162 | 10 | 25 | 25 | 4 | 2/10 | 0 | 0 | 0 | 12.501 / 14.791 |
+| attrs | 510 | 10 | 24 | 23 | 0 | 0/10 | 0 | 0 | 1 | 28.081 / 32.265 |
+
+All 10 sampled PRs in each repository had their first intermediate commit tested. Because the batch limit also includes subsequent commits, sampling continued round-robin until the deadline: 75 attempts total, 74 complete outcomes, and 11 positive pair outcomes (7 click, 4 Jinja, 0 attrs). Five distinct sampled PRs had at least one positive pair (click #3833/#3872/#3873; Jinja #2242/#2256). Positive pairs require the same base-present test IDs to pass twice on base and fail twice on head. No pair was classified `env_incompatible`, `git_objects_missing`, or a 5-minute pair timeout. One attrs pair (PR #1644, commit 3/4) reached the overall batch deadline with about 2 seconds remaining and did not start pytest; it is recorded separately as `batch_deadline`, not as a pair timeout or a negative outcome.
+
+The overall elapsed time was **1,799.87 s**, of which **121.89 s** was inventory. The pair medians and p90s use attempts where pytest started (n=26/25/23). Click's test command deselected 31,000 stress cases via repository `addopts`; this is also recorded in the per-run logs. These are feasibility outcomes only, not manually audited real-bug labels or model-vs-`cov_lines` metrics. The repeated positives on a few PRs are not independent PR-level evidence; the next decision should use audited pairs and the pre-registered minimum of 10 confirmed real positives per repository.
+
+Selected first intermediate commits (PR and commit counts):
+
+| Repo | Newest-first sample |
+| --- | --- |
+| click | #3924 (17), #3919 (5), #3917 (3), #3873 (4), #3872 (3), #3856 (2), #3854 (2), #3835 (2), #3833 (3), #3825 (2) |
+| Jinja | #2277 (2), #2275 (2), #2266 (2), #2256 (3), #2254 (2), #2253 (2), #2251 (158), #2249 (3), #2248 (3), #2242 (7) |
+| attrs | #1646 (6), #1660 (2), #1659 (2), #1654 (3), #1656 (3), #1644 (4), #1652 (6), #1650 (4), #1631 (3), #1648 (4) |
+
+The exact attempted-pair rows and JUnit/log artifacts are in `.cache/measurements/week7/pr-intermediate/pairs.jsonl` and `.cache/measurements/week7/pr-intermediate/work/pairs/`; summary and captured command output are `summary.json`, `run.stdout.txt`, and `run.stderr.txt` in the same directory. `run.stderr.txt` was empty.
+
+Reproduction (from the TestPilot checkout; set `W6_REPOS` to the directory containing the three local clones):
+
+```sh
+# PR refs were fetched from upstream for click/Jinja because their local origin
+# is a bare cache; attrs used its origin and refetch to repair the incomplete clone.
+git -C "$W6_REPOS/click" fetch https://github.com/pallets/click.git '+refs/pull/*/head:refs/pr/*'
+git -C "$W6_REPOS/jinja" fetch https://github.com/pallets/jinja.git '+refs/pull/*/head:refs/pr/*'
+git -C "$W6_REPOS/attrs" fetch --refetch origin '+refs/pull/*/head:refs/pr/*'
+
+python3.13 scripts/run_pr_intermediate_feasibility.py \
+  --repo "click=$W6_REPOS/click" \
+  --repo "jinja=$W6_REPOS/jinja" \
+  --repo "attrs=$W6_REPOS/attrs" \
+  --main-ref refs/remotes/upstream/main \
+  --python python3.13 --sample-prs 10 \
+  --pair-timeout-s 300 --batch-timeout-s 1800 \
+  --out-dir .cache/measurements/week7/pr-intermediate
+```
+
+The inventory summary was 282/162/510 eligible PRs; the capped run summary was 26/25/24 attempted pairs, 26/25/23 complete pairs, 7/4/0 positive pairs, zero `env_incompatible`, zero pair timeouts, and one attrs `batch_deadline`. See `summary.json` for medians/p90s and `pairs.jsonl` for each row.
 
 Commands (run from the TestPilot checkout; `W6_REPOS` points to the local Week 6 clones):
 
