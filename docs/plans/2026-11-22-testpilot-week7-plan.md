@@ -94,7 +94,7 @@
 - Modify: Week 6 provenance in `docs/measurements/bootstrap-{click,jinja,attrs}/` and `docs/measurements/loro-w6-click-jinja-attrs/`
 
 **Interfaces:**
-- `measurement_provenance.py --root ROOT --bin BIN --out JSON` writes `head_sha`, `bin_version`, capture time, and per-script `{path, commit_blob_sha1, worktree_blob_sha1, dirty}`.
+- `measurement_provenance.py --root ROOT --bin BIN --out JSON` writes `head_sha`, `bin_version`, binary SHA-256, capture time, and per-script `{path, commit_blob_sha1, worktree_blob_sha1, dirty}`.
 - Script inventory includes `scripts/mutate_bootstrap.py`, `scripts/mutate/run_mutant.py`, each `scripts/measure_*.sh`, `scripts/aggregate_bootstrap_w6.py`, and the exporter itself.
 - The measurement runner captures one snapshot before the full run; aggregator consumes that snapshot instead of embedding revisions.
 
@@ -154,16 +154,22 @@
 
 **Primary Task 2A count:** track positive real pairs with at least one failure outside the added regression-test function(s), divided by all audited positive real pairs. Initial pilot value is 0/1 (0%); excluding both added click functions removes all 12 parametrized cases and leaves 0 positives. The 31,000 deselected cases per pytest run are Click stress tests selected out by its `addopts`.
 
-**Estimate:** Full local-history scan found 1,388/1,100/600 pattern-or-changelog candidates for click/jinja/attrs. Static source+test and added-test-code filters leave 217/66/138 leads (20 attrs test diffs are unavailable because local Git objects are missing). Scaling the click pilot's approximate 25 s/pair across those 421 leads is ~175 min, only a coarse mixed-repo estimate before manual triage. The 1–2 engineering day estimate for tool, validation, and audit workflow excludes user-run tests.
+**Estimate:** After patch-id dedupe the scan has 1,183/968/593 leads for click/jinja/attrs; source+test filters leave 452/334/210 leads. The ≤30 min calibration batch measured per-repo medians and p90 values; see `real-pair-candidate-screening.md`. Attrs has missing Git objects in the first 15 leads and no valid pair-time estimate. Forecasts replace the old ~175 min cross-repository proxy. The 1–2 engineering day estimate for tool, validation, and audit workflow excludes additional pair runs.
 
-- [ ] Add tests for malformed code-only reverts, accidentally omitted regression tests/fixtures, unchanged/shared outcomes, fixture-required cases, and duplicate bug/fix pairs.
+- [ ] Add tests for malformed code-only reverts, accidentally omitted regression tests/fixtures, unchanged/shared outcomes, and fixture-required cases.
+- [x] Add a patch-id regression test covering one fix on a branch, its first-parent merge commit, and a stable-branch cherry-pick; assert they dedupe to one lead.
+- [x] Test old click/Jinja package layouts, all-extension source paths, `bugfix` matching, quoted Revert exclusion, and patch-id dedupe across a cherry-pick and first-parent merge diff.
+- [x] Explicitly scan merge commits against first parent while retaining internal commits; sort the deduplicated shortlist newest-first.
+- [x] Expand CI Ruff coverage to `scripts/` (baseline rules E4/E7/E9/F); fix reported issues and format the four reviewed files.
+- [x] Remove machine-specific absolute paths from the screening report; add optional SHA-256 for the measurement binary provenance.
 - [x] Check existing local artifacts/caches for CI run logs without network or credentials. No matching CI/workflow/action log files were found; used the offline bug-fix-pair fallback and did not query remote CI or fetch history.
 - [x] Scan the full locally available history, not a fixed recent-commit window. Record message/changelog matches, source+test changes, and test-code heuristic counts in `docs/measurements/week7/real-pair-candidate-screening.md`; details are also retained in the ignored local candidate JSONL artifacts.
 - [ ] Triage potential candidates, confirm regression-test intent from commit diff, and record rejected candidates with reasons.
 - [ ] Construct an isolated `head` by reverting only production-code fixes from fixed `base`, retaining the regression test and fixtures; persist the exact patch and tree identities.
 - [ ] Classify Python 3.13 install/build failures as `env_incompatible`, separately from tests that run but do not establish a regression.
 - [ ] Provide run commands and time estimates before the user executes pairs. Any run over 30 minutes requires the user's explicit OK.
-- [ ] Run accepted pairs, preserve commit/test/environment identities, and produce a data inventory with positives by repo and by chronological fold.
+- [x] Run the user-authorized calibration batch (first 15 source+test leads per repo after dedupe, ≤30 min). Persist pair logs and report statuses, outcome positives, outside-test counter, median/p90, and remaining-time forecast.
+- [ ] Run the remaining accepted pairs after the user's next OK; preserve commit/test/environment identities and produce a data inventory with positives by repo and chronological fold.
 - [ ] Commit collection logic and tests; keep raw clones/databases/parquets out of Git unless the user approves storing them.
 
 **Acceptance:** No candidate enters the real dataset without both buggy-fail and fixed-pass evidence; pair grouping and failure reasons are auditable; incomplete attempts do not become positives.
