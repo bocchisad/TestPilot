@@ -13,7 +13,7 @@ const EMBEDDED_PRIORS: &str =
 /// In-repo path of the embedded default priors (for dry-run attribution).
 pub const EMBEDDED_PRIORS_PATH: &str = "docs/measurements/bootstrap_time_priors.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SuiteSeconds {
     pub click: f64,
     pub jinja: f64,
@@ -31,7 +31,12 @@ pub struct BootstrapPriors {
     pub mutate_s_per_mutant: SuiteSeconds,
     pub backfill_s_per_commit: SuiteSeconds,
     pub collect_git_s: SuiteSeconds,
-    pub dump_train_s: SuiteSeconds,
+    #[serde(alias = "dump_train_s")]
+    pub train_s: SuiteSeconds,
+    #[serde(default)]
+    pub features_dump_s_per_eligible: SuiteSeconds,
+    #[serde(default)]
+    pub eligible_per_attempted: BTreeMap<String, f64>,
     #[serde(default)]
     pub attempted_per_commit: BTreeMap<String, f64>,
 }
@@ -45,7 +50,10 @@ pub struct TimeEstimate {
     pub backfill_shas_hat: u32,
     pub mutate_s: f64,
     pub mutate_jobs: u32,
-    pub dump_train_s: f64,
+    pub eligible_hat: f64,
+    pub eligible_per_attempted: f64,
+    pub features_dump_s: f64,
+    pub train_s: f64,
     pub total_s: f64,
     pub suite: String,
     pub attempted_hat: f64,
@@ -94,7 +102,14 @@ pub fn estimate_wall(
         .unwrap_or(1.0);
     let mutants = f64::from(n.min(limb_n)) * density * f64::from(k) / 4.0;
     let mutate = suite_pick(&priors.mutate_s_per_mutant, suite) * mutants;
-    let dump_train = suite_pick(&priors.dump_train_s, suite);
+    let eligible_per_attempted = priors
+        .eligible_per_attempted
+        .get(suite)
+        .copied()
+        .unwrap_or(0.0);
+    let eligible_hat = mutants * eligible_per_attempted;
+    let features_dump = eligible_hat * suite_pick(&priors.features_dump_s_per_eligible, suite);
+    let train = suite_pick(&priors.train_s, suite);
     TimeEstimate {
         collect_git_s: collect,
         backfill_s: backfill,
@@ -102,8 +117,11 @@ pub fn estimate_wall(
         backfill_shas_hat: b_hat,
         mutate_s: mutate,
         mutate_jobs: jobs,
-        dump_train_s: dump_train,
-        total_s: collect + backfill + mutate + dump_train,
+        eligible_hat,
+        eligible_per_attempted,
+        features_dump_s: features_dump,
+        train_s: train,
+        total_s: collect + backfill + mutate + features_dump + train,
         suite: suite.to_string(),
         attempted_hat: mutants,
         backfill_reused: 0,
@@ -141,7 +159,15 @@ impl TimeEstimate {
         self.backfill_s = f64::from(new) * suite_pick(&priors.backfill_s_per_commit, &self.suite);
         self.attempted_hat = (self.attempted_hat - f64::from(completed)).max(0.0);
         self.mutate_s = self.attempted_hat * suite_pick(&priors.mutate_s_per_mutant, &self.suite);
-        self.total_s = self.collect_git_s + self.backfill_s + self.mutate_s + self.dump_train_s;
+        self.eligible_hat = self.attempted_hat * self.eligible_per_attempted;
+        self.features_dump_s =
+            self.eligible_hat * suite_pick(&priors.features_dump_s_per_eligible, &self.suite);
+        self.train_s = suite_pick(&priors.train_s, &self.suite);
+        self.total_s = self.collect_git_s
+            + self.backfill_s
+            + self.mutate_s
+            + self.features_dump_s
+            + self.train_s;
     }
 }
 
@@ -199,16 +225,18 @@ pub fn format_dry_run_report(
         est.mutate_jobs
     ));
     out.push_str(&format!(
-        "estimate dump+train: {}\n",
-        fmt_hours(est.dump_train_s)
+        "estimate features_dump: {} (≈{:.3} eligible commits)\n",
+        fmt_hours(est.features_dump_s),
+        est.eligible_hat
     ));
+    out.push_str(&format!("estimate train: {}\n", fmt_hours(est.train_s)));
     out.push_str(&format!("estimate total: {}\n", fmt_hours(est.total_s)));
     out.push_str(&format!(
-        "components_s: collect={} backfill={} mutate={} dump_train={}\n",
-        est.collect_git_s, est.backfill_s, est.mutate_s, est.dump_train_s
+        "components_s: collect={} backfill={} mutate={} features_dump={} train={}\n",
+        est.collect_git_s, est.backfill_s, est.mutate_s, est.features_dump_s, est.train_s
     ));
-    out.push_str(&format!("attempted_hat={} density_per_history_commit={} calibration_K=4 calibration_jobs={} target_jobs={} n_reused={}\n", est.attempted_hat, est.density, est.calibration_jobs.map(|n| n.to_string()).unwrap_or_else(|| "null".into()), est.mutate_jobs, est.backfill_reused));
-    out.push_str("assumptions: calibration n_samples=attempted,n_new_cal=20; K scaled linearly; wall/attempted already includes jobs; worker-local venv setup unmeasured; legacy priors without density use 1 attempted/history-commit at K=4\n");
+    out.push_str(&format!("attempted_hat={} eligible_hat={} eligible_per_attempted={} density_per_history_commit={} calibration_K=4 calibration_jobs={} target_jobs={} n_reused={}\n", est.attempted_hat, est.eligible_hat, est.eligible_per_attempted, est.density, est.calibration_jobs.map(|n| n.to_string()).unwrap_or_else(|| "null".into()), est.mutate_jobs, est.backfill_reused));
+    out.push_str("assumptions: per-suite W6 observed wall rates; attempted_hat=min(N,B)×density×K/4; eligible_hat=attempted_hat×W6 eligible/attempted; features_dump_hat=eligible_hat×W6 features_dump_s/eligible; calibration wall rates already include their observed jobs; attrs feature-dump/eligibility coefficients are cross-suite proxies, not attrs fit; worker-local setup unmeasured; legacy priors without density use 1 attempted/history-commit at K=4\n");
     out.push_str(&format!("total_s={:.3}\n", est.total_s));
     out.push_str(&format!(
         "resume: {}\n",

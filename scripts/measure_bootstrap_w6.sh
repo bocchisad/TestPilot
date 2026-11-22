@@ -165,7 +165,7 @@ open("docs/measurements/dry-run-estimates.json", "w").write(
         "max_est_s": $MAX_EST_S,
         "actual_s": None, "reason": "dry_run_only" if "$MODE" == "--dry-run-only" else "full_runs_in_progress",
         "N": $N, "K": $K, "jobs": $JOBS, "seed": $SEED,
-        "assumptions": "n_samples=attempted; n_new_cal=20; worker-local venv setup unmeasured",
+        "assumptions": "per-suite W6 in-sample step-time rates; attempted density unchanged; eligibility ratio uses observed eligible/attempted counts; K scales linearly; calibration wall rates already include observed jobs; attrs feature-dump/eligibility are conservative click/jinja proxies; worker-local setup unmeasured",
         "binary_version": __import__("subprocess").check_output(["$BIN", "--version"], text=True).strip(),
         "measurement_provenance": __import__("json").loads(open("$PROVENANCE_JSON", encoding="utf-8").read()),
         "components": {r: {"raw": "docs/measurements/dry-run-"+r+".txt", "lines": [line for line in open("docs/measurements/dry-run-"+r+".txt").read().splitlines() if line.startswith(("components_s:", "attempted_hat=", "priors:"))]} for r in ("click", "jinja", "attrs")},

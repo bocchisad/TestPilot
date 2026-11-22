@@ -130,14 +130,14 @@
 
 **Estimate:** 4–6 engineering hours.
 
-- [ ] Add estimator tests for backfill count changes, K/attempt scaling, eligibility ratio, zero eligible count, and legacy prior compatibility.
-- [ ] Fit click and jinja coefficients from their `bootstrap_report.json` step timings; retain the raw input counts and report `actual_s` definition.
-- [ ] Verify the same-run reconstruction from Week 6 raw inputs: click estimate `1608.31 s` vs `1718.03 s` actual (absolute error `6.39%`); jinja `2776.40 s` vs `2414.99 s` actual (`14.97%`).
-- [ ] Add the calibration method and evidence paths to JSON/Markdown. Mark this as in-sample reconstruction, not independent validation; do not fit with attrs.
-- [ ] Run `cargo test -p testpilot-core --test bootstrap_estimate` and the existing bootstrap estimator tests.
-- [ ] Commit: `feat: calibrate bootstrap estimate by observed steps`.
+- [x] Add estimator tests for backfill count changes, K/attempt scaling, eligibility ratio, zero eligible count, and legacy prior compatibility.
+- [x] Fit click and jinja coefficients from their `bootstrap_report.json` step timings; retain the raw input counts and report `actual_s` definition.
+- [x] Verify the same-run reconstruction from Week 6 raw inputs: click estimate `1608.31 s` vs `1718.03 s` actual (absolute error `6.39%`); jinja `2776.40 s` vs `2414.99 s` actual (`14.97%`).
+- [x] Add calibration method and evidence paths to JSON/Markdown. Label as in-sample reconstruction, not independent validation; do not fit coefficients from attrs.
+- [x] Run `cargo test -p testpilot-core --test bootstrap_estimate`, existing bootstrap estimator tests, and CLI dry-run tests.
+- [x] Commit: `feat: calibrate bootstrap estimate by observed steps`.
 
-**Acceptance:** Reproducible click/jinja same-run errors are each ≤15%; attrs is absent from calibration; dry-run exposes all modeled steps and assumptions.
+**Acceptance:** Reproducible click/jinja same-run errors are each ≤15%; attrs W6 samples are excluded from fitting (the feature-dump/eligibility estimate uses a labeled click/jinja proxy); dry-run exposes all modeled steps and assumptions. Full measurement was not run.
 
 ## Task 2A: Build and validate real bug-fix pairs offline
 

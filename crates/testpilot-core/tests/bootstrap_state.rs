@@ -230,6 +230,10 @@ fn dry_run_report_lists_backfill_on_own_line() {
     assert!(text.contains("|B_set|≈200"), "{text}");
     assert!(text.contains("priors:"), "{text}");
     assert!(text.contains("bootstrap_time_priors.json"), "{text}");
+    assert!(text.contains("estimate features_dump"), "{text}");
+    assert!(text.contains("estimate train"), "{text}");
+    assert!(text.contains("features_dump="), "{text}");
+    assert!(text.contains("eligible_hat="), "{text}");
     assert!(
         text.contains("B_override=null"),
         "must print null not None: {text}"
@@ -447,9 +451,9 @@ fn estimate_respects_cold_limb_not_n_plus_fp() {
 fn calibrated_wall_rate_is_not_divided_by_jobs_again() {
     let priors = default_priors();
     for (suite, expected, attempted) in [
-        ("click", 1103.36, 120.0),
-        ("jinja", 1944.2, 220.0),
-        ("attrs", 4490.3, 200.0),
+        ("click", 1608.3140898754789, 120.0),
+        ("jinja", 2776.3951596552574, 220.0),
+        ("attrs", 5287.151379979712, 200.0),
     ] {
         let one = estimate_wall(200, 4, 1, suite, &priors, 200);
         let two = estimate_wall(200, 4, 2, suite, &priors, 200);
@@ -468,7 +472,10 @@ fn warm_backfill_zero_still_has_pending_mutations_but_resume_can_finish() {
     assert!(est.mutate_s > 0.0);
     est.remaining(&priors, 0, 200, 120);
     assert_eq!(est.mutate_s, 0.0);
-    assert_eq!(estimate_wall(200, 4, 2, "click", &priors, 0).total_s, 6.6);
+    assert_eq!(
+        estimate_wall(200, 4, 2, "click", &priors, 0).total_s,
+        10.784230458
+    );
 }
 
 #[test]
@@ -476,14 +483,14 @@ fn local_measurement_provenance_is_suite_specific() {
     let mut priors = default_priors();
     priors.mutate_s_per_mutant.record("click", 7.0, 12, 2);
     assert_eq!(priors.mutate_s_per_mutant.click, 7.0);
-    assert_eq!(priors.mutate_s_per_mutant.jinja, 3.325);
+    assert_eq!(priors.mutate_s_per_mutant.jinja, 3.648142669130178);
     assert_eq!(
         priors.mutate_s_per_mutant.metadata["click"]["n_samples"],
         12
     );
     assert_eq!(
         priors.mutate_s_per_mutant.metadata["jinja"]["n_samples"],
-        22
+        169
     );
 }
 
