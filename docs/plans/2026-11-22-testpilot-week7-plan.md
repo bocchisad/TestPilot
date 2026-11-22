@@ -154,11 +154,11 @@
 
 **Primary Task 2A count:** track positive real pairs with at least one failure outside the added regression-test function(s), divided by all audited positive real pairs. Initial pilot value is 0/1 (0%); excluding both added click functions removes all 12 parametrized cases and leaves 0 positives. The 31,000 deselected cases per pytest run are Click stress tests selected out by its `addopts`.
 
-**Estimate:** Full-history screening volume is not yet known. Use the pilot timing for a new total after the full-history candidate count is known; plan 1–2 engineering days for tool, validation, and audit workflow, excluding user-run tests.
+**Estimate:** Full local-history scan found 1,388/1,100/600 pattern-or-changelog candidates for click/jinja/attrs. Static source+test and added-test-code filters leave 217/66/138 leads (20 attrs test diffs are unavailable because local Git objects are missing). Scaling the click pilot's approximate 25 s/pair across those 421 leads is ~175 min, only a coarse mixed-repo estimate before manual triage. The 1–2 engineering day estimate for tool, validation, and audit workflow excludes user-run tests.
 
 - [ ] Add tests for malformed code-only reverts, accidentally omitted regression tests/fixtures, unchanged/shared outcomes, fixture-required cases, and duplicate bug/fix pairs.
-- [ ] Check existing local artifacts/caches for CI run logs without network or credentials. If none are available, use the offline bug-fix-pair fallback; do not query remote CI or fetch history.
-- [ ] Scan the full locally available history, not a fixed recent-commit window. Match `fix|bug|regression|revert`, `fixes #`, `closes #`, and `CHANGES` entries; record exact command, coverage, and candidate count by repo.
+- [x] Check existing local artifacts/caches for CI run logs without network or credentials. No matching CI/workflow/action log files were found; used the offline bug-fix-pair fallback and did not query remote CI or fetch history.
+- [x] Scan the full locally available history, not a fixed recent-commit window. Record message/changelog matches, source+test changes, and test-code heuristic counts in `docs/measurements/week7/real-pair-candidate-screening.md`; details are also retained in the ignored local candidate JSONL artifacts.
 - [ ] Triage potential candidates, confirm regression-test intent from commit diff, and record rejected candidates with reasons.
 - [ ] Construct an isolated `head` by reverting only production-code fixes from fixed `base`, retaining the regression test and fixtures; persist the exact patch and tree identities.
 - [ ] Classify Python 3.13 install/build failures as `env_incompatible`, separately from tests that run but do not establish a regression.
