@@ -49,6 +49,7 @@ def kill_active_pytest_groups(sig: int = signal.SIGINT) -> None:
 @dataclass
 class MutantRunResult:
     ok: bool
+    setup_failed: bool = False
     timed_out: bool = False
     junit_path: Path | None = None
     pytest_rc: int | None = None
@@ -1161,6 +1162,7 @@ def run_mutant(
             if not ok:
                 return MutantRunResult(
                     ok=False,
+                    setup_failed=True,
                     log_tail=str(log)[-2000:],
                 )
         # Project requirements can replace pytest; probe warning classes only afterwards.

@@ -61,6 +61,7 @@ class BootstrapStats:
     n_commits_sampled: int = 0
     n_mutants_attempted: int = 0
     n_invalid: int = 0
+    n_setup_failed: int = 0
     n_timeout: int = 0
     n_equivalent: int = 0
     n_flaky_rerun: int = 0
@@ -152,7 +153,8 @@ def _append_outcome(pairs_out: Path | None, pair: str, m_sha: str, result) -> No
     if pairs_out is None:
         return
     path = pairs_out.with_name("mutate_outcomes.jsonl")
-    status = ("timeout" if result.timed_out else "collection_error" if result.collection_error
+    status = ("setup_failure" if result.setup_failed else
+              "timeout" if result.timed_out else "collection_error" if result.collection_error
               else "complete" if result.ok and result.collect_ok else "infrastructure_failure")
     row = {"pair": pair, "m_sha": m_sha, "status": status,
            "killed": result.killed, "n_new_fail": result.n_new_fail,
@@ -438,6 +440,14 @@ def run_bootstrap(
                 )
 
             _append_outcome(pairs_out, key, m_sha, result)
+            if result.setup_failed:
+                # A source mutation can make the package un-installable before
+                # pytest starts. Keep it out of the training pairs and continue.
+                with stats_lock:
+                    stats.n_setup_failed += 1
+                    if key not in stats.completed_pairs:
+                        stats.completed_pairs.append(key)
+                return
             if not result.ok and not result.timed_out and not result.collection_error:
                 raise RuntimeError(f"mutant C={c_sha} i={i}: {result.log_tail or result.collect_note or 'infrastructure failure'}")
             if not result.collect_ok and not result.timed_out and not result.collection_error:
@@ -524,6 +534,7 @@ def stats_to_report(stats: BootstrapStats) -> dict:
         "n_commits_sampled": stats.n_commits_sampled,
         "n_mutants_attempted": stats.n_mutants_attempted,
         "n_invalid": stats.n_invalid,
+        "n_setup_failed": stats.n_setup_failed,
         "n_timeout": stats.n_timeout,
         "n_equivalent": stats.n_equivalent,
         "n_flaky_rerun": stats.n_flaky_rerun,
