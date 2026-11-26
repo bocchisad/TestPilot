@@ -1214,12 +1214,14 @@ def test_attrs_generated_eq_syntax_error_requires_matching_mutation_and_parent_c
 @pytest.mark.parametrize("parent_collects", [True, False])
 @pytest.mark.parametrize("error_kind", ["unexpected_keyword", "missing_opaque"])
 @pytest.mark.parametrize("mutation_kind", ["sentinel", "class_var", "other"])
+@pytest.mark.parametrize("pytest_error_prefix", ["", "E   "])
 def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
     error_kind: str,
     mutation_kind: str,
+    pytest_error_prefix: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -1288,6 +1290,7 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
         if error_kind == "unexpected_keyword"
         else "TypeError: Specification.__init__() missing 1 required positional argument: 'OPAQUE'"
     )
+    error_line = f"{pytest_error_prefix}{error_line}"
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"

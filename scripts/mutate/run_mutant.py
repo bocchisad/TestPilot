@@ -183,10 +183,10 @@ _NO_JUNIT_ATTR_METADATA_FRAME_RE = re.compile(
     r"(?m)^\s*File ['\"].*/src/attr/_make\.py['\"], line \d+, in __getstate__"
 )
 _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE = re.compile(
-    r"(?m)^TypeError: Specification\.__init__\(\) got an unexpected keyword argument 'name'\s*$"
+    r"(?m)^(?:E\s+)?TypeError: Specification\.__init__\(\) got an unexpected keyword argument 'name'\s*$"
 )
 _NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE = re.compile(
-    r"(?m)^TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
+    r"(?m)^(?:E\s+)?TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
 )
 _NO_JUNIT_ATTRS_FIELDS_TYPEERROR_RE = re.compile(
     r"(?m)^TypeError: Passed object must be a class\.\s*$"
