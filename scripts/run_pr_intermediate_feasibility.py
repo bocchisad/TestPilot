@@ -448,9 +448,35 @@ def _run_pair(
                     test_run.stdout + b"\n--- stderr ---\n" + test_run.stderr
                 )
                 if not xml.is_file():
-                    result.update(
-                        status="env_incompatible", reason=f"pytest_no_junit:{label}"
+                    failure_text = (test_run.stdout + b"\n" + test_run.stderr).decode(
+                        "utf-8", errors="replace"
                     )
+                    syntax_error = next(
+                        (
+                            marker
+                            for marker in (
+                                "IndentationError",
+                                "TabError",
+                                "SyntaxError",
+                            )
+                            if marker in failure_text
+                        ),
+                        None,
+                    )
+                    if syntax_error:
+                        result.update(
+                            status="head_source_invalid"
+                            if label == "head"
+                            else "base_source_invalid",
+                            reason=f"pytest_source_syntax_error:{label}:{syntax_error}",
+                            diagnostic="\n".join(failure_text.splitlines()[-12:]),
+                        )
+                    else:
+                        result.update(
+                            status="test_collection_error",
+                            reason=f"pytest_no_junit:{label}",
+                            diagnostic="\n".join(failure_text.splitlines()[-12:]),
+                        )
                     return result
                 outcomes[f"{label}{attempt}"] = _junit(xml)
         base_ids = set(outcomes["base1"]) & set(outcomes["base2"])

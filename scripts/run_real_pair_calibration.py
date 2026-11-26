@@ -80,9 +80,7 @@ def _install(
             ((project.get("project") or {}).get("optional-dependencies") or {})
         )
         for extra in ("test", "tests", "testing"):
-            if extra in extras and not pip(
-                "install", "-e", f".[{extra}]", "--no-build-isolation"
-            ):
+            if extra in extras and not pip("install", "-e", f".[{extra}]"):
                 return False, "\n".join(logs)
         groups = project.get("dependency-groups") or {}
         for group in ("test", "tests"):

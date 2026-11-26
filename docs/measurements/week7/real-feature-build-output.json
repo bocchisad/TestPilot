@@ -1,0 +1,36 @@
+{
+  "completed_unique_heads": 447,
+  "excluded_pr_groups": [
+    {
+      "pr_group": [
+        "3872",
+        "3873"
+      ],
+      "repo": "click"
+    },
+    {
+      "pr_group": [
+        "2256"
+      ],
+      "repo": "jinja"
+    }
+  ],
+  "feature_error_path": ".cache/measurements/week7/pr-intermediate/real-features/feature-errors.jsonl",
+  "feature_errors": 0,
+  "label_definition": "pass/pass on base and fail/fail on head; stable shared test IDs only",
+  "outputs": {
+    "all": {
+      "bytes": 899263,
+      "path": "measurements/week7/pr-intermediate/real-features/real-pair-features-all.parquet",
+      "rows": 288742,
+      "sha256": "ca7fd7a62330ab2b715465d454f36502c52dec889df27f07fafda01c75b6a0af"
+    },
+    "without_changed_functions": {
+      "bytes": 943626,
+      "path": "measurements/week7/pr-intermediate/real-features/real-pair-features-without_changed_functions.parquet",
+      "rows": 288502,
+      "sha256": "6717be4886cf123ba3c216a6392602c39784f452447755e802fc32b9c583925b"
+    }
+  },
+  "without_changed_functions": "drop all stable test IDs in test functions modified by head commit"
+}

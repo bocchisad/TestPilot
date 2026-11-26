@@ -66,6 +66,62 @@ For the same newest 10 PRs per repo, the CI inventory queried `check-runs` once 
 
 In the selected set, click has 8 CI-failure heads and 1 sampled success, Jinja 11 failures and 1 sampled success, attrs 9 failures and 1 sampled success; fallback first heads are deduplicated with those selections. Forecasts multiply selected heads by the deduplicated feasibility median/p90 (click 23.528/25.974 s, Jinja 12.501/14.791 s, attrs 28.081/32.265 s); they cover pair runs only. The sample's fallback PR numbers, selected heads, CI conclusions and seed are in `.cache/measurements/week7/pr-intermediate/ci-inventory.json`; raw API response cache is in `check-runs-cache.json`. **This CI inventory launched no pytest.** Attrs remains at the already measured 0/10 unique positive changes; no expanded attrs sample was run.
 
+#### Full-history CI inventory (2026-11-22; no pytest)
+
+Expanded the same inventory to **all 954 PRs with at least two commits** in the local PR refs, not only the newest 10. For every PR, commits are enumerated from `merge-base(main, PR head)` through the PR head; shared intermediate head SHAs are queried once. This produced **5,610 PR-to-commit appearances** and **5,283 unique head SHAs** after removing 327 shared-head duplicates.
+
+| Repo | Eligible PRs | Commit appearances | Unique head SHAs | Shared-head duplicates | CI failure | CI success | CI unavailable | PRs using first-commit fallback | Unique candidate heads | Forecast median / p90 | Rough expected unique positives |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| click | 282 | 1,559 | 1,390 | 169 | 78 | 114 | 1,198 | 232 | 285 | 111.8 / 123.4 min | 56.4 |
+| Jinja | 162 | 721 | 705 | 16 | 55 | 30 | 620 | 131 | 179 | 37.3 / 44.1 min | 32.4 |
+| attrs | 510 | 3,330 | 3,188 | 142 | 122 | 158 | 2,908 | 475 | 508 | 237.8 / 273.2 min | 0.0 |
+| **Total** | **954** | **5,610** | **5,283** | **327** | **255** | **302** | **4,726** | **838** | **972** | **386.8 / 440.7 min** | **88.8** |
+
+Candidate heads are deduplicated after applying the per-PR rule: if any commit in a PR has unavailable CI, select only that PR's first commit; otherwise select all failure commits and `ceil(10%)` of success commits with seed `20261122`. Because PRs can share a head SHA, fallback, failure, and success selections overlap; therefore their raw counts do not sum directly to the unique candidate-head count. “Rough expected unique positives” linearly extends the feasibility rates requested (click `2/10`, Jinja `2/10`, attrs `0/10`) to all eligible PRs. This is only a rough extrapolation from 10 sampled PRs per repo and does not correct for connected PR groups or sampling uncertainty; it is not an observed count.
+
+Status provenance: **1,700 SHAs** came from the REST check-runs endpoint. The remaining **3,583** were fetched in GraphQL batches from `statusCheckRollup.contexts` (which exposes the same check-run conclusions and app/check names); of these, **3,273** had no status-check rollup and were conservatively counted as unavailable. The resulting totals still reconcile exactly to all 5,283 unique SHAs. For available checks, classification uses the latest completed check per name/app: any `failure`, `timed_out`, or `startup_failure` means failure; all `success`, `neutral`, or `skipped` means success; pending, absent, or incomplete CI means unavailable. No check-run status was inferred from a pytest result.
+
+Attrs' full-history forecast is above one hour. A newest-first cap of 100 PRs would still estimate **114 unique candidate heads** and **61.3 min p90**. A cap of **90 newest PRs** reduces that to **105 unique candidate heads**, with an estimated **49.1 min median / 56.5 min p90** at the attrs feasibility timings. This is a proposed cap only; no pytest was launched for this inventory.
+
+The complete per-PR commit lists and SHA-to-PR mapping are in `.cache/measurements/week7/pr-intermediate/full-history-inventory.json`; CI states, selection reasons, and selected SHA lists are in `.cache/measurements/week7/pr-intermediate/full-history-ci-inventory.json`. The full status cache is `check-runs-cache-full.json`. The one-time inventory runner is `scripts/inventory_full_pr_ci.py`; status retrieval and selection ran with no pytest.
+
+### Authorized PR-intermediate run (2026-11-23)
+
+After authorization, the selected CI-filtered candidates were run sequentially under Python 3.13.18, with a 300-second timeout per pair and 1,800-second maximum per resumable batch. The full-history policy selected all **285 click** and **179 Jinja** candidate heads. As forecast above, attrs was capped at the **90 newest PRs**, yielding **105** candidate heads; the remaining attrs history was not run. The full run therefore covered **569 unique head SHAs**, with no pending candidates at completion.
+
+| Repo | Selected heads | Completed | Stable positive heads | Unique positive changes before function audit | `test_modified_in_head` true / false | Other terminal outcomes |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| click | 285 | 254 | 24 | **21** | 4 / 20 | 26 `test_collection_error`, 4 `head_source_invalid`, 1 `timeout` |
+| Jinja | 179 | 95 | 3 | **2** | 0 / 3 | 54 `test_collection_error`, 29 `env_incompatible`, 1 `head_source_invalid` |
+| attrs (newest 90 PRs) | 105 | 103 | 7 | **5** | 0 / 7 | 1 `test_collection_error`, 1 `env_incompatible` |
+| **Total** | **569** | **452** | **34** | **28** | **4 / 30** | **81 `test_collection_error`, 30 `env_incompatible`, 5 `head_source_invalid`, 1 `timeout`** |
+
+The pre-audit “unique positive changes” count deduplicates by PR group and the full stable failing test-ID set, so multiple intermediate heads in one PR change count once. The raw run found **28 unique stable positive changes**: click **21**, Jinja **2**, attrs **5**. For **all 28**, at least one base-existing shared test passed twice on base and failed twice on head. In **24/28 (85.7%)**, the failing test file was unchanged by the head; in **4/28 (14.3%)**, that file was changed. Across head outcomes, 30/34 positives had `test_modified_in_head=false`; repeated heads in the same PR group explain why this differs from the unique-change count. All positives had `unresolved_positive_test_ids=[]`. The function-level and semantic audited counts below supersede these raw counts for model evaluation. After the later PR-context audit, the primary manifest retained 24 candidates (click 18, Jinja 1, attrs 5): click PR group #3872/#3873 was excluded as spam, and Jinja #2256 was withheld as uncertain. See `real-pair-semantic-audit.md` and `real-pair-audit.md`.
+
+This is evidence that PR-intermediate changes can produce stable failures in existing shared tests, unlike the revert-fix result above. It is **not** yet a model-vs-`cov_lines` evaluation: the selected observations are CI-filtered and attrs covers only its newest 90 PRs; no LORO or recall/budget-curve metrics were run. The CI prefilter also means this is not a census of all intermediate heads. `test_collection_error`, `env_incompatible`, `head_source_invalid`, and `timeout` are exclusions, never negative labels. The one timeout was click PR #1372 head `99352735ba` at 300 seconds. The 30 env-incompatible outcomes were 29 historical Jinja package-install failures and one attrs test-extra install failure. Of 81 collection errors, 29 logs show `AttributeError: __spec__` (old vendored import helper), and 26 Jinja logs show the removed `markupsafe.soft_unicode`; the remaining cases include other import/plugin/missing-dependency failures. Five source-invalid heads failed parsing or import with syntax/indentation errors.
+
+#### Function-level positive audit
+
+The manual audit maps changed test lines in each positive head to the enclosing `test_*` function, then removes a failing test ID only when that exact function was changed. This is stricter than the earlier `test_modified_in_head` file-level flag. Three of the four click changes with a modified test file overlapped positive functions: PR #767 (`test_nargs_tup_composite`) and PR #327 (`test_multiple_default_help`) have no remaining positive after exclusion; PR #446 keeps `test_basic_group` while excluding the changed `test_auto_shorthelp`. PR #422 changed a test file but none of its positive functions (`test_option_custom_separator`) changed, so its positives remain. The function-level audit initially leaves **26 candidates**: click **19**, Jinja **2**, attrs **5**. The later semantic PR-context review retains **24 primary candidates** (click **18**, Jinja **1**, attrs **5**); two primary rows have `test_modified_in_head=true` at file level, with no overlap in the changed failing function. The two excluded/uncertain candidates and exact test IDs are retained in the audit reports and manifests.
+
+The summed per-pair `wall_seconds` across the 569 latest unique-head results is **9,427.3 s (2 h 37 min)**. The raw JSONL contains 570 rows because attrs PR #1429 was first misclassified when an optional test extra was installed without build isolation; the runner was corrected and the pair retried successfully. Counts above use the successful latest row per head. Batch summaries and per-pair logs are retained alongside the JSONL.
+
+Reproduction/resume command (rerunning skips terminal head SHAs already in `pairs.jsonl`):
+
+```sh
+python3 scripts/run_full_history_ci_pairs.py \
+  --inventory .cache/measurements/week7/pr-intermediate/full-history-inventory.json \
+  --ci-inventory .cache/measurements/week7/pr-intermediate/full-history-ci-inventory.json \
+  --out-dir .cache/measurements/week7/pr-intermediate/full-history-run \
+  --attrs-newest-prs 90 --python python3.13 \
+  --pair-timeout-s 300 --batch-timeout-s 1800 \
+  --repo-paths "click=$W6_REPOS/click" \
+  --repo-paths "jinja=$W6_REPOS/jinja" \
+  --repo-paths "attrs=$W6_REPOS/attrs"
+```
+
+Primary artifacts: `.cache/measurements/week7/pr-intermediate/full-history-run/pairs.jsonl` (per-head result, reason, positive test IDs, changed paths, and log directory), `summary.json` (deduplicated final counts and positive test-ID sets), `progress.json` (last batch summary), and `work/pairs/` (per-pair logs and JUnit XML). The run did not change the selection policy or run the unselected attrs history.
+
 Selected first intermediate commits (PR and commit counts):
 
 | Repo | Newest-first sample |
