@@ -193,7 +193,7 @@ _NO_JUNIT_ATTRS_FIELDS_TYPEERROR_RE = re.compile(
 )
 _NO_JUNIT_ATTRS_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
 _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE = re.compile(
-    r"(?m)^AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
+    r"(?m)^(?:E\s+)?AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
 )
 _NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE = re.compile(
     r"(?m)^SyntaxError: invalid syntax\. Perhaps you forgot a comma\?\s*$"

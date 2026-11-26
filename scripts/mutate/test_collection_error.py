@@ -979,6 +979,7 @@ def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_contr
     "mutation_kind", ["kw_only_separator", "generated_body", "other"]
 )
 @pytest.mark.parametrize("error_kind", ["syntax", "typechecker"])
+@pytest.mark.parametrize("pytest_error_prefix", ["", "E   "])
 def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -986,6 +987,7 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
     include_mutant_frame: bool,
     mutation_kind: str,
     error_kind: str,
+    pytest_error_prefix: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -1059,7 +1061,7 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
         + (
             "printf '%s\\n' \"SyntaxError: invalid syntax\"\n"
             if error_kind == "syntax"
-            else "printf '%s\\n' \"AttributeError: 'jsonschema._types.TypeChecker' object has no attribute '_type_checkers'\"\n"
+            else f"printf '%s\\n' \"{pytest_error_prefix}AttributeError: 'jsonschema._types.TypeChecker' object has no attribute '_type_checkers'\"\n"
         )
         + "exit 1\n",
         encoding="utf-8",
