@@ -199,7 +199,7 @@ _NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE = re.compile(
     r"(?m)^SyntaxError: invalid syntax\. Perhaps you forgot a comma\?\s*$"
 )
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
-    r"jsonschema[/\\]_types\.py\", line \d+, in"
+    r"jsonschema[/\\]_types\.py(?:\", line \d+, in|:\d+:\s+in)"
 )
 _PYTEST_OUTPUT_TRUNCATED_MARKER = "\n... pytest output truncated ...\n"
 _TRACEBACK_FRAME_RE = re.compile(

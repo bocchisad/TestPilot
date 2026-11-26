@@ -683,10 +683,12 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])
+@pytest.mark.parametrize("frame_style", ["full", "compact"])
 def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
+    frame_style: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -723,6 +725,15 @@ def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
     )
     if not parent_collects:
         parent_output = "exit 1\n"
+    full_frame = (
+        "'  File "
+        + chr(34)
+        + "$PWD/venv/lib/python3.13/site-packages/jsonschema/_types.py"
+        + chr(34)
+        + ", line 195, in <module>'"
+    )
+    compact_frame = "'../../venv-1/lib/python3.13/site-packages/jsonschema/_types.py:195: in <module>'"
+    frame = full_frame if frame_style == "full" else compact_frame
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"
@@ -731,7 +742,7 @@ def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
         + parent_output
         + "esac\n"
         + "printf '%s\\n' 'Traceback (most recent call last):' "
-        + "'  File \"$PWD/venv/lib/python3.13/site-packages/jsonschema/_types.py\", line 195, in <module>' "
+        + frame + " "
         + "\"AttributeError: 'NoneType' object has no attribute 'redefine'\"\n"
         + "exit 1\n",
         encoding="utf-8",
