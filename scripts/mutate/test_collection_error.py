@@ -548,6 +548,7 @@ def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
         "hypothesis_profile",
         "generated_init_typeerror",
         "frozen_setattr",
+        "attrs_fields_guard",
     ],
 )
 def test_no_junit_mutant_failure_uses_same_worker_parent_control(
@@ -560,13 +561,33 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     repo, _initial = _init_tiny_repo(tmp_path)
     source = repo / "src" / "attr" / "_make.py"
     source.parent.mkdir(parents=True)
-    source.write_text("def value():\n    return 1\n", encoding="utf-8")
+    if failure_kind == "attrs_fields_guard":
+        source.write_text(
+            "def fields(cls):\n"
+            "    generic_base = None\n"
+            "    if generic_base is None and not isinstance(cls, type):\n"
+            "        raise TypeError('Passed object must be a class.')\n"
+            "    return cls\n",
+            encoding="utf-8",
+        )
+    else:
+        source.write_text("def value():\n    return 1\n", encoding="utf-8")
     _git(repo, "add", "src/attr/_make.py")
     _git(repo, "commit", "-m", "baseline package")
     parent = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
     ).strip()
-    source.write_text("def value():\n    return 2\n", encoding="utf-8")
+    if failure_kind == "attrs_fields_guard":
+        source.write_text(
+            "def fields(cls):\n"
+            "    generic_base = None\n"
+            "    if generic_base is None or not isinstance(cls, type):\n"
+            "        raise TypeError('Passed object must be a class.')\n"
+            "    return cls\n",
+            encoding="utf-8",
+        )
+    else:
+        source.write_text("def value():\n    return 2\n", encoding="utf-8")
     _git(repo, "add", "src/attr/_make.py")
     _git(repo, "commit", "-m", "mutant fails from generated code")
     mutant = subprocess.check_output(
@@ -611,6 +632,13 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
             'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 2, in value"\n'
             "printf '%s\\n' "
             '"ValueError: Can\'t freeze a class with a custom __setattr__."\n'
+            "exit 1\n"
+        )
+    elif failure_kind == "attrs_fields_guard":
+        failure_output = (
+            "printf '%s\\n' 'Traceback (most recent call last):'\n"
+            'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 4, in fields"\n'
+            "printf '%s\\n' 'TypeError: Passed object must be a class.'\n"
             "exit 1\n"
         )
     else:
