@@ -743,7 +743,7 @@ def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
         + "esac\n"
         + "printf '%s\\n' 'Traceback (most recent call last):' "
         + frame + " "
-        + "\"AttributeError: 'NoneType' object has no attribute 'redefine'\"\n"
+        + "\"E   AttributeError: 'NoneType' object has no attribute 'redefine'\"\n"
         + "exit 1\n",
         encoding="utf-8",
     )

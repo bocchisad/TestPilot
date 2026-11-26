@@ -171,7 +171,7 @@ _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE = re.compile(
     r"(?m)^ValueError: Can't freeze a class with a custom __setattr__\.\s*$"
 )
 _NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE = re.compile(
-    r"(?m)^AttributeError: 'NoneType' object has no attribute 'redefine'\s*$"
+    r"(?m)^(?:E\s+)?AttributeError: 'NoneType' object has no attribute 'redefine'\s*$"
 )
 _NO_JUNIT_MUTANT_ANNOTATIONS_NONE_RE = re.compile(
     r"(?m)^AttributeError: 'NoneType' object has no attribute 'get'\s*$"
