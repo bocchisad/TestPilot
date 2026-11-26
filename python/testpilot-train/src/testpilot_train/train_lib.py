@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import warnings
+from collections import defaultdict
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ from testpilot_train.metrics import (
     change_metrics,
     macro_mean,
     paired_delta_ci,
+    recall_at_k_tied,
     useful_by_paired,
 )
 from testpilot_train.model import (
@@ -47,6 +50,7 @@ from testpilot_train.split import (
     loro_train_val,
     split_to_json,
 )
+from testpilot_train.week7 import assign_source_weights, filter_changes, split_groups_by_time
 
 
 def _metric_block(
@@ -877,4 +881,541 @@ def evaluate(
     return {
         "n_rows": eval_df.height,
         "metrics": _metric_block(per, seed=0, cluster_ids=clusters),
+    }
+
+
+def _positive_unique_change_keys(frame: pl.DataFrame) -> set[tuple[str, str]]:
+    """One representative head per PR group and stable positive-ID set."""
+    representatives: dict[tuple[str, str, tuple[str, ...]], str] = {}
+    for keys, group in frame.group_by(["repo", "change"], maintain_order=True):
+        repo, change = keys
+        positive_ids = tuple(
+            sorted(group.filter(pl.col("new_fail") == 1)["test"].to_list())
+        )
+        if not positive_ids:
+            continue
+        pr_group = str(group["base_change"][0])
+        signature = (str(repo), pr_group, positive_ids)
+        representatives.setdefault(signature, str(change))
+    return {(repo, change) for (repo, _group, _ids), change in representatives.items()}
+
+
+def _keyed_recall(
+    frame: pl.DataFrame, scores: np.ndarray
+) -> dict[tuple[str, str], dict[str, float]]:
+    tmp = frame.with_columns(pl.Series("_score", scores))
+    out: dict[tuple[str, str], dict[str, float]] = {}
+    for keys, group in tmp.group_by(["repo", "change"], maintain_order=True):
+        y = group["new_fail"].to_numpy()
+        if int(y.sum()) == 0:
+            continue
+        values = group["_score"].to_numpy()
+        out[(str(keys[0]), str(keys[1]))] = {
+            "recall@10%": recall_at_k_tied(y, values, 0.10),
+            "recall@20%": recall_at_k_tied(y, values, 0.20),
+            "recall@30%": recall_at_k_tied(y, values, 0.30),
+        }
+    return out
+
+
+def _rank_percentile(values: np.ndarray) -> np.ndarray:
+    order = np.argsort(values, kind="mergesort")
+    ranks = np.empty(len(values), dtype=np.float64)
+    i = 0
+    while i < len(order):
+        j = i + 1
+        while j < len(order) and values[order[j]] == values[order[i]]:
+            j += 1
+        ranks[order[i:j]] = ((i + j - 1) / 2 + 1) / max(len(values), 1)
+        i = j
+    return ranks
+
+
+def _ranker_scores(frame: pl.DataFrame, model_scores: np.ndarray, alpha: float) -> np.ndarray:
+    out = np.empty(len(model_scores), dtype=np.float64)
+    tmp = frame.with_row_index("_idx")
+    score_by_idx = {idx: float(score) for idx, score in enumerate(model_scores)}
+    for _keys, group in tmp.group_by(["repo", "change"], maintain_order=True):
+        idx = group["_idx"].to_list()
+        model = np.asarray([score_by_idx[i] for i in idx], dtype=np.float64)
+        cov = group["cov_lines"].to_numpy().astype(np.float64)
+        out[idx] = alpha * _rank_percentile(model) + (1.0 - alpha) * _rank_percentile(cov)
+    return out
+
+
+def _budget_metrics_by_change(
+    frame: pl.DataFrame, scores: np.ndarray
+) -> dict[tuple[str, str], dict[str, Any]]:
+    tmp = frame.with_columns(pl.Series("_score", scores))
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for keys, group in tmp.group_by(["repo", "change"], maintain_order=True):
+        y = group["new_fail"].to_numpy()
+        if int(y.sum()) == 0:
+            continue
+        row_scores = group["_score"].to_numpy()
+        durations = group["dur"].to_numpy().astype(np.int64)
+        known = durations >= 0
+        total_known = float(durations[known].sum())
+        curve: dict[str, Any] = {}
+        for percent, frac in ((10, 0.10), (20, 0.20), (30, 0.30)):
+            recall = recall_at_k_tied(y, row_scores, frac)
+            k = max(1, int(np.floor(frac * len(y))))
+            boundary_score = np.sort(row_scores)[::-1][k - 1]
+            above = row_scores > boundary_score
+            boundary = row_scores == boundary_score
+            slots_at_boundary = k - int(above.sum())
+            tie_size = int(boundary.sum())
+            selected_ms = float(durations[above][known[above]].sum())
+            if tie_size:
+                # Match recall_at_k_tied: assume uniform selection among tied
+                # rows at the budget boundary, so input row order cannot skew
+                # expected test time.
+                selected_ms += (
+                    slots_at_boundary / tie_size
+                ) * float(durations[boundary][known[boundary]].sum())
+            can_report_savings = bool(known.all() and total_known > 0)
+            curve[f"recall@{percent}%"] = recall
+            curve[f"time_saved@{percent}%"] = (
+                (total_known - selected_ms) / total_known if can_report_savings else None
+            )
+            curve[f"boundary_tied_tests@{percent}%"] = tie_size if tie_size > 1 else 0
+        out[(str(keys[0]), str(keys[1]))] = {
+            "curve": curve,
+            "n_tests": len(y),
+            "n_known_durations": int(known.sum()),
+            "n_unknown_durations": int((~known).sum()),
+            "duration_coverage": float(known.mean()) if len(known) else None,
+        }
+    return out
+
+
+def _feature_sentinels(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
+    groups = {
+        "coverage_changed_line_intersection": ["cov_lines"],
+        "import_distance": ["imp_dist", "imp_direct"],
+        "cochange": ["cc_max", "cc_sum"],
+        "failure_history": [
+            "t_fail_rate", "t_fail_cnt", "t_obs", "pf_max", "pq_max",
+            "t_age_days", "t_changed", "t_flaky_rate",
+        ],
+        "change_size": ["ch_nfiles", "ch_nsrc", "ch_add", "ch_rm", "ch_nfunc"],
+    }
+    result: dict[str, dict[str, Any]] = {}
+    for name, columns in groups.items():
+        available = [col for col in columns if col in frame.columns]
+        if not available or frame.height == 0:
+            result[name] = {"rows": frame.height, "available_columns": available, "nonzero_rows": 0, "coverage": None}
+            continue
+        if name == "import_distance":
+            observed = (pl.col("imp_direct") != 0) | (pl.col("imp_dist") < 99)
+        else:
+            observed = pl.any_horizontal([pl.col(col) != 0 for col in available])
+        count = int(frame.filter(observed).height)
+        result[name] = {
+            "rows": frame.height,
+            "available_columns": available,
+            "nonzero_rows": count,
+            "coverage": count / frame.height,
+        }
+    if "cov_known" in frame.columns:
+        known = int(frame.filter(pl.col("cov_known") == 1).height)
+        result["coverage_known"] = {
+            "rows": frame.height,
+            "known_rows": known,
+            "coverage": known / frame.height if frame.height else None,
+        }
+    return result
+
+
+def _aggregate_budget(
+    values: dict[tuple[str, str], dict[str, Any]], keys: list[tuple[str, str]]
+) -> dict[str, Any]:
+    cases = [values[key] for key in keys if key in values]
+    total_tests = sum(case["n_tests"] for case in cases)
+    known_tests = sum(case["n_known_durations"] for case in cases)
+    curve: dict[str, Any] = {}
+    for percent in (10, 20, 30):
+        metric = f"recall@{percent}%"
+        saved = [case["curve"][f"time_saved@{percent}%"] for case in cases]
+        saved_known = [value for value in saved if value is not None]
+        tied_tests = [
+            case["curve"].get(f"boundary_tied_tests@{percent}%", 0) for case in cases
+        ]
+        tied_changes = sum(value > 0 for value in tied_tests)
+        curve[metric] = {
+            "mean": macro_mean(
+                [{metric: case["curve"][metric]} for case in cases], metric
+            ),
+            "time_saved_mean": float(np.mean(saved_known)) if saved_known else None,
+            "n_time_saved_available": len(saved_known),
+            "n_changes": len(cases),
+            "n_boundary_tied_changes": tied_changes,
+            "boundary_tie_change_fraction": tied_changes / len(cases) if cases else None,
+            "boundary_tied_tests_total": int(sum(tied_tests)),
+        }
+    coverage = known_tests / total_tests if total_tests else None
+    return {
+        "curve": curve,
+        "duration_coverage": coverage,
+        "known_duration_tests": known_tests,
+        "unknown_duration_tests": total_tests - known_tests,
+        "duration_savings_unavailable_when_any_duration_unknown": True,
+    }
+
+
+def evaluate_week7_loro(
+    *,
+    synthetic_frame: pl.DataFrame,
+    real_frame: pl.DataFrame,
+    schema: FeaturesSchema,
+    real_without_changed_functions: pl.DataFrame | None = None,
+    seed: int = 717,
+) -> dict[str, Any]:
+    """Evaluate preregistered Week 7 source arms on positive real LORO cases."""
+    outputs: dict[str, Any] = {}
+    for real_variant, real in (
+        ("including_changed_functions", real_frame),
+        (
+            "excluding_changed_functions",
+            real_without_changed_functions
+            if real_without_changed_functions is not None
+            else real_frame,
+        ),
+    ):
+        # The saved feature parquet keeps the fixed v2 schema; the exact filtered
+        # frame is supplied by the caller for the second variant.
+        outputs[real_variant] = _evaluate_week7_variant(
+            synthetic_frame=synthetic_frame,
+            real_frame=real,
+            schema=schema,
+            seed=seed,
+        )
+    return outputs
+
+
+def _evaluate_week7_variant(
+    *,
+    synthetic_frame: pl.DataFrame,
+    real_frame: pl.DataFrame,
+    schema: FeaturesSchema,
+    seed: int,
+) -> dict[str, Any]:
+    model_schema = schema
+    all_frame = pl.concat([synthetic_frame, real_frame], how="diagonal_relaxed")
+    repos = sorted(real_frame["repo"].unique().to_list())
+    positive_keys = _positive_unique_change_keys(real_frame)
+    arms: list[tuple[str, tuple[int, int] | None]] = [
+        ("mutant_only", None),
+        ("real_only", None),
+        ("mix_4_1", (4, 1)),
+        ("mix_1_1", (1, 1)),
+        ("mix_1_4", (1, 4)),
+    ]
+    ablations = {
+        "full": schema.feature_names,
+        "without_cov_lines": tuple(name for name in schema.feature_names if name != "cov_lines"),
+        "noncoverage_only": tuple(name for name in schema.feature_names if not name.startswith("cov_")),
+        "without_import_distance": tuple(
+            name for name in schema.feature_names if name not in {"imp_dist", "imp_direct"}
+        ),
+        "without_cochange": tuple(
+            name for name in schema.feature_names if name not in {"cc_max", "cc_sum"}
+        ),
+        "without_failure_history": tuple(
+            name
+            for name in schema.feature_names
+            if name
+            not in {
+                "t_fail_rate", "t_fail_cnt", "t_obs", "pf_max", "pq_max",
+                "t_age_days", "t_changed", "t_flaky_rate",
+            }
+        ),
+        "without_change_size": tuple(
+            name
+            for name in schema.feature_names
+            if name not in {"ch_nfiles", "ch_nsrc", "ch_add", "ch_rm", "ch_nfunc"}
+        ),
+    }
+    paired_model: dict[str, dict[tuple[str, str], dict[str, float]]] = defaultdict(dict)
+    paired_base: dict[tuple[str, str], dict[str, float]] = {}
+    paired_clusters: dict[tuple[str, str], str] = {}
+    synthetic_results: dict[str, dict[str, Any]] = defaultdict(dict)
+    real_budgets: dict[str, dict[tuple[str, str], dict[str, Any]]] = defaultdict(dict)
+    synthetic_budgets: dict[str, dict[tuple[str, str], dict[str, Any]]] = defaultdict(dict)
+    real_sentinels: dict[str, dict[str, Any]] = {}
+    synthetic_sentinels: dict[str, dict[str, Any]] = {}
+    fold_details: list[dict[str, Any]] = []
+    synthetic_test_split = split_groups_by_time(synthetic_frame)
+
+    for fold_idx, held in enumerate(repos):
+        pool = all_frame.filter(pl.col("repo") != held)
+        split = split_groups_by_time(pool)
+        train_pool = filter_changes(pool, split["train"])
+        val_pool = filter_changes(pool, split["validation"])
+        held_real = real_frame.filter(pl.col("repo") == held)
+        held_keys = {key for key in positive_keys if key[0] == held}
+        test_real = filter_changes(held_real, held_keys)
+        synth_all = synthetic_frame.filter(pl.col("repo") == held)
+        synth_test = filter_changes(synth_all, synthetic_test_split["test"])
+        synth_baseline = _keyed_recall(synth_test, synth_test["cov_lines"].to_numpy())
+        synthetic_results["cov_lines"].update(synth_baseline)
+        real_sentinels[held] = _feature_sentinels(test_real)
+        synthetic_sentinels[held] = _feature_sentinels(synth_test)
+        real_budgets["cov_lines"].update(
+            _budget_metrics_by_change(test_real, test_real["cov_lines"].to_numpy())
+        )
+        synthetic_budgets["cov_lines"].update(
+            _budget_metrics_by_change(synth_test, synth_test["cov_lines"].to_numpy())
+        )
+        if test_real.height == 0:
+            fold_details.append({"held_out": held, "status": "no_real_positive_test"})
+            continue
+        for keys, group in test_real.group_by(["repo", "change"], maintain_order=True):
+            key = (str(keys[0]), str(keys[1]))
+            paired_base[key] = change_metrics(
+                group["new_fail"].to_numpy(), group["cov_lines"].to_numpy()
+            ) | {"recall@30%": recall_at_k_tied(group["new_fail"].to_numpy(), group["cov_lines"].to_numpy(), 0.30)}
+            paired_clusters[key] = str(group["base_change"][0])
+
+        fold_entry: dict[str, Any] = {
+            "held_out": held,
+            "n_unique_positive_changes": test_real.select(["repo", "change"]).unique().height,
+            "n_real_test_rows": test_real.height,
+            "n_synthetic_test_rows": synth_test.height,
+            "validation": {
+                "real_rows": val_pool.filter(pl.col("synthetic") == 0).height,
+                "synthetic_rows": val_pool.filter(pl.col("synthetic") == 1).height,
+                "real_positive_changes": val_pool.filter(
+                    (pl.col("synthetic") == 0) & (pl.col("new_fail") == 1)
+                ).select("change").n_unique(),
+                "synthetic_positive_changes": val_pool.filter(
+                    (pl.col("synthetic") == 1) & (pl.col("new_fail") == 1)
+                ).select("change").n_unique(),
+            },
+            "source_arms": {},
+        }
+        for arm_idx, (arm_name, ratio) in enumerate(arms):
+            if arm_name == "mutant_only":
+                train = train_pool.filter(pl.col("synthetic") == 1)
+            elif arm_name == "real_only":
+                train = train_pool.filter(pl.col("synthetic") == 0)
+            else:
+                train = train_pool
+                assert ratio is not None
+                train = assign_source_weights(train, ratio)
+            if train.height == 0 or val_pool.height == 0:
+                fold_entry["source_arms"][arm_name] = {"status": "empty_train_or_validation"}
+                continue
+            arm_result: dict[str, Any] = {"ablations": {}}
+            for ablation_idx, (ablation_name, names) in enumerate(ablations.items()):
+                active_schema = replace(model_schema, feature_names=names)
+                fit, candidates = select_objective(
+                    train,
+                    val_pool,
+                    active_schema,
+                    seed + fold_idx * 100 + arm_idx * 10 + ablation_idx,
+                )
+                scores = predict_raw(fit.booster, test_real, active_schema)
+                keyed = _keyed_recall(test_real, scores)
+                config = f"{arm_name}/{ablation_name}"
+                paired_model[config].update(keyed)
+                real_budgets[config].update(_budget_metrics_by_change(test_real, scores))
+                synth_scores = predict_raw(fit.booster, synth_test, active_schema)
+                synth_keyed = _keyed_recall(synth_test, synth_scores)
+                synthetic_results[config].update(synth_keyed)
+                synthetic_budgets[config].update(
+                    _budget_metrics_by_change(synth_test, synth_scores)
+                )
+                arm_result["ablations"][ablation_name] = {
+                    "objective": fit.objective,
+                    "best_iteration": fit.best_iteration,
+                    "n_candidates": len(candidates),
+                    "macro_recall@10%": macro_mean(list(keyed.values()), "recall@10%"),
+                    "n_test_changes": len(keyed),
+                }
+
+                if ablation_name == "full":
+                    val_scores = predict_raw(fit.booster, val_pool, active_schema)
+                    val_by_alpha = {}
+                    for alpha in (0.0, 0.25, 0.5, 0.75, 1.0):
+                        reranked = _ranker_scores(val_pool, val_scores, alpha)
+                        val_keyed = _keyed_recall(val_pool, reranked)
+                        val_by_alpha[alpha] = macro_mean(list(val_keyed.values()), "recall@10%")
+                    chosen_alpha = max(val_by_alpha, key=lambda a: (val_by_alpha[a], -a))
+                    rerank_scores = _ranker_scores(test_real, scores, chosen_alpha)
+                    rerank_keyed = _keyed_recall(test_real, rerank_scores)
+                    paired_model[f"{arm_name}/cov_lines_reranker"].update(rerank_keyed)
+                    real_budgets[f"{arm_name}/cov_lines_reranker"].update(
+                        _budget_metrics_by_change(test_real, rerank_scores)
+                    )
+                    synth_rerank_scores = _ranker_scores(
+                        synth_test, synth_scores, chosen_alpha
+                    )
+                    synthetic_results[f"{arm_name}/cov_lines_reranker"].update(
+                        _keyed_recall(synth_test, synth_rerank_scores)
+                    )
+                    synthetic_budgets[f"{arm_name}/cov_lines_reranker"].update(
+                        _budget_metrics_by_change(synth_test, synth_rerank_scores)
+                    )
+                    arm_result["cov_lines_reranker"] = {
+                        "alpha_model_rank": chosen_alpha,
+                        "validation_macro_recall@10%": val_by_alpha[chosen_alpha],
+                        "macro_recall@10%": macro_mean(list(rerank_keyed.values()), "recall@10%"),
+                    }
+            fold_entry["source_arms"][arm_name] = arm_result
+        fold_details.append(fold_entry)
+
+    comparisons: dict[str, Any] = {}
+    for config, model_map in paired_model.items():
+        keys = sorted(set(model_map) & set(paired_base))
+        if not keys:
+            comparisons[config] = {"status": "no_aligned_real_test"}
+            continue
+        per_model = [model_map[key] for key in keys]
+        per_base = [paired_base[key] for key in keys]
+        clusters = [paired_clusters[key] for key in keys]
+        delta = paired_delta_ci(
+            per_model,
+            per_base,
+            "recall@10%",
+            seed=seed + len(comparisons),
+            cluster_ids=clusters,
+        )
+        repos_seen = sorted({key[0] for key in keys})
+        per_repo: dict[str, Any] = {}
+        for repo in repos_seen:
+            repo_keys = [key for key in keys if key[0] == repo]
+            repo_deltas = [
+                model_map[key]["recall@10%"] - paired_base[key]["recall@10%"]
+                for key in repo_keys
+            ]
+            n_positive = len(repo_keys)
+            per_repo[repo] = (
+                {"status": "data_insufficient", "n_positive_changes": n_positive}
+                if n_positive < 10
+                else {
+                    "status": "ok",
+                    "n_positive_changes": n_positive,
+                    "delta_recall@10%": float(np.mean(repo_deltas)),
+                }
+            )
+        macro_model = {
+            metric: float(
+                np.mean(
+                    [
+                        macro_mean(
+                            [model_map[k] for k in keys if k[0] == repo], metric
+                        )
+                        for repo in repos_seen
+                    ]
+                )
+            )
+            for metric in ("recall@10%", "recall@20%", "recall@30%")
+        }
+        macro_base = {
+            metric: float(
+                np.mean(
+                    [
+                        macro_mean(
+                            [paired_base[k] for k in keys if k[0] == repo], metric
+                        )
+                        for repo in repos_seen
+                    ]
+                )
+            )
+            for metric in ("recall@10%", "recall@20%", "recall@30%")
+        }
+        model_macro = macro_model["recall@10%"]
+        base_macro = macro_base["recall@10%"]
+        all_powered = all(item["status"] == "ok" for item in per_repo.values())
+        per_repo_ok = all(
+            item["status"] != "ok" or item["delta_recall@10%"] >= -0.02
+            for item in per_repo.values()
+        )
+        comparisons[config] = {
+            "n_unique_positive_changes": len(keys),
+            "loro_macro_recall_model": macro_model,
+            "loro_macro_recall_cov_lines": macro_base,
+            "delta_ci95": {
+                "mean": delta.mean,
+                "ci95": [delta.ci_low, delta.ci_high],
+                "n": delta.n_changes,
+            },
+            "per_repo": per_repo,
+            "budget_curve": {
+                "model": _aggregate_budget(real_budgets[config], keys),
+                "cov_lines": _aggregate_budget(real_budgets["cov_lines"], keys),
+                "run_all": {
+                    "recall@10%": 1.0,
+                    "recall@20%": 1.0,
+                    "recall@30%": 1.0,
+                    "time_saved": 0.0,
+                },
+            },
+            "criterion_2_4": {
+                "model_macro_greater": model_macro > base_macro,
+                "paired_ci_excludes_zero": delta.ci_low > 0 or delta.ci_high < 0,
+                "no_powered_repo_delta_below_minus_0_02": per_repo_ok,
+                "all_repos_powered": all_powered,
+                "accepted": bool(model_macro > base_macro and (delta.ci_low > 0 or delta.ci_high < 0) and per_repo_ok and all_powered),
+            },
+        }
+    synthetic_comparisons: dict[str, Any] = {}
+    for config, values in synthetic_results.items():
+        if config == "cov_lines":
+            continue
+        keys = sorted(set(values) & set(synthetic_results["cov_lines"]))
+        if not keys:
+            synthetic_comparisons[config] = {"status": "no_synthetic_test_signal"}
+            continue
+        model_per = [values[key] for key in keys]
+        base_per = [synthetic_results["cov_lines"][key] for key in keys]
+        delta = paired_delta_ci(
+            model_per,
+            base_per,
+            "recall@10%",
+            seed=seed + 900 + len(synthetic_comparisons),
+            cluster_ids=[key[0] + ":" + str(key[1]) for key in keys],
+        )
+        model_macro = {
+            metric: macro_mean(model_per, metric)
+            for metric in ("recall@10%", "recall@20%", "recall@30%")
+        }
+        base_macro = {
+            metric: macro_mean(base_per, metric)
+            for metric in ("recall@10%", "recall@20%", "recall@30%")
+        }
+        synthetic_comparisons[config] = {
+            "n_synthetic_changes": len(keys),
+            "macro_recall_model": model_macro,
+            "macro_recall_cov_lines": base_macro,
+            "paired_delta_ci95": {
+                "mean": delta.mean,
+                "ci95": [delta.ci_low, delta.ci_high],
+                "n": delta.n_changes,
+            },
+            "budget_curve": {
+                "model": _aggregate_budget(synthetic_budgets[config], keys),
+                "cov_lines": _aggregate_budget(synthetic_budgets["cov_lines"], keys),
+                "run_all": {
+                    "recall@10%": 1.0,
+                    "recall@20%": 1.0,
+                    "recall@30%": 1.0,
+                    "time_saved": 0.0,
+                },
+            },
+        }
+    return {
+        "folds": fold_details,
+        "comparisons": comparisons,
+        "synthetic_comparisons": synthetic_comparisons,
+        "feature_sentinels": {
+            "real_test_by_held_repo": real_sentinels,
+            "synthetic_test_by_held_repo": synthetic_sentinels,
+        },
+        "n_synthetic_rows": synthetic_frame.height,
+        "n_real_rows": real_frame.height,
+        "n_unique_real_positive_changes": len(positive_keys),
+        "real_only_test": True,
+        "partial_rows_included": 0,
     }

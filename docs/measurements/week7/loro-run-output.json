@@ -1,0 +1,17 @@
+{
+  "exit_code": 0,
+  "stdout": {
+    "including_changed_functions": {
+      "real_positive_changes": 26,
+      "comparisons": 40,
+      "synthetic_comparisons": 40
+    },
+    "excluding_changed_functions": {
+      "real_positive_changes": 24,
+      "comparisons": 40,
+      "synthetic_comparisons": 40
+    }
+  },
+  "stderr": "",
+  "note": "Clean full LORO evaluation completed successfully; output JSON is captured in .cache/measurements/week7/pr-intermediate/loro-summary.json."
+}

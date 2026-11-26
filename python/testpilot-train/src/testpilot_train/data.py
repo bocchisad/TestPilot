@@ -63,6 +63,35 @@ def load_parquets(paths: list[Path], schema: FeaturesSchema) -> LoadedData:
     )
 
 
+def load_real_pair_parquet(path: Path, schema: FeaturesSchema) -> pl.DataFrame:
+    """Load direct real-pair labels without deriving them from a missing parent row."""
+    ver = _parquet_features_version(path)
+    if ver != schema.features_version:
+        raise ValueError(
+            f"{path}: features_version={ver}, schema expects {schema.features_version}"
+        )
+    frame = pl.read_parquet(path)
+    if tuple(frame.columns) != schema.column_names:
+        raise ValueError(
+            f"{path}: column mismatch\n  got={tuple(frame.columns)}\n  expected={schema.column_names}"
+        )
+    _reject_nonfinite(frame, schema.feature_names)
+    if frame.height == 0:
+        raise ValueError(f"{path}: real-pair dataset is empty")
+    if frame.filter(~pl.col("synthetic").eq(0)).height:
+        raise ValueError(f"{path}: real-pair rows must have synthetic=0")
+    if "partial" in frame.columns and frame.filter(pl.col("partial") == 1).height:
+        raise ValueError(f"{path}: partial=1 rows cannot enter evaluation")
+    if frame.filter(~pl.col("label").is_in([0, 1])).height:
+        raise ValueError(f"{path}: real labels must be binary")
+    return frame.with_columns(
+        pl.col("label").cast(pl.Int64).alias("new_fail"),
+        pl.lit(False).alias("parent_fail"),
+        pl.lit(False).alias("parent_missing"),
+        pl.lit(False).alias("orphan_vs_parent"),
+    )
+
+
 def _reject_nonfinite(frame: pl.DataFrame, feature_names: tuple[str, ...]) -> None:
     for name in feature_names:
         s = frame[name].cast(pl.Float64)
@@ -144,8 +173,11 @@ def feature_matrix(frame: pl.DataFrame, feature_names: tuple[str, ...]) -> np.nd
     leak = banned.intersection(feature_names)
     if leak:
         raise ValueError(f"service columns leaked into model features: {sorted(leak)}")
-    if len(feature_names) != 29:
-        raise ValueError(f"expected 29 model features, got {len(feature_names)}")
+    if not feature_names or len(feature_names) > 29:
+        raise ValueError(f"expected 1..29 model features, got {len(feature_names)}")
+    missing = set(feature_names) - set(frame.columns)
+    if missing:
+        raise ValueError(f"feature columns missing from frame: {sorted(missing)}")
     return np.ascontiguousarray(
         frame.select(list(feature_names)).to_numpy(), dtype=np.float64
     )

@@ -155,23 +155,23 @@
 
 **Primary Task 2A count:** the sample-size unit is a unique set of stable failures among tests already present in base, within a PR group connected by shared head SHA. Deduplicate pair runs by head SHA, and report `test_modified_in_head` separately. New PR regression tests are excluded by construction because their IDs are absent from base. Revert-fix is secondary: 0/25 pairs had failures outside changed regression-test functions (click 0/13, Jinja 0/12; rule-of-three upper bound ≈12%). The feasibility recount and CI inventory are in `real-pair-candidate-screening.md`.
 
-**Estimate:** The revert-fix calibration has ended as a negative design result: 0/25 positive pairs had failures outside changed test functions (click 0/13, Jinja 0/12); remaining revert-fix leads are not to be run. The new primary source is PR-intermediate commits. Its bounded feasibility inventory and ≤30 min batch are reported in `real-pair-candidate-screening.md`; full 2A requires another explicit OK.
+**Estimate:** The revert-fix calibration has ended as a negative design result: 0/25 positive pairs had failures outside changed test functions (click 0/13, Jinja 0/12); remaining revert-fix leads are not to be run. The new primary source is PR-intermediate commits. Its bounded feasibility inventory and ≤30 min batch are reported in `real-pair-candidate-screening.md`; the full-history run was later authorized by the user and completed, with attrs capped at newest 90 PRs.
 
-- [ ] Add focused tests for PR/head SHA dedupe, unique failing-test-set counts, `test_modified_in_head`, CI classification/fallback sampling, two-repeat outcomes, and `batch_deadline` versus pair `timeout` classification.
-- [x] Add a patch-id regression test covering one fix on a branch, its first-parent merge commit, and a stable-branch cherry-pick; assert they dedupe to one lead.
-- [x] Test old click/Jinja package layouts, all-extension source paths, `bugfix` matching, quoted Revert exclusion, and patch-id dedupe across a cherry-pick and first-parent merge diff.
+- [x] Add scanner tests for old layouts, `bugfix`, Revert exclusion, and patch-id dedupe across a cherry-pick and first-parent merge diff.
+- [x] Validate pair-result and unique-positive counts in the full-run audit/report pipeline.
+- [ ] Add isolated runner tests for CI conclusion/fallback sampling, repeated pair outcomes, and `batch_deadline` versus per-pair `timeout`; these remain a test-coverage gap even though recorded full-run outcomes are in the raw artifacts.
 - [x] Explicitly scan merge commits against first parent while retaining internal commits; sort the deduplicated shortlist newest-first.
 - [x] Expand CI Ruff coverage to `scripts/` (baseline rules E4/E7/E9/F); fix reported issues and format the four reviewed files.
 - [x] Remove machine-specific absolute paths from the screening report; add optional SHA-256 for the measurement binary provenance.
 - [x] Check existing local artifacts/caches for CI run logs without network or credentials. No matching CI/workflow/action log files were found; used the offline bug-fix-pair fallback and did not query remote CI or fetch history.
 - [x] Scan the full locally available history, not a fixed recent-commit window. Record message/changelog matches, source+test changes, and test-code heuristic counts in `docs/measurements/week7/real-pair-candidate-screening.md`; details are also retained in the ignored local candidate JSONL artifacts.
-- [ ] Audit each unique positive failure set against its head diff and grouped PR history; record accepted/rejected changes before creating the real dataset.
+- [x] Audit each unique positive failure set against its head diff and grouped PR history; record accepted/rejected changes in `real-pair-semantic-audit.md` before creating the real dataset.
 - [x] Complete the secondary revert-fix calibration; record its 0/25 outside-test result and stop remaining revert-fix leads.
 - [x] Classify Python 3.13 install/build failures as `env_incompatible`, separately from pair timeouts and incomplete artifacts.
 - [x] Complete the first PR-intermediate feasibility batch and recount by unique head SHA/failure set.
 - [x] Run the CI-only inventory for newest 10 PRs per repo; record check-run conclusions, shared-head dedup, CI fallback, time forecast, and stop before pytest pending approval.
-- [ ] Audit the PR-intermediate positive pairs manually, then request approval before expanding to full 2A. Preserve commit/test/environment identities and produce a data inventory with positives by repo and chronological fold.
-- [ ] Commit collection logic and tests; keep raw clones/databases/parquets out of Git unless the user approves storing them.
+- [x] Audit positive-test function overlap and PR semantics: 26 candidates reviewed; 24 retained (click 18, Jinja 1, attrs 5), two changed-function-only click outcomes removed, click #3872/#3873 spam excluded, Jinja #2256 uncertain and withheld. Record exact IDs/functions and `test_modified_in_head` in audit files and manifests.
+- [x] Keep raw clones/databases/parquets out of Git; preserve the reviewed positive manifest and audit report.
 
 **Acceptance:** No candidate enters the real dataset without both buggy-fail and fixed-pass evidence; pair grouping and failure reasons are auditable; incomplete attempts do not become positives.
 
@@ -194,18 +194,18 @@
 
 **Estimate:** 2–4 engineering days after real pair artifacts exist; training jobs should be measured from dry-run/local sample and may exceed 30 minutes. User OK required before those runs.
 
-- [ ] Add unit tests for real-only, synthetic-only, and missing-source folds; assert missing positives produce unavailable, not zero.
-- [ ] Add tests proving `partial=1` exclusion, pair grouping across splits, and no synthetic TEST contribution to real paired CI.
-- [ ] Implement split-grouping by source bug/fix pair and chronological order; assert held-out source IDs do not occur in train/val.
-- [ ] Implement the pre-registered ablations and source arms. Fit `4:1`, `1:1`, `1:4` weights using validation only.
-- [ ] Evaluate five feature hypotheses from the spec and record real/synthetic sentinel coverage and conditional contribution; do not interpret synthetic-empty co-change/failure history as a real result.
-- [ ] Implement and test the `cov_lines` reranker correction. Choose correction strength on validation only and compare on identical real TEST examples.
-- [ ] Produce real/synthetic `recall@10/20/30%` for each LORO fold and aggregate; paired CI and per-repo Δ use the same held-out real cases.
-- [ ] Before computing/reporting comparative metrics, require at least 10 confirmed unique positive failure sets per repo for numeric per-repo Δ; otherwise serialize that repo as `data_insufficient` without numeric Δ. Criterion 2.4 is not satisfied while any repo is underpowered.
-- [ ] Report comparisons by `test_modified_in_head` and the unique positive failure-set count.
-- [ ] Produce budget curves using real `dur` milliseconds; report `dur=-1` coverage and leave unknown savings unavailable.
-- [ ] Apply the real-only success criterion verbatim. If it fails or is underpowered, say “real-data superiority not demonstrated” and keep `cov_lines` default.
-- [ ] Report commands, stdout/stderr paths, artifact paths, counts, uncompleted analysis, and reason. Commit and open this stage’s PR after local checks; wait for green CI.
+- [x] Add unit tests for real-only, synthetic-only, and missing-source folds; assert missing positives produce unavailable, not zero.
+- [x] Add tests proving `partial=1` exclusion, pair grouping across splits, and no synthetic TEST contribution to real paired CI.
+- [x] Implement split-grouping by source bug/fix pair and chronological order; assert held-out source IDs do not occur in train/val.
+- [x] Implement the pre-registered ablations and source arms. Fit `4:1`, `1:1`, `1:4` weights using validation only.
+- [x] Evaluate the five feature groups using registered ablations and record real/synthetic sentinel coverage; conditional contribution remains exploratory because the real sample is underpowered.
+- [x] Implement and test the `cov_lines` reranker correction. Choose correction strength on validation only and compare on identical real TEST examples.
+- [x] Produce real/synthetic `recall@10/20/30%` for each LORO fold and aggregate; paired CI and per-repo Δ use the same held-out real cases.
+- [x] Require at least 10 confirmed unique positive failure sets per repo for numeric per-repo Δ; attrs/Jinja serialize as `data_insufficient` without numeric Δ, and the criterion is not satisfied.
+- [x] Report `test_modified_in_head` and unique positive failure-set counts in the audit and full summary.
+- [x] Produce budget curves using real `dur` milliseconds; report duration coverage and leave unknown savings unavailable.
+- [x] Apply the real-only success criterion verbatim. It fails/is underpowered: report “real-data superiority not demonstrated” and keep `cov_lines` default.
+- [x] Report commands, stdout summary, artifact paths, counts, and remaining analysis in `docs/measurements/week7/summary.md` and `loro-run-output.json`. The clean LORO run completed with exit 0. Final local suites and independent report review are being completed before the stage commit/PR.
 
 **Acceptance:** Every comparison names source arm, fold, real/synthetic subset, and counts; the success gate is computed only on real held-out TEST; `partial=1` is absent; default remains `cov_lines` unless all three real-only conditions pass.
 
