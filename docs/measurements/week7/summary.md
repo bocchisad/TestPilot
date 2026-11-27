@@ -97,6 +97,6 @@ $PYTHON scripts/run_week7_loro.py \
 - Реальные parquet и raw JSON остаются локальными в `.cache/measurements/week7/pr-intermediate/`.
 - Python 3.13.18; polars 1.17.1; LightGBM 4.5.0; NumPy 2.1.3; PyArrow 18.1.0; testpilot-train 0.1.0.
 - Week 6 provenance восстановлен из исторических файлов/Git, а не зафиксирован snapshot во время прогона. В attrs 36 пар относятся к последнему запуску, 76 — оценка более ранних запусков; точная версия classifier на каждую пару неизвестна.
-- Финальный LORO процесс завершился с exit code 0 примерно за 39 минут. Локальная CI-equivalent проверка train и mutate suites выполнялась ранее; после финальных изменений повторяется ниже. GitHub CI ещё не запускался; коммитов/PR для этих изменений нет.
+- Финальный LORO процесс завершился с exit code 0 примерно за 39 минут. Для последующего synthetic-width этапа локальные проверки train/mutate прошли; PR #10 на head `74e00e7` прошёл GitHub Actions run `45917443530` после исправления теста, зависевшего от локального venv. Подробности в `test-width/test-width-report.md`.
 - Task 1: после отдельного согласования запущен synthetic width `N=400`, `K=4` для click и attrs. `n_C=9` и `n_C=6`, цель `n_C ≥ 10` не достигнута; оба отчёта остаются `data_insufficient`, gate — `use_baseline`. Jinja Week 6 остаётся `n_C=11`. Подробный отчёт, copied JSON outputs, команды и provenance caveats: `test-width/test-width-report.md` и `test-width/results.json`. Новый N/репозиторий не запускался; сначала нужна новая оценка и отдельное согласование.
 - Task 3 (`select --explain`) не запускался.

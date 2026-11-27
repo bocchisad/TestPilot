@@ -49,5 +49,5 @@ $PYTHON scripts/run_week7_test_width.py \
 
 - Копии отчётов: `artifacts/click-report.json`, `artifacts/click-bootstrap-report.json`, `artifacts/attrs-report.json`, `artifacts/attrs-bootstrap-report.json`.
 - Полный feature parquet, модели, pair outcomes и промежуточные resume logs остались в локальном игнорируемом `.cache/measurements/week7/test-width/`. `results.json` содержит исходные пути и SHA-256 отчётов, parquet, моделей, state и provenance.
-- Локальные проверки после последнего изменения классификатора: `python -m pytest -q scripts/mutate` — **258 passed**; `ruff check --select E4,E7,E9,F scripts/` — **passed**. GitHub CI в рамках этого отчёта не проверялся.
+- Локальные проверки после последнего изменения классификатора: `python -m pytest -q scripts/mutate` — **258 passed**; `ruff check --select E4,E7,E9,F scripts/` — **passed**. Первый GitHub CI run выявил тест, зависевший от локального `.cache/week7-train-env`; после перевода теста на активный `sys.executable` PR #10 с head `74e00e7` прошёл GitHub Actions run `45917443530` (все jobs pass, deploy пропущен условным шагом).
 - Дополнительный N и прогон четвёртого репозитория не запускались. Цель ширины всё ещё не достигнута; перед новым долгим запуском нужны новая dry-run оценка и отдельное согласование.
