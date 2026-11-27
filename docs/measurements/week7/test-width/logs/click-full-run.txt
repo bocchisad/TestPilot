@@ -1,0 +1,1277 @@
+collect_git: inserted=2375 skipped=0 oversized=0
+plugin=$WORKTREE/python/pytest-testpilot
+repo=$WORKTREE/.cache/measurements/week7/test-width/repos-py313/click db=$WORKTREE/.cache/measurements/week7/test-width/repos-py313/click/.testpilot/db.sqlite last=None shas=400
+python=$WORKTREE/.cache/week7-train-env/bin/python3
+work_root=$WORKTREE/.cache/measurements/week7/test-width/repos-py313/click/.testpilot/bootstrap/wt-backfill-i9fks3d_ venv=$WORKTREE/.cache/measurements/week7/test-width/repos-py313/click/.testpilot/bootstrap/wt-backfill-i9fks3d_/venv commits=400
+== 289913bb6089 ==
+HEAD=289913bb608994558ac9132a9f2eefb6bc2c8b7d pytest_rc=0
+== c6ef735953c7 ==
+HEAD=c6ef735953c7263e0e1737a1a165f879030998e5 pytest_rc=0
+== 4a5ef3cd645e ==
+HEAD=4a5ef3cd645e2ddd66d8b18e3967fe897173bc3a pytest_rc=0
+== 466d0add86f4 ==
+HEAD=466d0add86f48502db9c02c32e30287d39ab866b pytest_rc=0
+== 8f36eab80a61 ==
+HEAD=8f36eab80a6175cad73450d43b7dc5815656a1b6 pytest_rc=1
+== 7239794a610f ==
+HEAD=7239794a610f3ccae3aaf8bfe273ac70cc58ff07 pytest_rc=1
+== f0c4e4f0d226 ==
+HEAD=f0c4e4f0d22691c5bb35e1b3bf180d2c4e08f2e1 pytest_rc=1
+== 8ae9f16f0d10 ==
+HEAD=8ae9f16f0d109503ef5e49a07462ccf02cb60199 pytest_rc=1
+== 567929f6179c ==
+HEAD=567929f6179c0e9a0b0fbf1237d6e1264f04fa1c pytest_rc=1
+== 1e054e0c8713 ==
+HEAD=1e054e0c8713ed83716a2037bdb17125bb734b33 pytest_rc=1
+== c3eac6b887ec ==
+HEAD=c3eac6b887ecc2012b28356c229c443a50523f7f pytest_rc=1
+== 19fdc8509a1b ==
+HEAD=19fdc8509a1b946c088512e0e5e388a8d012f0ce pytest_rc=1
+== 97de2c97275f ==
+HEAD=97de2c97275f52adc5c6ef8bb8aa993ce997fe7e pytest_rc=1
+== bce4ea4ba54e ==
+HEAD=bce4ea4ba54e15959cb412d6793634e0c9b24491 pytest_rc=1
+== 7cc7d4037282 ==
+HEAD=7cc7d4037282819f0c2728d2bcb4c815f73c951d pytest_rc=1
+== 951babf84c3a ==
+HEAD=951babf84c3ae45a36f524eab9d8399136c8e245 pytest_rc=1
+== 499140db5b30 ==
+HEAD=499140db5b3090dd1d69c3f4ced7976d942c9c43 pytest_rc=1
+== 334c5c08415a ==
+HEAD=334c5c08415a4cf975d0bcd5e9e3448b8a650a53 pytest_rc=1
+== da7bf34eb286 ==
+HEAD=da7bf34eb286b3371215b0ae35e0ed1e3781619a pytest_rc=1
+== 593db2742992 ==
+HEAD=593db27429920df714590d992924da8e4ceca655 pytest_rc=1
+== fef921a4d0c8 ==
+HEAD=fef921a4d0c807673d7800af4dd4ca604f6489e4 pytest_rc=1
+== 7b9a72f89e07 ==
+HEAD=7b9a72f89e0725ee654b28ae4740c9a867d63ee2 pytest_rc=1
+== 11e31fd3a273 ==
+HEAD=11e31fd3a273a86047d160a136f4ef0cae913c1a pytest_rc=1
+== 80360e348e8b ==
+HEAD=80360e348e8bdf6918818fe169da1fd8d928f602 pytest_rc=1
+== 2d6c439f10d7 ==
+HEAD=2d6c439f10d7d9f120978654b13abf38c5e14b33 pytest_rc=1
+== 15437749aa27 ==
+HEAD=15437749aa27c0b0c8f0c6a3511af2f5b802b6b7 pytest_rc=1
+== f634bd0176e7 ==
+HEAD=f634bd0176e705b1e8f47b590d08c51882068161 pytest_rc=1
+== 76f376cc3776 ==
+HEAD=76f376cc3776ff3156eb8f9973dc8c53a1c26beb pytest_rc=1
+== 9cfa961deed9 ==
+HEAD=9cfa961deed93af69ab43b679f0a0308fd518ecc pytest_rc=1
+== db06b61fd039 ==
+HEAD=db06b61fd0399c63bbdb26d8d47b84b29aa94ecf pytest_rc=1
+== 3bd7182b974c ==
+HEAD=3bd7182b974cc3c90b5e9568168a0b8ef597a55e pytest_rc=1
+== 6bdbea0d0000 ==
+HEAD=6bdbea0d00008cc6957667c60c504e1bc298c754 pytest_rc=1
+== 77ca5206bc42 ==
+HEAD=77ca5206bc420cb9660b312c7b1b960e5a8cdae1 pytest_rc=1
+== 3ecc05de7190 ==
+HEAD=3ecc05de7190b80ab0dcb9b0acf6168e2c83e066 pytest_rc=1
+== 4aa8d79e275a ==
+HEAD=4aa8d79e275a5f9c7ece5018a85548d9706da84e pytest_rc=1
+== e8de91d9955c ==
+HEAD=e8de91d9955ca5a96cf130f24c113ba904b1e9e9 pytest_rc=1
+== dfb842d95a7c ==
+HEAD=dfb842d95a7c146d8fe8140c8100065410d95c4d pytest_rc=1
+== 090ff260d0e9 ==
+HEAD=090ff260d0e935ca30ba8762268df2436a361e37 pytest_rc=1
+== cb008b7d5e0d ==
+HEAD=cb008b7d5e0d0182d0bc751b99806b696db9ea1a pytest_rc=1
+== 7c6ec44ef804 ==
+HEAD=7c6ec44ef80460a5516b3771300eb773cdf7d312 pytest_rc=1
+== f3e55b6e2351 ==
+HEAD=f3e55b6e2351d506470ccb9ed719eedb34b4c5b4 pytest_rc=1
+== fb1ca91ab00a ==
+HEAD=fb1ca91ab00a2ce12da84addc459e1983aac2fcf pytest_rc=1
+== 637ea206c348 ==
+HEAD=637ea206c348100582beda3c76a8c51e9d7437ab pytest_rc=1
+== 35f73b8c2c31 ==
+HEAD=35f73b8c2c314e56968de8bc483da9a84ac5c53e pytest_rc=1
+== 228ca13778af ==
+HEAD=228ca13778af1c2b1fe20191804dfacb09b8586a pytest_rc=1
+== 80c32a5bc00c ==
+HEAD=80c32a5bc00c2a1732d03a8d6530ee6f97dd2c82 pytest_rc=1
+== b563e1cc517c ==
+HEAD=b563e1cc517c7ca353e0ac8609c5c54b657d6f44 pytest_rc=1
+== 7772571c545d ==
+HEAD=7772571c545d913cc117083d9e83f07f15ba1086 pytest_rc=1
+== 5189067f48ed ==
+HEAD=5189067f48ed9a4c95aeff86b877fefdb33b7c35 pytest_rc=1
+== 28d44c65bc81 ==
+HEAD=28d44c65bc81f2733e811331b8f4782be692cb83 pytest_rc=1
+== b09c57902fa5 ==
+HEAD=b09c57902fa5123d483c347e1bdec6cbba115ca2 pytest_rc=1
+== 5b713bfaa868 ==
+HEAD=5b713bfaa868b98b3720d56ee6221a9d243a30fb pytest_rc=1
+== 5eaa4c5cba41 ==
+HEAD=5eaa4c5cba417fb4b65e5b9f5810e6043a312594 pytest_rc=1
+== 28154558840b ==
+HEAD=28154558840b43864acc688ed9248db1c4007a12 pytest_rc=1
+== 6271cee2e8b2 ==
+HEAD=6271cee2e8b2cf9a392377271bc9ed8345ce77c8 pytest_rc=1
+== 82ca854f587a ==
+HEAD=82ca854f587af919789a9baae9a732fe0ce0052c pytest_rc=1
+== 6c1eabae3bc0 ==
+HEAD=6c1eabae3bc08fba81f8b18f8a9111a93f2b0107 pytest_rc=1
+== 2dafcfd70fe8 ==
+HEAD=2dafcfd70fe882816a9f6e40947b5088635ba34f pytest_rc=1
+== 4e0dd2bf848b ==
+HEAD=4e0dd2bf848bd7fc8ac4311d19e5fb81f5b84f7f pytest_rc=1
+== 66172ef2673b ==
+HEAD=66172ef2673bc7a7d718b36150a1e0b88b2959b1 pytest_rc=1
+== 77cb2574cb98 ==
+HEAD=77cb2574cb98e0afb9bf294b086425501cc051ce pytest_rc=1
+== 97fde8bf5005 ==
+HEAD=97fde8bf50058c19a77d4de46b9c54b1731b1750 pytest_rc=1
+== d75ea3345b5f ==
+HEAD=d75ea3345b5fe7b4a162f46e98a6170aef77bf28 pytest_rc=1
+== 2a35358d654b ==
+HEAD=2a35358d654b25e8042c6a85f46946c06444239a pytest_rc=1
+== 563b1a7116a6 ==
+HEAD=563b1a7116a6806e699d31d327dd9bca93c40cb3 pytest_rc=1
+== 990ca8e664a0 ==
+HEAD=990ca8e664a0610fe0583f3aa8924fd49f928a74 pytest_rc=1
+== d15f740c4c09 ==
+HEAD=d15f740c4c09f9dcc3f930aa90c92d0654699e6b pytest_rc=1
+== 01fc51114abd ==
+HEAD=01fc51114abda48a2c8bb5d0fc12b867cf83020f pytest_rc=1
+== ca75bab76829 ==
+HEAD=ca75bab76829009cc9b0bcfa015f6987840598b6 pytest_rc=1
+== 0ad4e7985a91 ==
+HEAD=0ad4e7985a919041ec590a4d672afb44f05dd162 pytest_rc=1
+== 4ae204e835d2 ==
+HEAD=4ae204e835d2d45875704c6796ec4f4aecb4b909 pytest_rc=1
+== 0d438126a047 ==
+HEAD=0d438126a047bb52fd91c8a6843dbc54f4da6d35 pytest_rc=1
+== 10103e3835a3 ==
+HEAD=10103e3835a381185f786745c0281237f0b238ae pytest_rc=1
+== 257153925b67 ==
+HEAD=257153925b67fcd16d98367438d951ecbaf02240 pytest_rc=1
+== 7147f41d0fd6 ==
+HEAD=7147f41d0fd6676a8c0410875f43250dc8e54dc8 pytest_rc=1
+== a141a2a1e646 ==
+HEAD=a141a2a1e646434c1d88d45003a1edd2e49d8b41 pytest_rc=1
+== fcbaee661309 ==
+HEAD=fcbaee661309502e70ab617fe867419d3c921e17 pytest_rc=1
+== a4bd11c2f9c1 ==
+HEAD=a4bd11c2f9c18daa9c27508cc05073991e39ec9e pytest_rc=1
+== 1658d7230ddc ==
+HEAD=1658d7230ddc85c094895688984488f51c5c6e1e pytest_rc=1
+== 5e6d00d2fb3a ==
+HEAD=5e6d00d2fb3aad5b8263006cba756fd35d7664e8 pytest_rc=1
+== 4f717ced1e33 ==
+HEAD=4f717ced1e3388d8db6992787ccd777b82c162ec pytest_rc=1
+== 34f820230358 ==
+HEAD=34f82023035845a1054d95b2e39f16b9e66c1673 pytest_rc=1
+== 3984f9efce5a ==
+HEAD=3984f9efce5a0d15f058e1abe1ea808c6abd243a pytest_rc=1
+== f982de9aedac ==
+HEAD=f982de9aedac8f29ccd0c6b0a3414c4f4efae72a pytest_rc=1
+== c4422a984ede ==
+HEAD=c4422a984edeb8e26387c9b9bda025fb91847ca9 pytest_rc=1
+== 47ecf34af4f4 ==
+HEAD=47ecf34af4f4b761eb66a15b1d07e5fc4c319992 pytest_rc=1
+== 6c8301e0ceee ==
+HEAD=6c8301e0ceeee124dc4ae3a51591c5810dc39840 pytest_rc=1
+== bc3dd4796f6d ==
+HEAD=bc3dd4796f6db8a0fe6ee03872ecebbc0d06a576 pytest_rc=1
+== d15d0cdf4f59 ==
+HEAD=d15d0cdf4f59ea0a0bf6f8a82449e042bc5f9732 pytest_rc=1
+== 861e04788aae ==
+HEAD=861e04788aae85b54320e5124eb99ccf97049898 pytest_rc=1
+== a11a5da0a845 ==
+HEAD=a11a5da0a8459f4098ec884b7cc52534336856db pytest_rc=1
+== 25ee3666c9c7 ==
+HEAD=25ee3666c9c767af7184ab2b854de1cf39bfac9c pytest_rc=1
+== b631e5a57943 ==
+HEAD=b631e5a5794369f03d57719a446a65e423366f36 pytest_rc=1
+== c067af761a70 ==
+HEAD=c067af761a70a6cbb91fa49083a41511207297da pytest_rc=1
+== 7332f00ed4c2 ==
+HEAD=7332f00ed4c27d8da041788ca6a7aa405f062c76 pytest_rc=1
+== 8efb348e2bc8 ==
+HEAD=8efb348e2bc820aeba60d4cce6939708c6b2b11c pytest_rc=1
+== 4aabded1badf ==
+HEAD=4aabded1badf94b1de8bb939f11cbebcdd94a22e pytest_rc=1
+== 801a29f1a85d ==
+HEAD=801a29f1a85db0845d1277d8e031800b003eff61 pytest_rc=1
+== 297150c7566a ==
+HEAD=297150c7566a38fb672828a36b681792513d99b0 pytest_rc=1
+== a4763ef93734 ==
+HEAD=a4763ef93734ccfea497ea10bf0870d588132432 pytest_rc=1
+== acc91bc4f47e ==
+HEAD=acc91bc4f47e38f43277fcdfd8ca855734c4fbbc pytest_rc=1
+== 5eb46cba463f ==
+HEAD=5eb46cba463ff3e3894b58f6649c5a13f02a70b1 pytest_rc=1
+== 89c0093d6696 ==
+HEAD=89c0093d66964a8b24b1d9074e5982c2a0c84762 pytest_rc=1
+== ea7593ac8d64 ==
+HEAD=ea7593ac8d644daaf52279cbc574d7e4892f366e pytest_rc=1
+== 6b14c63e7ee9 ==
+HEAD=6b14c63e7ee96c741279622d50f1636a06830505 pytest_rc=1
+== 82ec44e46d55 ==
+HEAD=82ec44e46d558df6feca900a00a8fea7c05a9ec1 pytest_rc=1
+== f0cc87d491e9 ==
+HEAD=f0cc87d491e98b8770af0f3be13fba4b688298b3 pytest_rc=1
+== 9d8ad23f8d9f ==
+HEAD=9d8ad23f8d9f80464c6566db449611c9e9d7571a pytest_rc=1
+== 38bedbf4c4fe ==
+HEAD=38bedbf4c4fe46108b0ccbe81ac97c017d81c3c0 pytest_rc=1
+== 72e7844330c5 ==
+HEAD=72e7844330c532b4adeb4c6493ca987219424b6a pytest_rc=1
+== ebcc7cbe5795 ==
+HEAD=ebcc7cbe579504cd33c6fd7ba97ccb3b5025afbd pytest_rc=1
+== 6fe4a8d6c3c8 ==
+HEAD=6fe4a8d6c3c8e8ad65d79fe1dc7cc732dba0b0ae pytest_rc=1
+== 829f3831554f ==
+HEAD=829f3831554f42972200cdff79213ae781833021 pytest_rc=1
+== 8f9f701f4acb ==
+HEAD=8f9f701f4acb83b5c248a34a1825ee1f1e2b9293 pytest_rc=1
+== 0b24299f6233 ==
+HEAD=0b24299f623327c99f293cb0979d548c7978f629 pytest_rc=1
+== da4402123559 ==
+HEAD=da4402123559fa340b1f36eee936597ef7750212 pytest_rc=1
+== 58a25939f0c4 ==
+HEAD=58a25939f0c4594dd5c487eec8906a79539e2810 pytest_rc=1
+== e776d405667e ==
+HEAD=e776d405667e080b8b7ed98178af67a8605c795a pytest_rc=1
+== ca1d0170cdb2 ==
+HEAD=ca1d0170cdb23f6338d8b73d750760236f345657 pytest_rc=1
+== ca1cefb9462a ==
+HEAD=ca1cefb9462ab26f96e937677adf1acf43ce377a pytest_rc=1
+== 32774891f02e ==
+HEAD=32774891f02e5a74cbb8d159908e71b8d159467e pytest_rc=1
+== dd6d1ce3756f ==
+HEAD=dd6d1ce3756fe0b35f063ab443586a8afa4ba0f0 pytest_rc=1
+== 2fc486c880ed ==
+HEAD=2fc486c880eda9fdb746ed8baa49416acab9ea6d pytest_rc=1
+== 2c2ebaa5de69 ==
+HEAD=2c2ebaa5de698948d9e60f8ff519b0edf4bdfc78 pytest_rc=1
+== 082784793f11 ==
+HEAD=082784793f114a2a1d9846990b14c8aeade6f2a7 pytest_rc=1
+== 6d2e6d04a49b ==
+HEAD=6d2e6d04a49b6696d07b9957f97213cfda5b2ded pytest_rc=1
+== cbb970ceeb0f ==
+HEAD=cbb970ceeb0fcdd782f857bc784becbc0614aa28 pytest_rc=1
+== af54caa2b1dc ==
+HEAD=af54caa2b1dc48b37bb32f598630d771d3ec4fc1 pytest_rc=1
+== fbe33bac440d ==
+HEAD=fbe33bac440d0edef50fc980fb638d2dbbf96b5e pytest_rc=1
+== 506e4eb9a5a7 ==
+HEAD=506e4eb9a5a774851aa667693dd9c86ff029b10a pytest_rc=1
+== a28048f987ac ==
+HEAD=a28048f987ac7d20bb9ee86fde61a969247f0290 pytest_rc=1
+== 7520f9e9b073 ==
+HEAD=7520f9e9b0737d8b14aa50244c7dad330cbfcd0f pytest_rc=1
+== 7dd9b12b0d22 ==
+HEAD=7dd9b12b0d22e5a8a8674488684fd2bb799f2945 pytest_rc=1
+== b28bc4c6439d ==
+HEAD=b28bc4c6439d7b01c011e72c09d80574fe75b85b pytest_rc=1
+== 4f17161652d6 ==
+HEAD=4f17161652d67f88deedd6b193dd320f69021539 pytest_rc=1
+== 90a6c78ae574 ==
+HEAD=90a6c78ae574de35d3783e0d575b688a12f09a3d pytest_rc=1
+== b8a33bf050ce ==
+HEAD=b8a33bf050ce41a398538d03dab6c8450ae76f28 pytest_rc=1
+== b41940747860 ==
+HEAD=b41940747860a13e1d12b54d2d55b0cec57f0ce3 pytest_rc=1
+== 719690a5792a ==
+HEAD=719690a5792aceab7801d26b1805fcbe4cc5f802 pytest_rc=1
+== 76544cc23e63 ==
+HEAD=76544cc23e63255e02d9de95867344c0e3f4b6cd pytest_rc=1
+== b905ebc4becd ==
+HEAD=b905ebc4becd7fd1a74c4c5d698c03d80d6bdc8d pytest_rc=1
+== ea3bb6f1bf5d ==
+HEAD=ea3bb6f1bf5db675f2dec0350f57e704da6ea00b pytest_rc=1
+== 890e984174ff ==
+HEAD=890e984174ffd16ac5510ec7fe21263f5ca7c65f pytest_rc=1
+== 98e471fb871f ==
+HEAD=98e471fb871f211dd40b1bea80942acb7bb9f176 pytest_rc=1
+== 80086c4b393f ==
+HEAD=80086c4b393f2e5532c9ad35b79fee653aa47730 pytest_rc=1
+== 0805f60cfc7a ==
+HEAD=0805f60cfc7a48b9a951733a81639e7fda430152 pytest_rc=1
+== 1b1578dbbc70 ==
+HEAD=1b1578dbbc706538914221352edc84d532cdd3a4 pytest_rc=1
+== c76fea1696c0 ==
+HEAD=c76fea1696c0ffe7edff8a36cadd4686cda8cbfb pytest_rc=1
+== 1cd7593676e9 ==
+HEAD=1cd7593676e9c6f90116f7de51cd551b5bf4c313 pytest_rc=1
+== 40e7756dba04 ==
+HEAD=40e7756dba0431d8c3953d40511ba41b3c271f3a pytest_rc=1
+== baa91a704d29 ==
+HEAD=baa91a704d29efb41e8476471d9f97ff075d7b65 pytest_rc=1
+== 323caf5fd823 ==
+HEAD=323caf5fd823b6e5370179b2e4b261b9c5fae958 pytest_rc=1
+== 6f705ddc21ed ==
+HEAD=6f705ddc21ede17c3427a8f624537a8ce5586701 pytest_rc=1
+== 81bddecfd32f ==
+HEAD=81bddecfd32fda82fc8421cd316e55a2db8575d1 pytest_rc=1
+== 69a25da0c0a8 ==
+HEAD=69a25da0c0a8a78564f0fef700e1d6e5b21c1e8a pytest_rc=1
+== 3018f577cc1d ==
+HEAD=3018f577cc1d5e7682fd091845df999b86007a6c pytest_rc=1
+== af584b212c25 ==
+HEAD=af584b212c25f8479dcedf116f5895ee92c71f2c pytest_rc=1
+== 1472e3d69721 ==
+HEAD=1472e3d697215039f499cb0b51d8bea6a9aa3144 pytest_rc=1
+== 4c7399eaeb77 ==
+HEAD=4c7399eaeb77fae762a96e6aaa714ac591d6661a pytest_rc=1
+== 1cb860961242 ==
+HEAD=1cb86096124299579156f2c983efe05585f1a01b pytest_rc=1
+== a6fea31dbbb0 ==
+HEAD=a6fea31dbbb0a753aa47a06fc870d6ef91a3e3da pytest_rc=1
+== cf06e096f900 ==
+HEAD=cf06e096f90034020b88eefd3a7c531a2614d135 pytest_rc=1
+== ab80d1df893b ==
+HEAD=ab80d1df893b59f25b4eb18e9351207966cc217e pytest_rc=1
+== c78265ad51b4 ==
+HEAD=c78265ad51b426ef6c2a9ae39d92c172d30ade82 pytest_rc=1
+== bf3a945b3a22 ==
+HEAD=bf3a945b3a220589c67d55dcb73cc1c9a9a175b3 pytest_rc=1
+== 08583da150d9 ==
+HEAD=08583da150d9df25f1566c7390ebf7fa4a2a9395 pytest_rc=1
+== 9330dbad806a ==
+HEAD=9330dbad806a1a76e0c514333cf32fce58e72e86 pytest_rc=1
+== d334d8220a96 ==
+HEAD=d334d8220a96e6488deded07a7a41ad80dfa3dc5 pytest_rc=1
+== c0f9c06aa123 ==
+HEAD=c0f9c06aa123e75466829bd41985a44a70b6c625 pytest_rc=1
+== c4542263a96d ==
+HEAD=c4542263a96dd067ed1ded12a83553da05bb61dd pytest_rc=1
+== 9907a265a5e2 ==
+HEAD=9907a265a5e2b55c7b66ef5a64ecffcc0ae0ae6b pytest_rc=1
+== b625b9f39082 ==
+HEAD=b625b9f39082f366dd85ad13024e43c8f5e78b87 pytest_rc=1
+== 68b3d4f5b4b7 ==
+HEAD=68b3d4f5b4b752e22e1d7e7ee0c6c02fe8ae1bd5 pytest_rc=1
+== 972becff259e ==
+HEAD=972becff259e4ffcd220a6cad5096f36a89fdd6d pytest_rc=1
+== 3f7319081113 ==
+HEAD=3f7319081113a0bdfa8fa0b8c4ff018a8f5e5278 pytest_rc=1
+== 269a4ae575f7 ==
+HEAD=269a4ae575f7dbfba7cd3f4ea340e9c85ebc9694 pytest_rc=1
+== 6c7624491911 ==
+HEAD=6c7624491911f0b18f869e5d0a989506e7b416f8 pytest_rc=1
+== e3594e7f8a76 ==
+HEAD=e3594e7f8a76dd15109d29570a6f263e56e412f2 pytest_rc=1
+== 0dc6d74df5c9 ==
+HEAD=0dc6d74df5c984ff923f5d17e97bf94a21b3a3cd pytest_rc=1
+== 30e7f76a383b ==
+HEAD=30e7f76a383b7ddba23f564f96871261d6f8800e pytest_rc=1
+== 82a83fda1faf ==
+HEAD=82a83fda1fafd4a43c67755140555bfd5afbd592 pytest_rc=1
+== cef43dec86d2 ==
+HEAD=cef43dec86d22413d13573f6c58a45565dbe2861 pytest_rc=1
+== 21e35874e7d6 ==
+HEAD=21e35874e7d6e829a8093fc720ec4cf51020b79e pytest_rc=1
+== 56e79c967510 ==
+HEAD=56e79c9675101a46d0865a4f83be780801c4aaa7 pytest_rc=1
+== fd4b3d882ff4 ==
+HEAD=fd4b3d882ff4514df96f55c9d3586cbc55f4cac8 pytest_rc=1
+== ffeddbaf0c82 ==
+HEAD=ffeddbaf0c8226201136593d29324c951f2b2fa3 pytest_rc=1
+== ea75c268365d ==
+HEAD=ea75c268365d3d965bae3ee1f5345c43d5a9a8c9 pytest_rc=1
+== e75705dec2ab ==
+HEAD=e75705dec2abfef43eb55e98520105d9c531b0a9 pytest_rc=1
+== 0996e210d371 ==
+HEAD=0996e210d37191c88a7fe8ce14ca5e5cfa86039d pytest_rc=1
+== fc4ebb86c8e5 ==
+HEAD=fc4ebb86c8e5fe8e7bdb3d1516f286f16865f538 pytest_rc=1
+== 0f645cc8204c ==
+HEAD=0f645cc8204c76cd1d1344ee64ca646e01efc0b9 pytest_rc=1
+== 1059c205638a ==
+HEAD=1059c205638a12b04f45314d1bb7585cb70b3457 pytest_rc=1
+== 482e6e6ae7e4 ==
+HEAD=482e6e6ae7e4da1712c16baf28c2cb239ee35b8a pytest_rc=1
+== 5215fc1030ed ==
+HEAD=5215fc1030ed911c0c67b18e2fcad95fc173dd0e pytest_rc=1
+== ac655f8ac8a1 ==
+HEAD=ac655f8ac8a13cd45ce96bdc296bd857654088f0 pytest_rc=1
+== f51584cf506b ==
+HEAD=f51584cf506bec6624435b408ce3cf2f7a10baf6 pytest_rc=1
+== 9da166957f58 ==
+HEAD=9da166957f5848b641231d485467f6140bca2bc0 pytest_rc=1
+== b700cf61962d ==
+HEAD=b700cf61962d669d9610226e3f08a0dfd423e51f pytest_rc=1
+== 27d12bd7fbe6 ==
+HEAD=27d12bd7fbe61fcfa6d572902b01b33f6c8e0983 pytest_rc=1
+== 93551dd44ced ==
+HEAD=93551dd44ced28fae4bd404cf24ec89b589e6568 pytest_rc=1
+== 8a04bb0f3e9d ==
+HEAD=8a04bb0f3e9dff149e966c74902e3bc8801e7a72 pytest_rc=1
+== e4301614347d ==
+HEAD=e4301614347d20b90d7fad943a52e9f19bee6be9 pytest_rc=1
+== 29df8795dc14 ==
+HEAD=29df8795dc146ddea328e458068185d3314820e5 pytest_rc=1
+== af0af571cbbd ==
+HEAD=af0af571cbbd921d3974a0ff9cf58a4b26bb852b pytest_rc=1
+== 8e98529f56b9 ==
+HEAD=8e98529f56b9dd5ae8ef826b73917cc086be56ad pytest_rc=1
+== 63702ff6c36b ==
+HEAD=63702ff6c36b5886cb3a92275afbee567ae78b5b pytest_rc=1
+== cbaa2033cdd2 ==
+HEAD=cbaa2033cdd2f325b266ccb6a4b04a272144d8c8 pytest_rc=1
+== d09ef712972d ==
+HEAD=d09ef712972df060080a43cade589405f777369d pytest_rc=1
+== 8b48450d5d63 ==
+HEAD=8b48450d5d63c747600e069d4c3e2274f41c8360 pytest_rc=1
+== 2e9907ae76a6 ==
+HEAD=2e9907ae76a6dad31de9c65dd21f3b7787c2ed95 pytest_rc=1
+== bb7245e90635 ==
+HEAD=bb7245e90635f9acbb75df91873431e94756a0e8 pytest_rc=1
+== 70358c57b204 ==
+HEAD=70358c57b20454c262bceaa901ab273b2487d7f3 pytest_rc=1
+== ff72d7d50cae ==
+HEAD=ff72d7d50cae327786b73415f0f4dc348996215c pytest_rc=1
+== ce152bd72150 ==
+HEAD=ce152bd7215038f762ee918e6e181a5309ad57c9 pytest_rc=1
+== ddcabdd4f22f ==
+HEAD=ddcabdd4f22f438c0c963150b930d0d09b04dea7 pytest_rc=1
+== 1bb6db39a6cd ==
+HEAD=1bb6db39a6cda9023b9d94c73c886a8f3ef728b6 pytest_rc=1
+== a6f7ace3aaf9 ==
+HEAD=a6f7ace3aaf91f2c3db5fb26a20e7eaf50755fae pytest_rc=1
+== 68e65ee2bf3e ==
+HEAD=68e65ee2bf3e057a99d1192cc256cc2cb2a12203 pytest_rc=1
+== 5d759e0ab383 ==
+HEAD=5d759e0ab383136f9869cdb5e14f00c78b38a9c9 pytest_rc=1
+== c3687bf1d2d5 ==
+HEAD=c3687bf1d2d5c175ee50dc083fce5b19de152de0 pytest_rc=1
+== cd5d1888e200 ==
+HEAD=cd5d1888e2009bc4ea17ab1869a36475f1678970 pytest_rc=1
+== 8acb40d6faed ==
+HEAD=8acb40d6faeda86b80d4658acaa22c989f843010 pytest_rc=1
+== 317d699e46f3 ==
+HEAD=317d699e46f34017d56248480089aa047352dd4d pytest_rc=1
+== 7013656192ca ==
+HEAD=7013656192cad1a23e73dbfdff1df9d53e8214ee pytest_rc=1
+== 53237639bff4 ==
+HEAD=53237639bff402793674b7349dc0cdeacd69f684 pytest_rc=1
+== 0cf6a1a8ef6e ==
+HEAD=0cf6a1a8ef6e0118fe2ba3cd764640f121bcdd0d pytest_rc=1
+== 74d1b081f6e6 ==
+HEAD=74d1b081f6e666413ee81d68b26d48a793e0a060 pytest_rc=1
+== c1a42a1c545c ==
+HEAD=c1a42a1c545c138266be61c7b0fda02b9a423fe0 pytest_rc=1
+== d11059393dde ==
+HEAD=d11059393ddeb8f8f399b3c6fd4ce71f4fdb534b pytest_rc=1
+== e8e4b32f5034 ==
+HEAD=e8e4b32f5034b8e6df9f4d5ba7ed952da9394a76 pytest_rc=1
+== 655918a61e22 ==
+HEAD=655918a61e22cade722dacb9bf798e86b13093af pytest_rc=1
+== 0a81393fdf41 ==
+HEAD=0a81393fdf41edb0ab9d2f527eccdc8ce38d7d42 pytest_rc=1
+== 65eceb08e392 ==
+HEAD=65eceb08e392e74dcc761be2090e951274ccbe36 pytest_rc=1
+== 0c85d80b0774 ==
+HEAD=0c85d80b07742b9f9ed4d583d694c37fce1d1292 pytest_rc=1
+== 2996d3c11972 ==
+HEAD=2996d3c11972ad1d71339481f2119495185e7d8d pytest_rc=1
+== d5932d674d80 ==
+HEAD=d5932d674d804cf67b20e4f1c3546abf5aa65494 pytest_rc=1
+== 4b4e2bdab832 ==
+HEAD=4b4e2bdab832c1e970b9acc1cd2ead101d6e0308 pytest_rc=1
+== 6411f425fae5 ==
+HEAD=6411f425fae545f42795665af4162006b36c5e4a pytest_rc=1
+== 9e9fe41a53d8 ==
+HEAD=9e9fe41a53d885d96e43dec7cd9eb69e352f801a pytest_rc=1
+== e4ef249cbded ==
+HEAD=e4ef249cbdeda3cf15acf662a329cb451a679b8b pytest_rc=1
+== 2198a8c3bfcb ==
+HEAD=2198a8c3bfcbfd211dc14c7627c6aea1ba0152e4 pytest_rc=1
+== 051d57cef4ce ==
+HEAD=051d57cef4ce59212dc1175ad4550743bf47d840 pytest_rc=1
+== c63c70dabd3f ==
+HEAD=c63c70dabd3f86ca68678b4f00951f78f52d0270 pytest_rc=1
+== 49164faca678 ==
+HEAD=49164faca678dd476f1b11a2584fd0e1c6be70b2 pytest_rc=1
+== 0a5cb256647b ==
+HEAD=0a5cb256647b3da8c8a1179e60753458c2df0087 pytest_rc=1
+== 91b2cd67dd04 ==
+HEAD=91b2cd67dd04b2843fd6c71e582876c826f5b78e pytest_rc=1
+== e7cff2a3dcb4 ==
+HEAD=e7cff2a3dcb40df267e8cf92b80396a4875dece8 pytest_rc=1
+== 9072f1809e55 ==
+HEAD=9072f1809e559898814d58da77b9b9d5a73233fb pytest_rc=1
+== 5828a1645f56 ==
+HEAD=5828a1645f566df15d8ee40d0c06c63ccc1e5475 pytest_rc=1
+== 1c42559832d3 ==
+HEAD=1c42559832d31e9411766673f472c0893eacf9ba pytest_rc=1
+== 6ef334011ea4 ==
+HEAD=6ef334011ea413505b431ebe88fc547bb5ca8de2 pytest_rc=1
+== bf8c03e81f31 ==
+HEAD=bf8c03e81f31a8ad0742a191532f15ad549232fa pytest_rc=1
+== 77961478cdaf ==
+HEAD=77961478cdaf9cf55c8b15fd1db0681ff75ffcfb pytest_rc=1
+== 24992ce4606c ==
+HEAD=24992ce4606c62cff4df5ceabcb5a4215d991a1d pytest_rc=1
+== e934b4191f89 ==
+HEAD=e934b4191f897df00d0cc0b216ebf5a63c700a9e pytest_rc=1
+== a1e5ff6d8dfc ==
+HEAD=a1e5ff6d8dfc8364a397508dba8c85cdc0af24e3 pytest_rc=1
+== 08ecfd0e7c23 ==
+HEAD=08ecfd0e7c238a2444886d239de6d0e9d83530ec pytest_rc=1
+== 166b31261f55 ==
+HEAD=166b31261f55ba3126456bbc2ff9e16142115e56 pytest_rc=1
+== c9c406bebdf2 ==
+HEAD=c9c406bebdf2b027864216fb881278a8bfa14bb8 pytest_rc=1
+== 22d3886f47fe ==
+HEAD=22d3886f47feab6c3bfa93810fbd2bfb13f513c3 pytest_rc=1
+== 74765746b88e ==
+HEAD=74765746b88e96eac6fec3b736b346db60f78551 pytest_rc=1
+== 422cb2064eed ==
+HEAD=422cb2064eed146dbe03ba3aed5be35daeb70414 pytest_rc=1
+== 4262661a0fff ==
+HEAD=4262661a0fffabe3803f1bd876b19244f587dafa pytest_rc=1
+== c01e2b8ed17d ==
+HEAD=c01e2b8ed17d3ea65981bc62784363d0e38e3092 pytest_rc=1
+== deb1f0e1d736 ==
+HEAD=deb1f0e1d736774ae17ce423ba452de937ffa402 pytest_rc=1
+== 4a888774ef3c ==
+HEAD=4a888774ef3c5c80cf3c416d7407e13ad22359f0 pytest_rc=1
+== f6a681adc13d ==
+HEAD=f6a681adc13d5961073c00e57044e3855c3b76bd pytest_rc=1
+== 55b27155db45 ==
+HEAD=55b27155db458ada65a35b9a590956ff256a5df7 pytest_rc=1
+== d14ee193d010 ==
+HEAD=d14ee193d01096113d5de0428b8552bcd5f368e9 pytest_rc=1
+== 5ba232045406 ==
+HEAD=5ba2320454065a78dbb4176e582ab21c990d358c pytest_rc=1
+== bf9da4838986 ==
+HEAD=bf9da4838986af3bc09a1b16974d154c61dcbe3f pytest_rc=1
+== 19be092b6db4 ==
+HEAD=19be092b6db4e4300e31906498e354ec0adf870c pytest_rc=1
+== d251cb0abc9b ==
+HEAD=d251cb0abc9b0dbda2402d4d831c18718cfb51bf pytest_rc=1
+== ef11be6e49e1 ==
+HEAD=ef11be6e49e19a055fe7e5a89f0f1f4062c68dba pytest_rc=1
+== 20c88f027885 ==
+HEAD=20c88f02788586a80e6d867854c8313eaba5ad6e pytest_rc=1
+== e4aceee8d2bf ==
+HEAD=e4aceee8d2bf7fe9461915b0a21c4359ddcb8dc2 pytest_rc=1
+== fb7c6dbab505 ==
+HEAD=fb7c6dbab505c319dfcbb882e66f313fcbf06a0f pytest_rc=1
+== d5741a2ca2eb ==
+HEAD=d5741a2ca2ebc21d525c903f628b1bebad75b735 pytest_rc=1
+== a41e349ae738 ==
+HEAD=a41e349ae738c55bce46dfb8715159463074d6e9 pytest_rc=1
+== 456fbb6b0053 ==
+HEAD=456fbb6b0053fb01bedf90b64999b0a3c645a3cd pytest_rc=1
+== a66119abe973 ==
+HEAD=a66119abe973f55b4f5e28dbb0da6f3c32c21af7 pytest_rc=1
+== 77dd30f8c54e ==
+HEAD=77dd30f8c54ebbdfbf461cedcd3d1fc1d7673f95 pytest_rc=1
+== 030f53cf677e ==
+HEAD=030f53cf677ee1de534359c535d465eed0ec1d99 pytest_rc=1
+== 2f8a3417acf8 ==
+HEAD=2f8a3417acf8afd798cab6850e6102c7e3dc43d5 pytest_rc=1
+== e1399d207888 ==
+HEAD=e1399d20788829ea9b981603251cc413e00ca4eb pytest_rc=1
+== 0f833b6e5ecf ==
+HEAD=0f833b6e5ecf2307c23050823fc70644476b4bdb pytest_rc=1
+== 4883c93a786f ==
+HEAD=4883c93a786f561108a806cbae7873e5c2b604a3 pytest_rc=1
+== 6f35455ddf50 ==
+HEAD=6f35455ddf500d57aa746a4dc06d812ca535dd0e pytest_rc=1
+== afdfb120fff5 ==
+HEAD=afdfb120fff5cb5f8d0184d411369f5dddaed5b3 pytest_rc=1
+== 5fd87bdf80ed ==
+HEAD=5fd87bdf80ed450334b37344f6c99890c217d3db pytest_rc=1
+== 2ac3211cb79a ==
+HEAD=2ac3211cb79a63bae8e6f0441136b432ec2126bc pytest_rc=1
+== 9c6f4c8e1bb8 ==
+HEAD=9c6f4c8e1bb8670ce827c98559f57f6ee5935cd0 pytest_rc=1
+== 0827feb55c9a ==
+HEAD=0827feb55c9a2b456b757d94d3f943db7a880991 pytest_rc=1
+== 5a42c3160b49 ==
+HEAD=5a42c3160b499de5ed20d36e679374aed50961a9 pytest_rc=1
+== 73d7de5f7423 ==
+HEAD=73d7de5f7423eab0673935a5120c65a27fd2804c pytest_rc=1
+== 023e5a77cebe ==
+HEAD=023e5a77cebe99f6c601aeeff8b76661aec5cc57 pytest_rc=1
+== f1c160d8aec9 ==
+HEAD=f1c160d8aec959fe768e3316450bcd3fa1e046bd pytest_rc=1
+== 70d2de82c33e ==
+HEAD=70d2de82c33e86bc13b8d029b0a809a75a6492ab pytest_rc=1
+== bd8735ba43ce ==
+HEAD=bd8735ba43ce5349f4d6d17aae880cffab537519 pytest_rc=1
+== 06a2c0f2ec24 ==
+HEAD=06a2c0f2ec24ef0a3e5ee97ce9ccbcc51ab49d3a pytest_rc=1
+== b6b5d6280c40 ==
+HEAD=b6b5d6280c40b8963b4fa607d00ee0629cbd8a9e pytest_rc=1
+== a6c7ee060b02 ==
+HEAD=a6c7ee060b02eaa62fd15264a669220914cfad4c pytest_rc=1
+== c0092d224247 ==
+HEAD=c0092d2242479216ad633e12c87eabe33bacca2d pytest_rc=1
+== 7714728d55cb ==
+HEAD=7714728d55cbb93e0ec3e0a21b595f8c4d54292f pytest_rc=1
+== 8e2fbd87148f ==
+HEAD=8e2fbd87148fcb4f814cbf292351532645640d96 pytest_rc=1
+== fceeed14cfdd ==
+HEAD=fceeed14cfddade189ff653a49f5c4f77556de7f pytest_rc=1
+== 13627be199a3 ==
+HEAD=13627be199a3cbe50c35ec778a9d61b31e1580b2 pytest_rc=1
+== 9c6f032681e3 ==
+HEAD=9c6f032681e38a60ce526335f2abf166191f692d pytest_rc=1
+== 6e05e1fa1c28 ==
+HEAD=6e05e1fa1c2804410f9916b27edc07076e3b156d pytest_rc=1
+== d19d0def9a2a ==
+HEAD=d19d0def9a2a5979312b705bbfd53725aa1d5081 pytest_rc=1
+== eb1d760fb433 ==
+HEAD=eb1d760fb433d08278816d7ba49477ce86b691a7 pytest_rc=1
+== e002dbc40ceb ==
+HEAD=e002dbc40ceb6a7e78dbe5e5868744690ba3120f pytest_rc=1
+== 8473b3ced140 ==
+HEAD=8473b3ced140296b9dd869957e0026eebd94634b pytest_rc=1
+== 77838f86fa64 ==
+HEAD=77838f86fa647ca82f53a88d6495dfc009b24c41 pytest_rc=1
+== 1c4099006474 ==
+HEAD=1c4099006474875574e233dc92d12c15d659585f pytest_rc=1
+== 5f802ac45955 ==
+HEAD=5f802ac459557685bd6748c6cc75cb4a4a82617e pytest_rc=1
+== 25dfd27c302e ==
+HEAD=25dfd27c302e212afb436efab2f9b52099f97683 pytest_rc=1
+== 3e66bbf5f1af ==
+HEAD=3e66bbf5f1afaecbb4991eab1f7635ea4693eefe pytest_rc=1
+== 9affb021ff0f ==
+HEAD=9affb021ff0fc71a676511226ac3cf721d2f9e3c pytest_rc=1
+== ac15816133ef ==
+HEAD=ac15816133ef12001ebf6d6aecb7a3cf14487761 pytest_rc=1
+== fcdedf82e851 ==
+HEAD=fcdedf82e8515f1046893248a9295fa012854f09 pytest_rc=1
+== b5280c608574 ==
+HEAD=b5280c608574d867e5e76c8f295c99868f18d763 pytest_rc=1
+== 936b47708cbe ==
+HEAD=936b47708cbe90fff491a24b43809bf506eaa716 pytest_rc=1
+== bdb81e4693c3 ==
+HEAD=bdb81e4693c3ca79ab85149964022933235234bf pytest_rc=1
+== 6c3a1fcc1996 ==
+HEAD=6c3a1fcc19963bcc9422bf98f1c56108193ab232 pytest_rc=1
+== dcdca58646df ==
+HEAD=dcdca58646df51f502dc96274b05cee74b57b545 pytest_rc=1
+== 6e704050f114 ==
+HEAD=6e704050f1149b00f3b3e7576e25b1e28c76ccf3 pytest_rc=1
+== a825ebd79c12 ==
+HEAD=a825ebd79c124022da43694477e24534c46b4f59 pytest_rc=1
+== a4f5450a2541 ==
+HEAD=a4f5450a2541e2f2f8cacf57f50435eb78422f99 pytest_rc=1
+== 850bffe0b9db ==
+HEAD=850bffe0b9db27f52f6f3f0a66eb6df432ce8bcd pytest_rc=1
+== df9ad4085d60 ==
+HEAD=df9ad4085d60710b507b54c8fc369ee186eb1d64 pytest_rc=1
+== e4066e1f3250 ==
+HEAD=e4066e1f325088ee42ae7bc0bc6c2e47533ff2c3 pytest_rc=1
+== 6ae94287ef5a ==
+HEAD=6ae94287ef5aac3b0dc7c37706548f32e5994d3b pytest_rc=1
+== 5bdd9546ebc7 ==
+HEAD=5bdd9546ebc7f2c0c64e5539c8d16523ffcfc813 pytest_rc=1
+== 576b38a11e12 ==
+HEAD=576b38a11e12c8f19941688ba3d1095a29b15742 pytest_rc=1
+== ca881d34115b ==
+HEAD=ca881d34115b27d7400e644810dda5f3ea45f590 pytest_rc=1
+== 8ee2f2e7abde ==
+HEAD=8ee2f2e7abdec862e3ab74daea063bb5ecf961f7 pytest_rc=1
+== d34d31f6dde4 ==
+HEAD=d34d31f6dde4350f9508f0327698f851c595d91c pytest_rc=1
+== c77966e092ed ==
+HEAD=c77966e092edc9b8835e7327294b9177059fc90e pytest_rc=1
+== d3530d7fe614 ==
+HEAD=d3530d7fe6141fccb532d1ac211f1c13af6d063b pytest_rc=1
+== a0e064be58ee ==
+HEAD=a0e064be58eedf8da5058ed80a573e2d4ef1236b pytest_rc=1
+== 0c8f301d2a28 ==
+HEAD=0c8f301d2a28b67451eef872e327ef67e3993ec6 pytest_rc=1
+== af1e8d44d641 ==
+HEAD=af1e8d44d64181484a60dd63044da706bcc13439 pytest_rc=1
+== 9a536eebd958 ==
+HEAD=9a536eebd958558c2cd24c17fb66fac112f1ac91 pytest_rc=1
+== 549947111c4a ==
+HEAD=549947111c4af2191dd4b245e1de2c25d20c36d6 pytest_rc=1
+== b67fe5f70a8c ==
+HEAD=b67fe5f70a8c88bf54d6c7058b1154a81d32815c pytest_rc=1
+== dd691da8028a ==
+HEAD=dd691da8028a090657f081b584ce1efb1bb149d2 pytest_rc=1
+== f20395dfe397 ==
+HEAD=f20395dfe397be7746380bd8768553ce4065752b pytest_rc=1
+== d17dbc2c0fae ==
+HEAD=d17dbc2c0faee0017ea2c8d2260e72cb71848f2f pytest_rc=1
+== 449d38f51784 ==
+HEAD=449d38f517845f39b0ffd4df64f90403933b0e0e pytest_rc=1
+== aca9f753afd9 ==
+HEAD=aca9f753afd9877ae8ee86609ace18eadf3ea116 pytest_rc=1
+== 56b15be8b843 ==
+HEAD=56b15be8b843a26a8065c65f8a208eef7b7c05bc pytest_rc=1
+== 1a15373bf35e ==
+HEAD=1a15373bf35e004dbf31826df8d7fe1765aafb77 pytest_rc=1
+== f3d92029d37b ==
+HEAD=f3d92029d37be17f03a60edc6af252c2f7e8c128 pytest_rc=1
+== ce6e066a4b58 ==
+HEAD=ce6e066a4b58dabe18f6ee5d6f55cf9ce303c941 pytest_rc=1
+== bb6a8727aa4a ==
+HEAD=bb6a8727aa4aab62e5a388b15c4443fedf422622 pytest_rc=1
+== 22b9b1ce7945 ==
+HEAD=22b9b1ce7945518fa7838321d991f5e766bceb32 pytest_rc=0
+== a260ca6fa767 ==
+HEAD=a260ca6fa7675a87dc55c4c79cebad3de2d9ed6d pytest_rc=0
+== 6e1f6d3052b6 ==
+HEAD=6e1f6d3052b6459fa3e43392d728376c423a7d4c pytest_rc=0
+== 6986b08a7e41 ==
+HEAD=6986b08a7e4107e23f81ec7101d862e7116bc574 pytest_rc=0
+== 76cb8410d9b2 ==
+HEAD=76cb8410d9b28c3fb55be1bdff5eed14225a7366 pytest_rc=0
+== 525c5f1f284b ==
+requires-python=>=3.7
+HEAD=525c5f1f284bca3a9f516d8ee24de419aa7d0e24 pytest_rc=0
+== aa52d17a9721 ==
+requires-python=>=3.7
+HEAD=aa52d17a97213a4caddaa548111dbff30bf3f162 pytest_rc=0
+== b54eb6e61568 ==
+requires-python=>=3.7
+HEAD=b54eb6e61568d807eef835ff20ab90b173accd3f pytest_rc=0
+== 74ab60ac623c ==
+requires-python=>=3.7
+HEAD=74ab60ac623c70cf28a572d0a4943eda90957627 pytest_rc=0
+== e88c11239971 ==
+requires-python=>=3.7
+HEAD=e88c11239971d309744fd3f9139259f64787f45a pytest_rc=0
+== c021f05c838c ==
+requires-python=>=3.7
+HEAD=c021f05c838c1d0401ebc340d1de9b663c7fb578 pytest_rc=0
+== d3e3852eba45 ==
+requires-python=>=3.7
+HEAD=d3e3852eba45a6f7ce0ae5e02ca49106e228add6 pytest_rc=0
+== 5b1624bf0994 ==
+requires-python=>=3.7
+HEAD=5b1624bf09947d6f10eaffd63d6fb737dfe7656a pytest_rc=0
+== bc16dbf78886 ==
+requires-python=>=3.7
+HEAD=bc16dbf788861266177661b576291a1b264fb5de pytest_rc=0
+== 396c1b9a8e48 ==
+requires-python=>=3.7
+HEAD=396c1b9a8e48f391f52c7c166cec2914becc36c9 pytest_rc=0
+== 52072a9dc838 ==
+requires-python=>=3.7
+HEAD=52072a9dc8388cb4176da92a13b4f4d475df0763 pytest_rc=0
+== ac56c4551fcc ==
+requires-python=>=3.7
+HEAD=ac56c4551fcc5d4a60a66b252d6666bf58248e03 pytest_rc=0
+== 16b8672b5863 ==
+requires-python=>=3.7
+HEAD=16b8672b586313ec5cad3e3c403c65500b1949a7 pytest_rc=0
+== 619f4ccadc48 ==
+requires-python=>=3.7
+HEAD=619f4ccadc48a00f70095ce0680359873ca85786 pytest_rc=0
+== 3ec3ac51a7a2 ==
+requires-python=>=3.7
+HEAD=3ec3ac51a7a26e707c56cf4c83d1e39b1c5bc4bf pytest_rc=0
+== ab91b5a7440a ==
+requires-python=>=3.7
+HEAD=ab91b5a7440a59daee56d76e102140ac2f3696b5 pytest_rc=0
+== f24a9fb36179 ==
+requires-python=>=3.7
+HEAD=f24a9fb3617972b317f0c01a06973aa75dd44467 pytest_rc=0
+== 4d7ce025cfc7 ==
+requires-python=>=3.7
+HEAD=4d7ce025cfc7a94d0c4b388ea3d7c565c0e28d9d pytest_rc=0
+== aca1a0cea2ee ==
+requires-python=>=3.7
+HEAD=aca1a0cea2eeb6c8181152beb2113b6be7fbc19d pytest_rc=0
+== 22b9a30e8bac ==
+requires-python=>=3.7
+HEAD=22b9a30e8bac327f35a04abbb4e4183763c4f64a pytest_rc=0
+== 53f14d3ac479 ==
+requires-python=>=3.7
+HEAD=53f14d3ac4791718f259531dec3433e04a6e45ce pytest_rc=0
+== afc86c748c21 ==
+requires-python=>=3.7
+HEAD=afc86c748c214939e2293ec00879d85293bcd9fa pytest_rc=0
+== 8c842a43e884 ==
+requires-python=>=3.7
+HEAD=8c842a43e884c5e69032223563649f4389e37dd8 pytest_rc=0
+== 8fa833e33599 ==
+requires-python=>=3.7
+HEAD=8fa833e33599fcb7a8ead3f7d9ce80e5037d906c pytest_rc=0
+== 1a696c019e4b ==
+requires-python=>=3.7
+HEAD=1a696c019e4bb3cd72c354aec4905c96a59f9e65 pytest_rc=0
+== 3ecc65bcfdb1 ==
+requires-python=>=3.7
+HEAD=3ecc65bcfdb10877aa431a1211934c3a73b9dc22 pytest_rc=0
+== 9aeb586cbc62 ==
+requires-python=>=3.7
+HEAD=9aeb586cbc622c229bbf80ad948e590f596a8d3e pytest_rc=0
+== 26aa7bf3189e ==
+requires-python=>=3.7
+HEAD=26aa7bf3189e19a8a63890b1c2cc7eca24312d6f pytest_rc=0
+== 273fb9010672 ==
+requires-python=>=3.7
+HEAD=273fb90106726daa16e1033eca0d677de76345eb pytest_rc=0
+== 70c673d37eb9 ==
+requires-python=>=3.7
+HEAD=70c673d37eb91ba42a129be9037caf3ebed62f3e pytest_rc=0
+== 299efb82e1a3 ==
+requires-python=>=3.7
+HEAD=299efb82e1a3d34d870129dc0c677c6efb42d811 pytest_rc=0
+== 9ce8bd84a665 ==
+requires-python=>=3.7
+HEAD=9ce8bd84a66526e194668e8d4a05c45dd5b067a4 pytest_rc=0
+== fdc6b0204657 ==
+requires-python=>=3.7
+HEAD=fdc6b020465751d26f9e74a707f2c058b0dd251f pytest_rc=0
+== b1e392e69b2a ==
+requires-python=>=3.7
+HEAD=b1e392e69b2a32566550aa41c38875e9cafe2456 pytest_rc=0
+== 653459007a15 ==
+requires-python=>=3.7
+HEAD=653459007a15e4d75187acc5a1e1a08cbd787814 pytest_rc=0
+== bed037717d5f ==
+requires-python=>=3.7
+HEAD=bed037717d5f39cf875d83df4025e62beebc77f4 pytest_rc=0
+== 8e7bed0466fd ==
+requires-python=>=3.7
+HEAD=8e7bed0466fd49acf8bcf1399f54d7dc783fd6a1 pytest_rc=0
+== c23223b13c84 ==
+requires-python=>=3.7
+HEAD=c23223b13c847ae472faa258907ffb5c27b504fa pytest_rc=0
+== 934813e4d421 ==
+requires-python=>=3.7
+HEAD=934813e4d421071a1b3db3973c02fe2721359a6e pytest_rc=0
+done ok=400 reused=0 skip=0
+sample: n_eligible=211 n_actual=211
+backfill: n_new=400 n_reused=0 limb=400
+{
+  "attempts_by_operator": {
+    "arith_flip": 10,
+    "bool_flip": 48,
+    "cmp_flip": 6,
+    "const_pm1": 47,
+    "drop_call": 28,
+    "eq_flip": 25,
+    "not_wrap": 131,
+    "return_none": 63
+  },
+  "completed_pairs": [
+    "06a2c0f2ec24ef0a3e5ee97ce9ccbcc51ab49d3a:0",
+    "08583da150d9df25f1566c7390ebf7fa4a2a9395:0",
+    "06a2c0f2ec24ef0a3e5ee97ce9ccbcc51ab49d3a:1",
+    "08583da150d9df25f1566c7390ebf7fa4a2a9395:1",
+    "08583da150d9df25f1566c7390ebf7fa4a2a9395:2",
+    "08583da150d9df25f1566c7390ebf7fa4a2a9395:3",
+    "0a81393fdf41edb0ab9d2f527eccdc8ce38d7d42:1",
+    "0a81393fdf41edb0ab9d2f527eccdc8ce38d7d42:0",
+    "0a81393fdf41edb0ab9d2f527eccdc8ce38d7d42:2",
+    "0c85d80b07742b9f9ed4d583d694c37fce1d1292:0",
+    "0c85d80b07742b9f9ed4d583d694c37fce1d1292:1",
+    "0d438126a047bb52fd91c8a6843dbc54f4da6d35:0",
+    "0d438126a047bb52fd91c8a6843dbc54f4da6d35:1",
+    "0d438126a047bb52fd91c8a6843dbc54f4da6d35:2",
+    "0d438126a047bb52fd91c8a6843dbc54f4da6d35:3",
+    "0dc6d74df5c984ff923f5d17e97bf94a21b3a3cd:0",
+    "0dc6d74df5c984ff923f5d17e97bf94a21b3a3cd:1",
+    "0dc6d74df5c984ff923f5d17e97bf94a21b3a3cd:2",
+    "0dc6d74df5c984ff923f5d17e97bf94a21b3a3cd:3",
+    "1472e3d697215039f499cb0b51d8bea6a9aa3144:0",
+    "1472e3d697215039f499cb0b51d8bea6a9aa3144:1",
+    "1472e3d697215039f499cb0b51d8bea6a9aa3144:2",
+    "1472e3d697215039f499cb0b51d8bea6a9aa3144:3",
+    "1658d7230ddc85c094895688984488f51c5c6e1e:0",
+    "1658d7230ddc85c094895688984488f51c5c6e1e:1",
+    "1658d7230ddc85c094895688984488f51c5c6e1e:2",
+    "1658d7230ddc85c094895688984488f51c5c6e1e:3",
+    "166b31261f55ba3126456bbc2ff9e16142115e56:0",
+    "166b31261f55ba3126456bbc2ff9e16142115e56:1",
+    "166b31261f55ba3126456bbc2ff9e16142115e56:2",
+    "166b31261f55ba3126456bbc2ff9e16142115e56:3",
+    "19be092b6db4e4300e31906498e354ec0adf870c:0",
+    "19be092b6db4e4300e31906498e354ec0adf870c:1",
+    "1b1578dbbc706538914221352edc84d532cdd3a4:1",
+    "1cb86096124299579156f2c983efe05585f1a01b:0",
+    "1cb86096124299579156f2c983efe05585f1a01b:1",
+    "1cb86096124299579156f2c983efe05585f1a01b:2",
+    "20c88f02788586a80e6d867854c8313eaba5ad6e:0",
+    "20c88f02788586a80e6d867854c8313eaba5ad6e:1",
+    "20c88f02788586a80e6d867854c8313eaba5ad6e:2",
+    "21e35874e7d6e829a8093fc720ec4cf51020b79e:0",
+    "22d3886f47feab6c3bfa93810fbd2bfb13f513c3:0",
+    "22d3886f47feab6c3bfa93810fbd2bfb13f513c3:1",
+    "22d3886f47feab6c3bfa93810fbd2bfb13f513c3:2",
+    "22d3886f47feab6c3bfa93810fbd2bfb13f513c3:3",
+    "24992ce4606c62cff4df5ceabcb5a4215d991a1d:0",
+    "24992ce4606c62cff4df5ceabcb5a4215d991a1d:1",
+    "24992ce4606c62cff4df5ceabcb5a4215d991a1d:2",
+    "24992ce4606c62cff4df5ceabcb5a4215d991a1d:3",
+    "257153925b67fcd16d98367438d951ecbaf02240:0",
+    "257153925b67fcd16d98367438d951ecbaf02240:1",
+    "257153925b67fcd16d98367438d951ecbaf02240:2",
+    "25ee3666c9c767af7184ab2b854de1cf39bfac9c:0",
+    "25ee3666c9c767af7184ab2b854de1cf39bfac9c:1",
+    "269a4ae575f7dbfba7cd3f4ea340e9c85ebc9694:0",
+    "26aa7bf3189e19a8a63890b1c2cc7eca24312d6f:0",
+    "26aa7bf3189e19a8a63890b1c2cc7eca24312d6f:1",
+    "26aa7bf3189e19a8a63890b1c2cc7eca24312d6f:2",
+    "26aa7bf3189e19a8a63890b1c2cc7eca24312d6f:3",
+    "273fb90106726daa16e1033eca0d677de76345eb:0",
+    "28154558840b43864acc688ed9248db1c4007a12:0",
+    "28154558840b43864acc688ed9248db1c4007a12:1",
+    "28154558840b43864acc688ed9248db1c4007a12:2",
+    "299efb82e1a3d34d870129dc0c677c6efb42d811:0",
+    "299efb82e1a3d34d870129dc0c677c6efb42d811:1",
+    "299efb82e1a3d34d870129dc0c677c6efb42d811:2",
+    "299efb82e1a3d34d870129dc0c677c6efb42d811:3",
+    "29df8795dc146ddea328e458068185d3314820e5:0",
+    "29df8795dc146ddea328e458068185d3314820e5:1",
+    "29df8795dc146ddea328e458068185d3314820e5:2",
+    "3018f577cc1d5e7682fd091845df999b86007a6c:0",
+    "3018f577cc1d5e7682fd091845df999b86007a6c:1",
+    "30e7f76a383b7ddba23f564f96871261d6f8800e:0",
+    "30e7f76a383b7ddba23f564f96871261d6f8800e:1",
+    "30e7f76a383b7ddba23f564f96871261d6f8800e:2",
+    "30e7f76a383b7ddba23f564f96871261d6f8800e:3",
+    "3ecc05de7190b80ab0dcb9b0acf6168e2c83e066:0",
+    "3ecc05de7190b80ab0dcb9b0acf6168e2c83e066:1",
+    "3ecc05de7190b80ab0dcb9b0acf6168e2c83e066:2",
+    "3ecc05de7190b80ab0dcb9b0acf6168e2c83e066:3",
+    "3f7319081113a0bdfa8fa0b8c4ff018a8f5e5278:0",
+    "4262661a0fffabe3803f1bd876b19244f587dafa:0",
+    "4262661a0fffabe3803f1bd876b19244f587dafa:1",
+    "4262661a0fffabe3803f1bd876b19244f587dafa:2",
+    "4aa8d79e275a5f9c7ece5018a85548d9706da84e:0",
+    "4aabded1badf94b1de8bb939f11cbebcdd94a22e:0",
+    "4ae204e835d2d45875704c6796ec4f4aecb4b909:0",
+    "4ae204e835d2d45875704c6796ec4f4aecb4b909:1",
+    "4ae204e835d2d45875704c6796ec4f4aecb4b909:2",
+    "4ae204e835d2d45875704c6796ec4f4aecb4b909:3",
+    "4c7399eaeb77fae762a96e6aaa714ac591d6661a:0",
+    "4d7ce025cfc7a94d0c4b388ea3d7c565c0e28d9d:0",
+    "4d7ce025cfc7a94d0c4b388ea3d7c565c0e28d9d:1",
+    "4d7ce025cfc7a94d0c4b388ea3d7c565c0e28d9d:2",
+    "4f17161652d67f88deedd6b193dd320f69021539:0",
+    "4f17161652d67f88deedd6b193dd320f69021539:1",
+    "4f17161652d67f88deedd6b193dd320f69021539:2",
+    "4f17161652d67f88deedd6b193dd320f69021539:3",
+    "5215fc1030ed911c0c67b18e2fcad95fc173dd0e:0",
+    "5215fc1030ed911c0c67b18e2fcad95fc173dd0e:1",
+    "549947111c4af2191dd4b245e1de2c25d20c36d6:0",
+    "549947111c4af2191dd4b245e1de2c25d20c36d6:1",
+    "549947111c4af2191dd4b245e1de2c25d20c36d6:2",
+    "549947111c4af2191dd4b245e1de2c25d20c36d6:3",
+    "55b27155db458ada65a35b9a590956ff256a5df7:0",
+    "55b27155db458ada65a35b9a590956ff256a5df7:1",
+    "563b1a7116a6806e699d31d327dd9bca93c40cb3:0",
+    "563b1a7116a6806e699d31d327dd9bca93c40cb3:1",
+    "563b1a7116a6806e699d31d327dd9bca93c40cb3:2",
+    "5d759e0ab383136f9869cdb5e14f00c78b38a9c9:0",
+    "5d759e0ab383136f9869cdb5e14f00c78b38a9c9:1",
+    "5d759e0ab383136f9869cdb5e14f00c78b38a9c9:2",
+    "5d759e0ab383136f9869cdb5e14f00c78b38a9c9:3",
+    "5eb46cba463ff3e3894b58f6649c5a13f02a70b1:0",
+    "5eb46cba463ff3e3894b58f6649c5a13f02a70b1:1",
+    "5fd87bdf80ed450334b37344f6c99890c217d3db:0",
+    "5fd87bdf80ed450334b37344f6c99890c217d3db:1",
+    "6271cee2e8b2cf9a392377271bc9ed8345ce77c8:0",
+    "6271cee2e8b2cf9a392377271bc9ed8345ce77c8:1",
+    "655918a61e22cade722dacb9bf798e86b13093af:0",
+    "655918a61e22cade722dacb9bf798e86b13093af:1",
+    "655918a61e22cade722dacb9bf798e86b13093af:2",
+    "655918a61e22cade722dacb9bf798e86b13093af:3",
+    "66172ef2673bc7a7d718b36150a1e0b88b2959b1:0",
+    "66172ef2673bc7a7d718b36150a1e0b88b2959b1:1",
+    "66172ef2673bc7a7d718b36150a1e0b88b2959b1:2",
+    "66172ef2673bc7a7d718b36150a1e0b88b2959b1:3",
+    "69a25da0c0a8a78564f0fef700e1d6e5b21c1e8a:0",
+    "69a25da0c0a8a78564f0fef700e1d6e5b21c1e8a:1",
+    "69a25da0c0a8a78564f0fef700e1d6e5b21c1e8a:2",
+    "69a25da0c0a8a78564f0fef700e1d6e5b21c1e8a:3",
+    "6ae94287ef5aac3b0dc7c37706548f32e5994d3b:0",
+    "6ae94287ef5aac3b0dc7c37706548f32e5994d3b:1",
+    "6ae94287ef5aac3b0dc7c37706548f32e5994d3b:2",
+    "6c1eabae3bc08fba81f8b18f8a9111a93f2b0107:0",
+    "6c1eabae3bc08fba81f8b18f8a9111a93f2b0107:1",
+    "6c1eabae3bc08fba81f8b18f8a9111a93f2b0107:2",
+    "6c1eabae3bc08fba81f8b18f8a9111a93f2b0107:3",
+    "6c8301e0ceeee124dc4ae3a51591c5810dc39840:0",
+    "6c8301e0ceeee124dc4ae3a51591c5810dc39840:1",
+    "6c8301e0ceeee124dc4ae3a51591c5810dc39840:2",
+    "6c8301e0ceeee124dc4ae3a51591c5810dc39840:3",
+    "6e704050f1149b00f3b3e7576e25b1e28c76ccf3:0",
+    "70c673d37eb91ba42a129be9037caf3ebed62f3e:0",
+    "70c673d37eb91ba42a129be9037caf3ebed62f3e:1",
+    "7147f41d0fd6676a8c0410875f43250dc8e54dc8:0",
+    "7147f41d0fd6676a8c0410875f43250dc8e54dc8:1",
+    "719690a5792aceab7801d26b1805fcbe4cc5f802:0",
+    "719690a5792aceab7801d26b1805fcbe4cc5f802:2",
+    "719690a5792aceab7801d26b1805fcbe4cc5f802:3",
+    "7239794a610f3ccae3aaf8bfe273ac70cc58ff07:0",
+    "7239794a610f3ccae3aaf8bfe273ac70cc58ff07:1",
+    "7239794a610f3ccae3aaf8bfe273ac70cc58ff07:2",
+    "7239794a610f3ccae3aaf8bfe273ac70cc58ff07:3",
+    "7332f00ed4c27d8da041788ca6a7aa405f062c76:0",
+    "7332f00ed4c27d8da041788ca6a7aa405f062c76:1",
+    "7332f00ed4c27d8da041788ca6a7aa405f062c76:2",
+    "7332f00ed4c27d8da041788ca6a7aa405f062c76:3",
+    "77ca5206bc420cb9660b312c7b1b960e5a8cdae1:0",
+    "77ca5206bc420cb9660b312c7b1b960e5a8cdae1:1",
+    "77ca5206bc420cb9660b312c7b1b960e5a8cdae1:2",
+    "77ca5206bc420cb9660b312c7b1b960e5a8cdae1:3",
+    "77cb2574cb98e0afb9bf294b086425501cc051ce:0",
+    "77cb2574cb98e0afb9bf294b086425501cc051ce:1",
+    "77cb2574cb98e0afb9bf294b086425501cc051ce:2",
+    "77cb2574cb98e0afb9bf294b086425501cc051ce:3",
+    "80086c4b393f2e5532c9ad35b79fee653aa47730:0",
+    "80086c4b393f2e5532c9ad35b79fee653aa47730:1",
+    "81bddecfd32fda82fc8421cd316e55a2db8575d1:0",
+    "81bddecfd32fda82fc8421cd316e55a2db8575d1:1",
+    "81bddecfd32fda82fc8421cd316e55a2db8575d1:2",
+    "81bddecfd32fda82fc8421cd316e55a2db8575d1:3",
+    "82a83fda1fafd4a43c67755140555bfd5afbd592:0",
+    "82a83fda1fafd4a43c67755140555bfd5afbd592:1",
+    "82a83fda1fafd4a43c67755140555bfd5afbd592:2",
+    "82a83fda1fafd4a43c67755140555bfd5afbd592:3",
+    "82ca854f587af919789a9baae9a732fe0ce0052c:0",
+    "82ca854f587af919789a9baae9a732fe0ce0052c:1",
+    "82ca854f587af919789a9baae9a732fe0ce0052c:2",
+    "82ca854f587af919789a9baae9a732fe0ce0052c:3",
+    "850bffe0b9db27f52f6f3f0a66eb6df432ce8bcd:0",
+    "850bffe0b9db27f52f6f3f0a66eb6df432ce8bcd:1",
+    "861e04788aae85b54320e5124eb99ccf97049898:0",
+    "890e984174ffd16ac5510ec7fe21263f5ca7c65f:0",
+    "890e984174ffd16ac5510ec7fe21263f5ca7c65f:1",
+    "890e984174ffd16ac5510ec7fe21263f5ca7c65f:2",
+    "890e984174ffd16ac5510ec7fe21263f5ca7c65f:3",
+    "8c842a43e884c5e69032223563649f4389e37dd8:0",
+    "8efb348e2bc820aeba60d4cce6939708c6b2b11c:0",
+    "8efb348e2bc820aeba60d4cce6939708c6b2b11c:1",
+    "8efb348e2bc820aeba60d4cce6939708c6b2b11c:2",
+    "8efb348e2bc820aeba60d4cce6939708c6b2b11c:3",
+    "8f36eab80a6175cad73450d43b7dc5815656a1b6:0",
+    "8f36eab80a6175cad73450d43b7dc5815656a1b6:1",
+    "8f36eab80a6175cad73450d43b7dc5815656a1b6:2",
+    "8f36eab80a6175cad73450d43b7dc5815656a1b6:3",
+    "9330dbad806a1a76e0c514333cf32fce58e72e86:0",
+    "9330dbad806a1a76e0c514333cf32fce58e72e86:1",
+    "9330dbad806a1a76e0c514333cf32fce58e72e86:2",
+    "9330dbad806a1a76e0c514333cf32fce58e72e86:3",
+    "97de2c97275f52adc5c6ef8bb8aa993ce997fe7e:0",
+    "97de2c97275f52adc5c6ef8bb8aa993ce997fe7e:1",
+    "97de2c97275f52adc5c6ef8bb8aa993ce997fe7e:2",
+    "97de2c97275f52adc5c6ef8bb8aa993ce997fe7e:3",
+    "97fde8bf50058c19a77d4de46b9c54b1731b1750:0",
+    "97fde8bf50058c19a77d4de46b9c54b1731b1750:1",
+    "97fde8bf50058c19a77d4de46b9c54b1731b1750:2",
+    "97fde8bf50058c19a77d4de46b9c54b1731b1750:3",
+    "990ca8e664a0610fe0583f3aa8924fd49f928a74:0",
+    "990ca8e664a0610fe0583f3aa8924fd49f928a74:1",
+    "990ca8e664a0610fe0583f3aa8924fd49f928a74:2",
+    "9d8ad23f8d9f80464c6566db449611c9e9d7571a:0",
+    "9e9fe41a53d885d96e43dec7cd9eb69e352f801a:0",
+    "a4763ef93734ccfea497ea10bf0870d588132432:0",
+    "a4763ef93734ccfea497ea10bf0870d588132432:1",
+    "a4763ef93734ccfea497ea10bf0870d588132432:2",
+    "a6fea31dbbb0a753aa47a06fc870d6ef91a3e3da:0",
+    "a6fea31dbbb0a753aa47a06fc870d6ef91a3e3da:1",
+    "a6fea31dbbb0a753aa47a06fc870d6ef91a3e3da:2",
+    "a6fea31dbbb0a753aa47a06fc870d6ef91a3e3da:3",
+    "a825ebd79c124022da43694477e24534c46b4f59:0",
+    "a825ebd79c124022da43694477e24534c46b4f59:1",
+    "a825ebd79c124022da43694477e24534c46b4f59:2",
+    "ab91b5a7440a59daee56d76e102140ac2f3696b5:1",
+    "ab91b5a7440a59daee56d76e102140ac2f3696b5:0",
+    "ac15816133ef12001ebf6d6aecb7a3cf14487761:0",
+    "ab91b5a7440a59daee56d76e102140ac2f3696b5:2",
+    "ac15816133ef12001ebf6d6aecb7a3cf14487761:1",
+    "ac655f8ac8a13cd45ce96bdc296bd857654088f0:0",
+    "acc91bc4f47e38f43277fcdfd8ca855734c4fbbc:0",
+    "acc91bc4f47e38f43277fcdfd8ca855734c4fbbc:1",
+    "acc91bc4f47e38f43277fcdfd8ca855734c4fbbc:3",
+    "af1e8d44d64181484a60dd63044da706bcc13439:0",
+    "af1e8d44d64181484a60dd63044da706bcc13439:1",
+    "af1e8d44d64181484a60dd63044da706bcc13439:2",
+    "af1e8d44d64181484a60dd63044da706bcc13439:3",
+    "af584b212c25f8479dcedf116f5895ee92c71f2c:0",
+    "af584b212c25f8479dcedf116f5895ee92c71f2c:1",
+    "af584b212c25f8479dcedf116f5895ee92c71f2c:2",
+    "b28bc4c6439d7b01c011e72c09d80574fe75b85b:0",
+    "b28bc4c6439d7b01c011e72c09d80574fe75b85b:1",
+    "b28bc4c6439d7b01c011e72c09d80574fe75b85b:2",
+    "b28bc4c6439d7b01c011e72c09d80574fe75b85b:3",
+    "b5280c608574d867e5e76c8f295c99868f18d763:0",
+    "b8a33bf050ce41a398538d03dab6c8450ae76f28:0",
+    "bc16dbf788861266177661b576291a1b264fb5de:0",
+    "bc16dbf788861266177661b576291a1b264fb5de:1",
+    "bc3dd4796f6db8a0fe6ee03872ecebbc0d06a576:0",
+    "bce4ea4ba54e15959cb412d6793634e0c9b24491:0",
+    "bce4ea4ba54e15959cb412d6793634e0c9b24491:1",
+    "bce4ea4ba54e15959cb412d6793634e0c9b24491:2",
+    "bce4ea4ba54e15959cb412d6793634e0c9b24491:3",
+    "bf9da4838986af3bc09a1b16974d154c61dcbe3f:0",
+    "c0092d2242479216ad633e12c87eabe33bacca2d:0",
+    "c0092d2242479216ad633e12c87eabe33bacca2d:1",
+    "c0092d2242479216ad633e12c87eabe33bacca2d:2",
+    "c0092d2242479216ad633e12c87eabe33bacca2d:3",
+    "c01e2b8ed17d3ea65981bc62784363d0e38e3092:0",
+    "c01e2b8ed17d3ea65981bc62784363d0e38e3092:1",
+    "c01e2b8ed17d3ea65981bc62784363d0e38e3092:2",
+    "c01e2b8ed17d3ea65981bc62784363d0e38e3092:3",
+    "c067af761a70a6cbb91fa49083a41511207297da:0",
+    "c067af761a70a6cbb91fa49083a41511207297da:1",
+    "c067af761a70a6cbb91fa49083a41511207297da:2",
+    "c067af761a70a6cbb91fa49083a41511207297da:3",
+    "c0f9c06aa123e75466829bd41985a44a70b6c625:0",
+    "c0f9c06aa123e75466829bd41985a44a70b6c625:1",
+    "c0f9c06aa123e75466829bd41985a44a70b6c625:2",
+    "c0f9c06aa123e75466829bd41985a44a70b6c625:3",
+    "c3687bf1d2d5c175ee50dc083fce5b19de152de0:0",
+    "c3687bf1d2d5c175ee50dc083fce5b19de152de0:1",
+    "c3687bf1d2d5c175ee50dc083fce5b19de152de0:2",
+    "c3687bf1d2d5c175ee50dc083fce5b19de152de0:3",
+    "c3eac6b887ecc2012b28356c229c443a50523f7f:0",
+    "c4542263a96dd067ed1ded12a83553da05bb61dd:0",
+    "c4542263a96dd067ed1ded12a83553da05bb61dd:1",
+    "c4542263a96dd067ed1ded12a83553da05bb61dd:2",
+    "c4542263a96dd067ed1ded12a83553da05bb61dd:3",
+    "c63c70dabd3f86ca68678b4f00951f78f52d0270:0",
+    "c6ef735953c7263e0e1737a1a165f879030998e5:0",
+    "c78265ad51b426ef6c2a9ae39d92c172d30ade82:0",
+    "c77966e092edc9b8835e7327294b9177059fc90e:0",
+    "c9c406bebdf2b027864216fb881278a8bfa14bb8:0",
+    "c9c406bebdf2b027864216fb881278a8bfa14bb8:1",
+    "c9c406bebdf2b027864216fb881278a8bfa14bb8:2",
+    "c9c406bebdf2b027864216fb881278a8bfa14bb8:3",
+    "ca75bab76829009cc9b0bcfa015f6987840598b6:0",
+    "ca75bab76829009cc9b0bcfa015f6987840598b6:1",
+    "ca75bab76829009cc9b0bcfa015f6987840598b6:2",
+    "ca75bab76829009cc9b0bcfa015f6987840598b6:3",
+    "cd5d1888e2009bc4ea17ab1869a36475f1678970:0",
+    "ce152bd7215038f762ee918e6e181a5309ad57c9:0",
+    "ce152bd7215038f762ee918e6e181a5309ad57c9:1",
+    "ce152bd7215038f762ee918e6e181a5309ad57c9:2",
+    "ce152bd7215038f762ee918e6e181a5309ad57c9:3",
+    "cef43dec86d22413d13573f6c58a45565dbe2861:0",
+    "cef43dec86d22413d13573f6c58a45565dbe2861:1",
+    "cef43dec86d22413d13573f6c58a45565dbe2861:2",
+    "cef43dec86d22413d13573f6c58a45565dbe2861:3",
+    "d15f740c4c09f9dcc3f930aa90c92d0654699e6b:0",
+    "d15f740c4c09f9dcc3f930aa90c92d0654699e6b:1",
+    "d15f740c4c09f9dcc3f930aa90c92d0654699e6b:2",
+    "d15f740c4c09f9dcc3f930aa90c92d0654699e6b:3",
+    "d251cb0abc9b0dbda2402d4d831c18718cfb51bf:0",
+    "d251cb0abc9b0dbda2402d4d831c18718cfb51bf:1",
+    "d3530d7fe6141fccb532d1ac211f1c13af6d063b:0",
+    "d3530d7fe6141fccb532d1ac211f1c13af6d063b:1",
+    "d3530d7fe6141fccb532d1ac211f1c13af6d063b:2",
+    "d3530d7fe6141fccb532d1ac211f1c13af6d063b:3",
+    "d3e3852eba45a6f7ce0ae5e02ca49106e228add6:0",
+    "d3e3852eba45a6f7ce0ae5e02ca49106e228add6:1",
+    "d5741a2ca2ebc21d525c903f628b1bebad75b735:0",
+    "d5741a2ca2ebc21d525c903f628b1bebad75b735:1",
+    "d5741a2ca2ebc21d525c903f628b1bebad75b735:2",
+    "d5741a2ca2ebc21d525c903f628b1bebad75b735:3",
+    "d75ea3345b5fe7b4a162f46e98a6170aef77bf28:0",
+    "d75ea3345b5fe7b4a162f46e98a6170aef77bf28:1",
+    "d75ea3345b5fe7b4a162f46e98a6170aef77bf28:2",
+    "d75ea3345b5fe7b4a162f46e98a6170aef77bf28:3",
+    "dcdca58646df51f502dc96274b05cee74b57b545:0",
+    "dcdca58646df51f502dc96274b05cee74b57b545:1",
+    "dcdca58646df51f502dc96274b05cee74b57b545:2",
+    "deb1f0e1d736774ae17ce423ba452de937ffa402:0",
+    "dfb842d95a7c146d8fe8140c8100065410d95c4d:0",
+    "dfb842d95a7c146d8fe8140c8100065410d95c4d:1",
+    "e002dbc40ceb6a7e78dbe5e5868744690ba3120f:0",
+    "e8de91d9955ca5a96cf130f24c113ba904b1e9e9:0",
+    "e8de91d9955ca5a96cf130f24c113ba904b1e9e9:1",
+    "e8de91d9955ca5a96cf130f24c113ba904b1e9e9:2",
+    "e8de91d9955ca5a96cf130f24c113ba904b1e9e9:3",
+    "e934b4191f897df00d0cc0b216ebf5a63c700a9e:0",
+    "e934b4191f897df00d0cc0b216ebf5a63c700a9e:1",
+    "e934b4191f897df00d0cc0b216ebf5a63c700a9e:2",
+    "e934b4191f897df00d0cc0b216ebf5a63c700a9e:3",
+    "ef11be6e49e19a055fe7e5a89f0f1f4062c68dba:0",
+    "ef11be6e49e19a055fe7e5a89f0f1f4062c68dba:1",
+    "ef11be6e49e19a055fe7e5a89f0f1f4062c68dba:3",
+    "ef11be6e49e19a055fe7e5a89f0f1f4062c68dba:2",
+    "f6a681adc13d5961073c00e57044e3855c3b76bd:0",
+    "f6a681adc13d5961073c00e57044e3855c3b76bd:1",
+    "f6a681adc13d5961073c00e57044e3855c3b76bd:2",
+    "f6a681adc13d5961073c00e57044e3855c3b76bd:3",
+    "fb1ca91ab00a2ce12da84addc459e1983aac2fcf:0",
+    "fb1ca91ab00a2ce12da84addc459e1983aac2fcf:1",
+    "ffeddbaf0c8226201136593d29324c951f2b2fa3:0",
+    "ffeddbaf0c8226201136593d29324c951f2b2fa3:1",
+    "ffeddbaf0c8226201136593d29324c951f2b2fa3:2",
+    "ffeddbaf0c8226201136593d29324c951f2b2fa3:3"
+  ],
+  "environments": {
+    "venv-0": {
+      "pytest": "8.3.4",
+      "python": "3.13.18"
+    },
+    "venv-1": {
+      "pytest": "8.3.4",
+      "python": "3.13.18"
+    }
+  },
+  "failure": null,
+  "interrupted": false,
+  "kill_by_operator": {
+    "arith_flip": 8,
+    "bool_flip": 34,
+    "cmp_flip": 4,
+    "const_pm1": 29,
+    "drop_call": 15,
+    "eq_flip": 19,
+    "not_wrap": 108,
+    "return_none": 43
+  },
+  "kill_rate_by_operator": {
+    "arith_flip": 0.8,
+    "bool_flip": 0.7083333333333334,
+    "cmp_flip": 0.6666666666666666,
+    "const_pm1": 0.6170212765957447,
+    "drop_call": 0.5357142857142857,
+    "eq_flip": 0.76,
+    "not_wrap": 0.8244274809160306,
+    "return_none": 0.6825396825396826
+  },
+  "n_collect_git_failed": 0,
+  "n_collect_junit_failed": 0,
+  "n_collection_error": 7,
+  "n_commits_sampled": 211,
+  "n_eligible_C": 211,
+  "n_equivalent": 81,
+  "n_flaky_rerun": 0,
+  "n_high_fail_rate": 17,
+  "n_invalid": 60,
+  "n_killed": 260,
+  "n_mutants_attempted": 358,
+  "n_skipped_completed": 0,
+  "n_timeout": 10
+}
+2026-11-26T21:05:33.995928Z  WARN testpilot_core::features::dump: skip mutant: collection_error mutant=3332b6d1271b37177fe7b3996de5df6e2c54dcc3 n_results=1 n_parent=579
+2026-11-26T21:05:35.934409Z  WARN testpilot_core::features::dump: skip mutant: collection_error mutant=4d4d4a303ab74e8f315f7eaa71e781aa8aea3157 n_results=1 n_parent=579
+2026-11-26T21:32:04.460698Z  WARN testpilot_core::features::dump: skip mutant: collection_error mutant=c416c54bbfc39e8edda4b4d9c0a89eb5338d1fe7 n_results=2 n_parent=598
+2026-11-26T21:32:06.642398Z  WARN testpilot_core::features::dump: skip mutant: collection_error mutant=53f01e33ddfea66b5cb6f243c3528a06bb13004d n_results=2 n_parent=598
+2026-11-26T21:35:28.841986Z  WARN testpilot_core::features::dump: skip mutant: collection_error mutant=9c5bad5e75430100895cd61bada1178f2490422c n_results=1 n_parent=507
+2026-11-26T21:35:30.178615Z  WARN testpilot_core::features::dump: skip mutant: collection_error mutant=b34441c6e058728b94c37272e43a57439c6dfaba n_results=1 n_parent=507
+2026-11-26T21:35:31.561986Z  WARN testpilot_core::features::dump: skip mutant: collection_error mutant=73819015332ece522098822c0da47b8f801d0897 n_results=1 n_parent=507
+features_dump: $WORKTREE/.cache/measurements/week7/test-width/run-n400-py313b/out/click/pairs.parquet
+{
+  "status": "data_insufficient",
+  "out": "$WORKTREE/.cache/measurements/week7/test-width/run-n400-py313b/out/click",
+  "ranker": "cov_lines",
+  "bootstrap": {
+    "verdict": "use_baseline",
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "insufficient_test_C"
+  }
+}
+train: $WORKTREE/.cache/measurements/week7/test-width/run-n400-py313b/out/click/model.json
+gate: verdict=use_baseline ranker=cov_lines reason=insufficient_test_C
+bootstrap.verdict=use_baseline ranker=cov_lines
+finalize: $WORKTREE/.cache/measurements/week7/test-width/run-n400-py313b/out/click/bootstrap_report.json
+bootstrap complete at $WORKTREE/.cache/measurements/week7/test-width/repos-py313/click/.testpilot/bootstrap/state.json (model $WORKTREE/.cache/measurements/week7/test-width/run-n400-py313b/out/click)

@@ -1,0 +1,264 @@
+{
+  "backfill_s_per_commit": 4.1148363934375,
+  "backfill_s_per_commit_reason": null,
+  "bootstrap": {
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "insufficient_test_C",
+    "verdict": "use_baseline"
+  },
+  "diagnostics": {
+    "always_broken_tests": [],
+    "exclude_high_fail_rate": true,
+    "fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 84
+        },
+        {
+          "bin": "[1,2)",
+          "count": 101
+        },
+        {
+          "bin": "[2,5)",
+          "count": 365
+        },
+        {
+          "bin": "[5,10)",
+          "count": 71
+        },
+        {
+          "bin": "[10,20)",
+          "count": 42
+        },
+        {
+          "bin": "[20,50)",
+          "count": 37
+        },
+        {
+          "bin": "[50,100)",
+          "count": 18
+        },
+        {
+          "bin": "100+",
+          "count": 13
+        }
+      ],
+      "max": 279,
+      "min": 0,
+      "p50": 4.0,
+      "p90": 17.0
+    },
+    "fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 84
+        },
+        {
+          "bin": "[1,2)",
+          "count": 101
+        },
+        {
+          "bin": "[2,5)",
+          "count": 365
+        },
+        {
+          "bin": "[5,10)",
+          "count": 71
+        },
+        {
+          "bin": "[10,20)",
+          "count": 42
+        },
+        {
+          "bin": "[20,50)",
+          "count": 37
+        },
+        {
+          "bin": "[50,100)",
+          "count": 18
+        },
+        {
+          "bin": "100+",
+          "count": 23
+        }
+      ],
+      "max": 338,
+      "min": 0,
+      "p50": 4.0,
+      "p90": 21.0
+    },
+    "fail_per_change_mean": 10.488372093023257,
+    "fail_per_change_mean_including_high_fail": 13.456140350877194,
+    "mutant_test_distinct_base_change": 9,
+    "mutant_test_new_fail_changes": 18,
+    "n_always_broken_tests": 0,
+    "n_changes": 731,
+    "n_changes_with_new_fail": 250,
+    "n_flaky": 284,
+    "n_high_fail_rate_changes": 10,
+    "n_label1": 7667,
+    "n_orphan_vs_parent": 4,
+    "n_persistent": 1787,
+    "n_persistent_among_label1": 1784,
+    "n_rows_parent_missing": 301,
+    "new_fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 481
+        },
+        {
+          "bin": "[1,2)",
+          "count": 48
+        },
+        {
+          "bin": "[2,5)",
+          "count": 67
+        },
+        {
+          "bin": "[5,10)",
+          "count": 42
+        },
+        {
+          "bin": "[10,20)",
+          "count": 30
+        },
+        {
+          "bin": "[20,50)",
+          "count": 34
+        },
+        {
+          "bin": "[50,100)",
+          "count": 16
+        },
+        {
+          "bin": "100+",
+          "count": 13
+        }
+      ],
+      "max": 275,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 14.0
+    },
+    "new_fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 481
+        },
+        {
+          "bin": "[1,2)",
+          "count": 48
+        },
+        {
+          "bin": "[2,5)",
+          "count": 67
+        },
+        {
+          "bin": "[5,10)",
+          "count": 42
+        },
+        {
+          "bin": "[10,20)",
+          "count": 30
+        },
+        {
+          "bin": "[20,50)",
+          "count": 34
+        },
+        {
+          "bin": "[50,100)",
+          "count": 16
+        },
+        {
+          "bin": "100+",
+          "count": 23
+        }
+      ],
+      "max": 338,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 18.0
+    },
+    "new_fail_per_change_mean": 8.042407660738714,
+    "new_fail_per_change_mean_including_high_fail": 11.039136302294198,
+    "persistent_share_among_label1": 0.23268553541150383
+  },
+  "fingerprint": {
+    "B_override": null,
+    "B_policy": "cold_last_max_N_20_fp_then_sample",
+    "K": 4,
+    "N": 400,
+    "bin_version": "0.1.0 (b9433610fc61)",
+    "head_sha": "934813e4d421071a1b3db3973c02fe2721359a6e",
+    "schema_sql_sha256": "72ab32cb61d6e460419e4d46bd3b8fe2032e01f8c6f76ce6ba4bb2db675a9b32",
+    "schema_version": 7,
+    "seed": 42
+  },
+  "jobs": 2,
+  "mutate_completed_pairs": 348,
+  "mutate_counters_scope": "last_successful_invocation",
+  "mutate_environments": {
+    "venv-0": {
+      "pytest": "8.3.4",
+      "python": "3.13.18"
+    },
+    "venv-1": {
+      "pytest": "8.3.4",
+      "python": "3.13.18"
+    }
+  },
+  "mutate_s_per_mutant": 3.384868259893855,
+  "mutate_s_per_mutant_reason": null,
+  "mutate_skip_reason": null,
+  "n_actual": 211,
+  "n_backfill_new": 400,
+  "n_backfill_reused": 0,
+  "n_backfill_unavailable": 0,
+  "n_eligible": 211,
+  "n_mutants_attempted": 358,
+  "n_timeout": 10,
+  "out": ".cache/measurements/week7/test-width/run-n400-py313b/out/click",
+  "paired_delta_ci_synthetic_test_cov_lines": {
+    "ci95": [
+      -0.0015615874778204771,
+      0.0896320507824685
+    ],
+    "mean": 0.035623125696590555,
+    "n": 18,
+    "n_C": 9,
+    "n_mutants": 18
+  },
+  "ranker": "cov_lines",
+  "repo": ".cache/measurements/week7/test-width/repos-py313/click",
+  "seed": 42,
+  "status": "data_insufficient",
+  "step_timings_s": {
+    "backfill": 1645.934557375,
+    "cleanup": 0.019445,
+    "collect_git": 1.945496042,
+    "features_dump": 600.421960541,
+    "finalize": 2.08e-7,
+    "gate": 0.000135334,
+    "init": 0.011329833,
+    "mutate": 1211.782837042,
+    "train": 13.979916708
+  },
+  "steps": {
+    "backfill": "done",
+    "cleanup": "done",
+    "collect_git": "done",
+    "features_dump": "done",
+    "finalize": "done",
+    "gate": "done",
+    "init": "done",
+    "mutate": "done",
+    "train": "done"
+  },
+  "steps_resumed": [],
+  "timeout_rate": 0.027932960893854747,
+  "train_threads": 1
+}

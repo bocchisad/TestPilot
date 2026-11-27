@@ -209,7 +209,7 @@
 
 **Acceptance:** Every comparison names source arm, fold, real/synthetic subset, and counts; the success gate is computed only on real held-out TEST; `partial=1` is absent; default remains `cov_lines` unless all three real-only conditions pass.
 
-## Deferred Task 1: Reach sufficient synthetic TEST width (only after Task 2A if time remains)
+## Task 1: Reach sufficient synthetic TEST width (N=400 click/attrs attempted; target missed)
 
 **Files:**
 - Modify: `scripts/measure_bootstrap_w6.sh` or add a Week 7 measurement command wrapper with `N`, repo subset, and pins as explicit arguments.
@@ -227,10 +227,12 @@
 - [ ] Screen `pluggy`, `packaging`, and `iniconfig` at exact pins for Python 3.13, pytest default-suite command, no network/service use, and plausible history/test count; reject candidates that fail any condition.
 - [ ] Only if time remains after Task 2A, present exact pins, commands, and calibrated dry-run estimates for variants A/B/C from the spec. Ask the user to choose only after this evidence is reviewable.
 - [ ] No measurement run is authorized in advance. After the user chooses a variant, provide commands and estimates and wait for explicit OK before starting any run; runs expected to take more than 30 minutes always require explicit OK.
-- [ ] User runs selected full measurements. After each finishes, import only complete (`partial=0`) outputs, calculate `n_C` per repo, and report whether it reached 10. If it did not, stop and provide a new estimate before suggesting another N.
-- [ ] Commit runner/tests separately from generated measurement results; attach pinned outputs and command logs.
+- [x] After explicit user approval, run the selected full measurements. Import only complete (`partial=0`) outputs, calculate `n_C` per repo, and report whether it reached 10. click `n_C=9`; attrs `n_C=6`; both miss the target. Stop before another N or repository run and provide a new estimate first. See `docs/measurements/week7/test-width/test-width-report.md`.
+- [x] Keep the runner/code commits separate from generated results; attach copied pinned JSON outputs and sanitized completion logs under `docs/measurements/week7/test-width/`.
 
 **Acceptance:** Each chosen repo has `n_C ≥ 10` in synthetic TEST, or the report explicitly says target not reached and leaves `cov_lines` default; no long measurement starts without user OK.
+
+**Current status:** The chosen click/attrs `N=400` run satisfies the reporting branch of acceptance but does not provide sufficient TEST width. A new dry-run estimate and explicit user OK are required before any follow-up full run. The fourth-repository candidates have not been pinned or screened in this task.
 
 ## Task 3: Conditional `select --explain`
 
