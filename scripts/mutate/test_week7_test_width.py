@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -55,9 +56,7 @@ def test_measurement_python_must_be_313_and_is_first_on_path():
     env = build_measurement_env({"PATH": "/usr/bin"}, python)
     assert env["PATH"].split(":")[0] == "/opt/testpilot-py313/bin"
     assert env["TESTPILOT_MEASURE_PYTHON"] == str(python)
-    assert verify_measurement_python(
-        Path(".cache/week7-train-env/bin/python").resolve()
-    ).startswith("3.13.")
+    assert verify_measurement_python(Path(sys.executable)).startswith("3.13.")
 
 
 def test_measurement_python_path_preserves_virtualenv_symlink(tmp_path):
