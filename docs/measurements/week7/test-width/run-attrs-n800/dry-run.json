@@ -1,0 +1,48 @@
+{
+  "binary": "target/release/testpilot",
+  "binary_version": "testpilot 0.1.0 (3409041717c2)",
+  "branch_head": "3409041717c2a09c16213d53c2927ed61a762773",
+  "created_at_utc": "2026-11-27T20:50:49.211584+00:00",
+  "estimated_total_seconds": 21127.906,
+  "jobs": 2,
+  "k": 4,
+  "measurement_provenance": "measurement-provenance.json",
+  "measurement_python": ".cache/week7-train-env/bin/python",
+  "measurement_python_version": "3.13.18",
+  "mode": "dry-run",
+  "n": 800,
+  "note": "Dry runs only. They do not start mutation/test runs or write bootstrap outputs.",
+  "seed": 42,
+  "suite_estimates": [
+    {
+      "command": [
+        "$REPO_ROOT/target/release/testpilot",
+        "bootstrap",
+        "--repo",
+        "$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs",
+        "--out",
+        "$REPO_ROOT/.cache/measurements/week7/test-width/run-retry2-attrs-n800/out/attrs",
+        "--max-commits",
+        "800",
+        "--mutants-per-commit",
+        "4",
+        "--jobs",
+        "2",
+        "--seed",
+        "42",
+        "--suite",
+        "attrs",
+        "--train-threads",
+        "1",
+        "--dry-run"
+      ],
+      "estimate_seconds": 21127.906,
+      "log": "logs/attrs-dry-run.txt",
+      "pin": "598494a618410490cfbe0c896b7a544f6d23e0d9",
+      "suite": "attrs"
+    }
+  ],
+  "suites": [
+    "attrs"
+  ]
+}
