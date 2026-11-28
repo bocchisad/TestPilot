@@ -120,6 +120,9 @@ enum Commands {
         format: String,
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Add top feature contributions to JSON output and explanations to human-readable output.
+        #[arg(long, default_value_t = false)]
+        explain: bool,
         #[arg(long, group = "budget")]
         budget_frac: Option<f64>,
         #[arg(long = "max-tests", group = "budget")]
@@ -443,6 +446,7 @@ fn run() -> Result<()> {
             model,
             format,
             repo,
+            explain,
             budget_frac,
             max_tests,
             time_budget,
@@ -489,7 +493,7 @@ fn run() -> Result<()> {
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_else(|| ".".into());
             let booster = load_model_dir(&model).context("load model")?;
-            let out = select::run_select(
+            let out = select::run_select_with_explain(
                 &grepo,
                 Some(&grepo),
                 &store,
@@ -502,10 +506,18 @@ fn run() -> Result<()> {
                 worktree_mode,
                 &budget,
                 &safe_opts,
+                explain,
             )
             .context("select")?;
             for w in &out.stderr_warnings {
                 eprintln!("{w}");
+            }
+            if explain && format == "lines" {
+                for test in &out.payload.tests {
+                    if let Some(explanation) = &test.explanation {
+                        eprintln!("{}: {}", test.test_id, explanation.summary);
+                    }
+                }
             }
             let text = match format.as_str() {
                 "json" => serde_json::to_string_pretty(&out.payload)?,

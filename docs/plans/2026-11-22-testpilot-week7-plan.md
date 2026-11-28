@@ -242,15 +242,16 @@
 **Files:**
 - Modify: `crates/testpilot-cli/src/main.rs`, select JSON serializer/schema, and client documentation
 - Modify: `crates/testpilot-core/src/lgbm/` only to expose `pred_contrib` safely
-- Tests: `crates/testpilot-cli/tests/` select JSON compatibility and explain output tests; core contribution tests
+- Tests: Rust select JSON compatibility and explain output tests; LightGBM contribution parity oracle
 
-**Estimate:** 1–2 engineering days, only after tasks 0–2 are complete and the user confirms time remains.
+**Estimate:** 1–2 engineering days, only after tasks 0–2 are complete and the user confirms time remains. User confirmed on 2026-11-28 after the completed stages.
 
-- [ ] Add a version+1 schema test that old JSON consumers still accept and new output includes at most three contributions.
-- [ ] Add a model explanation test asserting top-3 contributions sum consistently with raw model score within LightGBM tolerance.
-- [ ] Add `ranker=cov_lines` explanation test with exact phrase “covers N changed lines”.
-- [ ] Assert no output labels a raw score as a probability.
-- [ ] Implement only if condition is met; otherwise record `not done: stages 0–2 consumed available time` in the final report.
+- [x] Add a version+1 `schema_version: 2` test; legacy JSON keys remain readable and new output includes at most three contributions.
+- [x] Add a LightGBM 4.5.0 oracle parity test for TreeSHAP contributions and assert top-three plus baseline/residual reconstruct raw score within `1e-6`.
+- [x] Add `ranker=cov_lines` explanation test with exact wording `covers N changed lines`.
+- [x] Assert serialized output never labels raw scores as probabilities; document raw-margin semantics.
+- [x] Add `select --explain`, table/JSON output, and stderr explanations for lines mode; document the additive schema and compatibility behavior in README.
+- [x] Independent read-only Task 3 review: no blockers; reviewer confirmed TreeSHAP oracle/additivity, v2 additive JSON compatibility, selected-only explain calculation, `cov_lines` wording, stdout/stderr behavior, and no probability label.
 
 ## Closure record — final local review
 

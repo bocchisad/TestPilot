@@ -12,10 +12,11 @@ use crate::features::model_vec::model_feature_vector;
 use crate::features::python_scan::{DefSpan, ScanResult, scan_python};
 use crate::features::schema::FEATURES_VERSION;
 use crate::git::{DiffHunk, GitRepo, GixRepo, Sha};
-use crate::lgbm::{Booster, Ranker, predict_raw};
+use crate::lgbm::{Booster, Ranker, predict_contrib, predict_raw};
 use crate::store::{Store, TestResultRow};
 
 const BASE_RUN_LAG_WARN: i64 = 20;
+pub const SELECT_SCHEMA_VERSION: u32 = 2;
 
 /// Per-test reason precedence: fallback_all > new_or_changed > recent_fail > flaky > covered > ranked.
 #[derive(Debug, Clone)]
@@ -103,6 +104,27 @@ pub struct SelectedTestJson {
     pub rank: u32,
     pub dur: i64,
     pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<SelectExplanationJson>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FeatureContributionJson {
+    pub feature: String,
+    pub contribution: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SelectExplanationJson {
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub other_features_contribution: Option<f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_contributions: Vec<FeatureContributionJson>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,6 +138,7 @@ pub struct BootstrapSelectJson {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SelectJson {
+    pub schema_version: u32,
     pub model_sha256: String,
     pub features_version: u32,
     /// `model` (LightGBM) or `cov_lines` (R10 baseline). Legacy models omit → treat as model.
@@ -202,10 +225,14 @@ pub fn format_lines(tests: &[SelectedTestJson]) -> String {
 pub fn format_table(tests: &[SelectedTestJson]) -> String {
     let mut lines = vec!["rank score dur reason test_id".to_string()];
     for t in tests {
-        lines.push(format!(
+        let mut line = format!(
             "{} {:.6} {} {} {}",
             t.rank, t.score, t.dur, t.reason, t.test_id
-        ));
+        );
+        if let Some(explanation) = &t.explanation {
+            line.push_str(&format!("  explanation: {}", explanation.summary));
+        }
+        lines.push(line);
     }
     lines.join("\n")
 }
@@ -224,6 +251,28 @@ pub fn run_select<R: GitRepo>(
     worktree: bool,
     budget: &Budget,
     safe: &SafeOpts,
+) -> Result<SelectOutput> {
+    run_select_with_explain(
+        repo, gix, store, repo_name, booster, base, head, head_label, hunks, worktree, budget,
+        safe, false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_select_with_explain<R: GitRepo>(
+    repo: &R,
+    gix: Option<&GixRepo>,
+    store: &Store,
+    repo_name: &str,
+    booster: &Booster,
+    base: &Sha,
+    head: &Sha,
+    head_label: &str,
+    hunks: &[DiffHunk],
+    worktree: bool,
+    budget: &Budget,
+    safe: &SafeOpts,
+    explain: bool,
 ) -> Result<SelectOutput> {
     let mut stderr_warnings = Vec::new();
     if booster.meta.synthetic_only_warning {
@@ -245,6 +294,7 @@ pub fn run_select<R: GitRepo>(
     if hunks.is_empty() {
         stderr_warnings.push("warning: empty diff; selecting 0 tests".into());
         let payload = SelectJson {
+            schema_version: SELECT_SCHEMA_VERSION,
             model_sha256: booster.meta.model_sha256.clone(),
             features_version: FEATURES_VERSION,
             ranker: ranker_s,
@@ -361,11 +411,16 @@ pub fn run_select<R: GitRepo>(
 
     let mut scored: Vec<ScoredCandidate> = Vec::with_capacity(rows.len());
     for row in rows {
+        let mut model_features = None;
         let (score, cov_lines, cov_func) = match booster.meta.ranker {
             Ranker::CovLines => (row.cov_lines as f64, row.cov_lines, row.cov_func),
             Ranker::Model => {
                 let feats = model_feature_vector(&row);
-                (predict_raw(booster, &feats)?, row.cov_lines, row.cov_func)
+                let score = predict_raw(booster, &feats)?;
+                if explain {
+                    model_features = Some(feats);
+                }
+                (score, row.cov_lines, row.cov_func)
             }
         };
         scored.push(ScoredCandidate {
@@ -375,6 +430,7 @@ pub fn run_select<R: GitRepo>(
             cov_func,
             dur: row.dur,
             forced: forced.get(&row.test).copied().unwrap_or(false),
+            model_features,
         });
     }
 
@@ -490,15 +546,21 @@ pub fn run_select<R: GitRepo>(
             } else {
                 SelectReason::Ranked
             };
-            SelectedTestJson {
+            let explanation = if explain {
+                Some(explain_candidate(booster, t)?)
+            } else {
+                None
+            };
+            Ok(SelectedTestJson {
                 test_id: t.test_id.clone(),
                 score: t.score,
                 rank: (i + 1) as u32,
                 dur: t.dur,
                 reason: reason.as_str().to_string(),
-            }
+                explanation,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let n_ranked = if fallback_all {
         0
@@ -510,6 +572,7 @@ pub fn run_select<R: GitRepo>(
     };
 
     let payload = SelectJson {
+        schema_version: SELECT_SCHEMA_VERSION,
         model_sha256: booster.meta.model_sha256.clone(),
         features_version: FEATURES_VERSION,
         ranker: ranker_s,
@@ -541,6 +604,70 @@ struct ScoredCandidate {
     cov_func: i64,
     dur: i64,
     forced: bool,
+    model_features: Option<Vec<f64>>,
+}
+
+fn explain_candidate(
+    booster: &Booster,
+    candidate: &ScoredCandidate,
+) -> Result<SelectExplanationJson> {
+    if booster.meta.ranker == Ranker::CovLines {
+        return Ok(SelectExplanationJson {
+            summary: format!("covers {} changed lines", candidate.cov_lines),
+            raw_score: None,
+            base_value: None,
+            other_features_contribution: None,
+            top_contributions: Vec::new(),
+        });
+    }
+
+    let features = candidate.model_features.as_deref().ok_or_else(|| {
+        Error::Other("selected candidate is missing feature values for explanation".into())
+    })?;
+    let predictions = predict_contrib(booster, features)?;
+    let raw_score: f64 = predictions.bias + predictions.feature_contributions.iter().sum::<f64>();
+    if (raw_score - candidate.score).abs() > 1e-6 {
+        return Err(Error::Other(format!(
+            "explanation contributions do not reconstruct raw score: {} vs {}",
+            raw_score, candidate.score
+        )));
+    }
+    let mut order: Vec<usize> = (0..predictions.feature_contributions.len()).collect();
+    order.sort_by(|a, b| {
+        predictions.feature_contributions[*b]
+            .abs()
+            .total_cmp(&predictions.feature_contributions[*a].abs())
+            .then_with(|| a.cmp(b))
+    });
+    order.truncate(3);
+    let top_contributions: Vec<FeatureContributionJson> = order
+        .iter()
+        .map(|index| FeatureContributionJson {
+            feature: booster.feature_names[*index].clone(),
+            contribution: predictions.feature_contributions[*index],
+        })
+        .collect();
+    let top_sum: f64 = order
+        .iter()
+        .map(|index| predictions.feature_contributions[*index])
+        .sum();
+    let other_features_contribution =
+        predictions.feature_contributions.iter().sum::<f64>() - top_sum;
+    let summary = format!(
+        "top feature contributions: {}",
+        top_contributions
+            .iter()
+            .map(|item| format!("{} {:+.6}", item.feature, item.contribution))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    Ok(SelectExplanationJson {
+        summary,
+        raw_score: Some(candidate.score),
+        base_value: Some(predictions.bias),
+        other_features_contribution: Some(other_features_contribution),
+        top_contributions,
+    })
 }
 
 fn synthetic_pass(test_id: &str) -> TestResultRow {
@@ -1107,6 +1234,7 @@ mod tests {
             cov_func: 0,
             dur,
             forced,
+            model_features: None,
         }
     }
 

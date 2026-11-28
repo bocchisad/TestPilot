@@ -160,7 +160,9 @@ Budget curve в `docs/measurements/week7/`: recall@10/20/30 и фактичес�
 
 ## Этап 3 — `select --explain` (условно)
 
-Только когда этапы 0–2 закрыты и осталось время. `select` добавляет к JSON top-3 feature contribution через LightGBM `pred_contrib`, версию schema увеличить ровно на 1, старые клиенты оставить совместимыми; человекочитаемый вывод использует те же contributions. Для `ranker=cov_lines` текст — «покрывает N изменённых строк». Score нигде не называть вероятностью.
+Только после закрытия этапов 0–2 и подтверждения пользователя. `select --explain` добавляет к JSON top-3 feature contribution через LightGBM `pred_contrib`, повышает `schema_version` с неявного v1 до 2 и сохраняет прежние ключи для старых клиентов; человекочитаемый вывод использует те же contributions. Для `ranker=cov_lines` текст — `covers N changed lines`. Score нигде не называть вероятностью.
+
+**Результат:** реализовано по отдельному разрешению пользователя от 2026-11-28. Для model ranker JSON включает raw score, baseline value, три крупнейших по абсолютному значению TreeSHAP-вклада и остаток остальных признаков; baseline + top 3 + residual восстанавливают raw score. В `lines` nodeid остаётся единственным stdout-значением, объяснение выводится в stderr. README документирует additive schema и raw-margin semantics. TreeSHAP сверяется с сохранённым oracle LightGBM 4.5.0.
 
 ## Подходы
 
@@ -194,4 +196,4 @@ Budget curve в `docs/measurements/week7/`: recall@10/20/30 и фактичес�
 
 Ни в одном строгом chronological real validation fold не было positive changes. Поэтому tuning использовал chronological validation pool из train-репозиториев с synthetic positives; `real_only` обучался только на real rows, validation оставался mixed. Это методологическое отклонение ограничивает интерпретацию. В реализации paired CI кластеризуется по `base_change`: в основной выборке 24 изменения образуют 22 кластера (две пары имеют одинаковый base). Семантически коррелированные attrs #1533/#1554 и click #765/#849 имеют разные base и не объединены; это ограничение может занижать неопределённость. Paired mean взвешен изменениями, в отличие от равновесного по репозиториям LORO macro recall.
 
-Осталось: закончить локальные проверки и независимое ревью итоговых отчётов, затем оформить stage commit/PR в `feat/week7`. Task 1 (рост synthetic TEST) и Task 3 (`select --explain`) не начинались; для Task 1 пользователь ранее не давал разрешения на сами прогоны, поэтому сначала следует показать точную оценку/команду и получить отдельный OK на выбранный запуск. `main` не изменять.
+Этапы 0–2, Task 1 по ширине и условный Task 3 закрыты. Task 3 завершён после отдельного разрешения пользователя; локальные Rust tests, fmt и clippy зафиксированы в `docs/measurements/week7/summary.md`. `main` не изменять.
