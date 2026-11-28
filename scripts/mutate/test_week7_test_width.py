@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 import run_week7_test_width as width_runner
 from run_week7_test_width import (
+    _validate_full_run_plan,
     build_bootstrap_command,
     build_measurement_env,
     measurement_python_path,
@@ -137,7 +138,10 @@ def test_dry_run_never_enters_full_measurement_path(tmp_path, monkeypatch):
 
     def provenance(command, **_kwargs):
         output = Path(command[command.index("--out") + 1])
-        output.write_text("{}\n", encoding="utf-8")
+        output.write_text(
+            '{"binary_sha256":"hash","bin_version":"testpilot 0.1.0", "scripts":[]}\n',
+            encoding="utf-8",
+        )
         return SimpleNamespace(returncode=0)
 
     calls = []
@@ -204,3 +208,66 @@ def test_full_run_refuses_existing_suite_output_directory(tmp_path, monkeypatch)
 
     with pytest.raises(ValueError, match="refusing to overwrite existing output"):
         width_runner.run(args)
+
+
+def test_full_run_requires_exact_dry_run_settings_binary_and_script_snapshot():
+    planned = {
+        "n": 10,
+        "k": 1,
+        "jobs": 1,
+        "seed": 42,
+        "suites": ["click"],
+        "measurement_python_version": "3.13.0",
+        "binary_version": "testpilot 0.1.0",
+    }
+    manifest = {
+        "binary_sha256": "binary-a",
+        "bin_version": "testpilot 0.1.0",
+        "scripts": [
+            {
+                "path": "scripts/run_week7_test_width.py",
+                "worktree_blob_sha1": "width-a",
+                "dirty": False,
+            },
+            {
+                "path": "scripts/backfill.py",
+                "worktree_blob_sha1": "backfill-a",
+                "dirty": False,
+            },
+        ],
+    }
+    params = {"n": 10, "k": 1, "jobs": 1, "seed": 42, "suites": ["click"]}
+
+    assert (
+        _validate_full_run_plan(planned, params, "3.13.0", manifest, manifest) is None
+    )
+    with pytest.raises(ValueError, match="jobs"):
+        _validate_full_run_plan(
+            planned, {**params, "jobs": 2}, "3.13.0", manifest, manifest
+        )
+    with pytest.raises(ValueError, match="seed"):
+        _validate_full_run_plan(
+            planned, {**params, "seed": 7}, "3.13.0", manifest, manifest
+        )
+    with pytest.raises(ValueError, match="binary SHA256"):
+        _validate_full_run_plan(
+            planned,
+            params,
+            "3.13.0",
+            manifest,
+            {**manifest, "binary_sha256": "binary-b"},
+        )
+    with pytest.raises(ValueError, match="scripts/run_week7_test_width.py"):
+        _validate_full_run_plan(
+            planned,
+            params,
+            "3.13.0",
+            manifest,
+            {
+                **manifest,
+                "scripts": [
+                    {**manifest["scripts"][0], "worktree_blob_sha1": "changed"},
+                    manifest["scripts"][1],
+                ],
+            },
+        )

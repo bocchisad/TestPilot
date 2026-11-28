@@ -94,6 +94,61 @@ def parse_total_seconds(stdout: str) -> float:
     return float(match.group(1))
 
 
+def _script_signature(manifest: dict[str, Any]) -> tuple[tuple[str, str, bool], ...]:
+    return tuple(
+        sorted(
+            (
+                str(row["path"]),
+                str(row["worktree_blob_sha1"]),
+                bool(row["dirty"]),
+            )
+            for row in manifest.get("scripts", [])
+        )
+    )
+
+
+def _validate_full_run_plan(
+    planned: dict[str, Any],
+    parameters: dict[str, Any],
+    python_version: str,
+    planned_provenance: dict[str, Any],
+    current_provenance: dict[str, Any],
+) -> None:
+    for name in ("n", "k", "jobs", "seed", "suites"):
+        if planned.get(name) != parameters.get(name):
+            raise ValueError(f"full-run {name} does not match the saved dry run")
+    if planned.get("measurement_python_version") != python_version:
+        raise ValueError("full-run Python version does not match the saved dry run")
+    if planned.get("binary_version") != current_provenance.get("bin_version"):
+        raise ValueError("full-run binary version does not match the saved dry run")
+    if planned_provenance.get("binary_sha256") != current_provenance.get("binary_sha256"):
+        raise ValueError("full-run binary SHA256 does not match the saved dry run")
+    if _script_signature(planned_provenance) != _script_signature(current_provenance):
+        before = {row[0]: row[1:] for row in _script_signature(planned_provenance)}
+        after = {row[0]: row[1:] for row in _script_signature(current_provenance)}
+        changed = sorted(
+            path for path in set(before) | set(after) if before.get(path) != after.get(path)
+        )
+        raise ValueError(f"full-run script provenance changed: {', '.join(changed)}")
+
+
+def _capture_provenance(
+    binary: Path, out_path: Path, env: dict[str, str]
+) -> dict[str, Any]:
+    command = [
+        sys.executable,
+        str(ROOT / "scripts/measurement_provenance.py"),
+        "--root",
+        str(ROOT),
+        "--bin",
+        str(binary),
+        "--out",
+        str(out_path),
+    ]
+    subprocess.run(command, cwd=ROOT, env=env, check=True)
+    return json.loads(out_path.read_text(encoding="utf-8"))
+
+
 def verify_measurement_python(python: Path) -> str:
     if not python.is_file() or not os.access(python, os.X_OK):
         raise ValueError(f"measurement Python is not executable: {python}")
@@ -211,8 +266,13 @@ def run(args: argparse.Namespace) -> int:
         if not dry_run_path.is_file():
             raise ValueError("full mode requires a successful dry-run.json in the same run-dir")
         planned = json.loads(dry_run_path.read_text(encoding="utf-8"))
-        if planned["n"] != args.n or planned["k"] != args.k or planned["suites"] != list(suites):
-            raise ValueError("full-run parameters do not match the saved dry run")
+        parameters = {
+            "n": args.n,
+            "k": args.k,
+            "jobs": args.jobs,
+            "seed": args.seed,
+            "suites": list(suites),
+        }
         for suite in suites:
             out = run_dir / "out" / suite
             if out.exists():
@@ -227,17 +287,7 @@ def run(args: argparse.Namespace) -> int:
 
     if args.mode == "dry-run":
         provenance = run_dir / "measurement-provenance.json"
-        provenance_command = [
-            sys.executable,
-            str(ROOT / "scripts/measurement_provenance.py"),
-            "--root",
-            str(ROOT),
-            "--bin",
-            str(binary),
-            "--out",
-            str(provenance),
-        ]
-        subprocess.run(provenance_command, cwd=ROOT, env=env, check=True)
+        dry_provenance = _capture_provenance(binary, provenance, env)
         entries = []
         total_s = 0.0
         for suite in suites:
@@ -272,6 +322,7 @@ def run(args: argparse.Namespace) -> int:
             "branch_head": _git(ROOT, "rev-parse", "HEAD"),
             "binary": str(binary.relative_to(ROOT)),
             "binary_version": subprocess.check_output([str(binary), "--version"], text=True).strip(),
+            "binary_sha256": dry_provenance["binary_sha256"],
             "measurement_python": str(python.relative_to(ROOT)),
             "measurement_python_version": python_version,
             "n": args.n,
@@ -289,6 +340,24 @@ def run(args: argparse.Namespace) -> int:
         print(f"dry_run_report={dry_run_path.relative_to(ROOT)}")
         return 0
 
+    planned_provenance_path = run_dir / planned.get(
+        "measurement_provenance", "measurement-provenance.json"
+    )
+    if not planned_provenance_path.is_file():
+        raise ValueError("saved dry-run provenance is missing")
+    planned_provenance = json.loads(
+        planned_provenance_path.read_text(encoding="utf-8")
+    )
+    full_provenance_path = run_dir / "full-run-provenance.json"
+    full_provenance = _capture_provenance(binary, full_provenance_path, env)
+    _validate_full_run_plan(
+        planned,
+        parameters,
+        python_version,
+        planned_provenance,
+        full_provenance,
+    )
+
     report_path = run_dir / "full-run.json"
     report: dict[str, Any] = {
         "mode": "full",
@@ -296,12 +365,16 @@ def run(args: argparse.Namespace) -> int:
         "branch_head": _git(ROOT, "rev-parse", "HEAD"),
         "measurement_python": str(python.relative_to(ROOT)),
         "measurement_python_version": python_version,
+        "binary": str(binary.relative_to(ROOT)),
+        "binary_version": full_provenance["bin_version"],
+        "binary_sha256": full_provenance["binary_sha256"],
         "n": args.n,
         "k": args.k,
         "jobs": args.jobs,
         "seed": args.seed,
         "suites": list(suites),
         "dry_run_report": "dry-run.json",
+        "measurement_provenance": "full-run-provenance.json",
         "runs": [],
         "status": "running",
     }

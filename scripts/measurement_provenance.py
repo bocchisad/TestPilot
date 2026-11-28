@@ -24,6 +24,8 @@ def _inventory(root: Path) -> tuple[list[str], list[str]]:
     required = [
         "scripts/mutate_bootstrap.py",
         "scripts/mutate/run_mutant.py",
+        "scripts/backfill.py",
+        "scripts/run_week7_test_width.py",
         "scripts/aggregate_bootstrap_w6.py",
         "scripts/features_reference.py",
         "scripts/measurement_provenance.py",

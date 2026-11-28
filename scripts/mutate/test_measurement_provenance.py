@@ -63,6 +63,13 @@ def test_clean_script_records_matching_committed_and_worktree_blobs(tmp_path: Pa
     assert manifest["head_sha"] == git(root, "rev-parse", "HEAD")
 
 
+def test_default_measurement_provenance_includes_active_wrapper_and_backfill():
+    required, _optional = measurement_provenance._inventory(Path.cwd())
+
+    assert "scripts/run_week7_test_width.py" in required
+    assert "scripts/backfill.py" in required
+
+
 def test_edited_script_keeps_committed_blob_and_marks_worktree_dirty(tmp_path: Path):
     root = repository(tmp_path)
     script = root / "scripts" / "measure_one.sh"
