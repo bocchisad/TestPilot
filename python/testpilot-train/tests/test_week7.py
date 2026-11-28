@@ -4,7 +4,11 @@ import pytest
 from testpilot_train.model import _group_sizes, fit_lambdarank
 from testpilot_train.data import load_parquets
 from testpilot_train.schema import FeaturesSchema
-from testpilot_train.train_lib import _budget_metrics_by_change, _feature_sentinels
+from testpilot_train.train_lib import (
+    _budget_metrics_by_change,
+    _feature_sentinels,
+    _per_repo_real_gate,
+)
 from testpilot_train.week7 import assign_source_weights, split_groups_by_time
 
 
@@ -24,7 +28,9 @@ def _frame() -> pl.DataFrame:
 def test_source_weights_have_requested_total_group_ratio():
     weighted = assign_source_weights(_frame(), synthetic_to_real=(4, 1))
     totals = weighted.group_by("synthetic").agg(pl.col("sample_weight").sum())
-    by_source = {int(row["synthetic"]): row["sample_weight"] for row in totals.to_dicts()}
+    by_source = {
+        int(row["synthetic"]): row["sample_weight"] for row in totals.to_dicts()
+    }
 
     assert by_source[1] / by_source[0] == pytest.approx(4.0)
 
@@ -42,16 +48,10 @@ def test_group_split_keeps_all_changes_from_a_source_pair_together():
 
 
 def test_lambdarank_group_check_is_contiguous_and_returns_sizes():
-    frame = pl.DataFrame(
-        {"repo": ["r", "r", "r"], "change": ["a", "a", "b"]}
-    )
+    frame = pl.DataFrame({"repo": ["r", "r", "r"], "change": ["a", "a", "b"]})
     assert _group_sizes(frame) == [2, 1]
     with pytest.raises(AssertionError, match="not contiguous"):
-        _group_sizes(
-            pl.DataFrame(
-                {"repo": ["r", "r", "r"], "change": ["a", "b", "a"]}
-            )
-        )
+        _group_sizes(pl.DataFrame({"repo": ["r", "r", "r"], "change": ["a", "b", "a"]}))
 
 
 def test_budget_savings_are_unavailable_when_duration_is_unknown():
@@ -112,3 +112,25 @@ def test_budget_savings_use_expected_duration_for_boundary_ties():
     # At a 10% budget, one of three tied tests is selected in expectation.
     assert budget["curve"]["time_saved@10%"] == pytest.approx(2 / 3)
     assert budget["curve"]["boundary_tied_tests@10%"] == 3
+
+
+def test_real_per_repo_gate_includes_repositories_with_zero_positive_changes():
+    model = {("click", f"c{i}"): {"recall@10%": 0.2} for i in range(10)}
+    baseline = {key: {"recall@10%": 0.1} for key in model}
+
+    per_repo, all_powered, per_repo_ok = _per_repo_real_gate(
+        ["click", "attrs", "jinja"], model, baseline, minimum_changes=10
+    )
+
+    assert per_repo["click"] == {
+        "status": "ok",
+        "n_positive_changes": 10,
+        "delta_recall@10%": pytest.approx(0.1),
+    }
+    assert per_repo["attrs"] == {
+        "status": "data_insufficient",
+        "n_positive_changes": 0,
+    }
+    assert per_repo["jinja"]["n_positive_changes"] == 0
+    assert all_powered is False
+    assert per_repo_ok is True

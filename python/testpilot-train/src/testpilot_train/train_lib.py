@@ -1027,6 +1027,47 @@ def _feature_sentinels(frame: pl.DataFrame) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _per_repo_real_gate(
+    expected_repos: list[str],
+    model_scores: dict[tuple[str, str], dict[str, float]],
+    baseline_scores_by_change: dict[tuple[str, str], dict[str, float]],
+    *,
+    minimum_changes: int = 10,
+) -> tuple[dict[str, dict[str, Any]], bool, bool]:
+    """Compute per-repo deltas without silently dropping empty held-out repos."""
+    per_repo: dict[str, dict[str, Any]] = {}
+    for repo in expected_repos:
+        keys = sorted(
+            key
+            for key in set(model_scores) & set(baseline_scores_by_change)
+            if key[0] == repo
+        )
+        if len(keys) < minimum_changes:
+            per_repo[repo] = {
+                "status": "data_insufficient",
+                "n_positive_changes": len(keys),
+            }
+            continue
+        deltas = [
+            model_scores[key]["recall@10%"]
+            - baseline_scores_by_change[key]["recall@10%"]
+            for key in keys
+        ]
+        per_repo[repo] = {
+            "status": "ok",
+            "n_positive_changes": len(keys),
+            "delta_recall@10%": float(np.mean(deltas)),
+        }
+    all_powered = bool(expected_repos) and all(
+        item["status"] == "ok" for item in per_repo.values()
+    )
+    per_repo_ok = all(
+        item["status"] != "ok" or item["delta_recall@10%"] >= -0.02
+        for item in per_repo.values()
+    )
+    return per_repo, all_powered, per_repo_ok
+
+
 def _aggregate_budget(
     values: dict[tuple[str, str], dict[str, Any]], keys: list[tuple[str, str]]
 ) -> dict[str, Any]:
@@ -1167,9 +1208,6 @@ def _evaluate_week7_variant(
         synthetic_budgets["cov_lines"].update(
             _budget_metrics_by_change(synth_test, synth_test["cov_lines"].to_numpy())
         )
-        if test_real.height == 0:
-            fold_details.append({"held_out": held, "status": "no_real_positive_test"})
-            continue
         for keys, group in test_real.group_by(["repo", "change"], maintain_order=True):
             key = (str(keys[0]), str(keys[1]))
             paired_base[key] = change_metrics(
@@ -1179,6 +1217,7 @@ def _evaluate_week7_variant(
 
         fold_entry: dict[str, Any] = {
             "held_out": held,
+            "status": "ok" if test_real.height else "no_real_positive_test",
             "n_unique_positive_changes": test_real.select(["repo", "change"]).unique().height,
             "n_real_test_rows": test_real.height,
             "n_synthetic_test_rows": synth_test.height,
@@ -1215,11 +1254,18 @@ def _evaluate_week7_variant(
                     active_schema,
                     seed + fold_idx * 100 + arm_idx * 10 + ablation_idx,
                 )
-                scores = predict_raw(fit.booster, test_real, active_schema)
-                keyed = _keyed_recall(test_real, scores)
+                if test_real.height:
+                    scores = predict_raw(fit.booster, test_real, active_schema)
+                    keyed = _keyed_recall(test_real, scores)
+                else:
+                    scores = np.empty(0, dtype=np.float64)
+                    keyed = {}
                 config = f"{arm_name}/{ablation_name}"
                 paired_model[config].update(keyed)
-                real_budgets[config].update(_budget_metrics_by_change(test_real, scores))
+                if test_real.height:
+                    real_budgets[config].update(
+                        _budget_metrics_by_change(test_real, scores)
+                    )
                 synth_scores = predict_raw(fit.booster, synth_test, active_schema)
                 synth_keyed = _keyed_recall(synth_test, synth_scores)
                 synthetic_results[config].update(synth_keyed)
@@ -1242,12 +1288,19 @@ def _evaluate_week7_variant(
                         val_keyed = _keyed_recall(val_pool, reranked)
                         val_by_alpha[alpha] = macro_mean(list(val_keyed.values()), "recall@10%")
                     chosen_alpha = max(val_by_alpha, key=lambda a: (val_by_alpha[a], -a))
-                    rerank_scores = _ranker_scores(test_real, scores, chosen_alpha)
-                    rerank_keyed = _keyed_recall(test_real, rerank_scores)
+                    if test_real.height:
+                        rerank_scores = _ranker_scores(
+                            test_real, scores, chosen_alpha
+                        )
+                        rerank_keyed = _keyed_recall(test_real, rerank_scores)
+                    else:
+                        rerank_scores = np.empty(0, dtype=np.float64)
+                        rerank_keyed = {}
                     paired_model[f"{arm_name}/cov_lines_reranker"].update(rerank_keyed)
-                    real_budgets[f"{arm_name}/cov_lines_reranker"].update(
-                        _budget_metrics_by_change(test_real, rerank_scores)
-                    )
+                    if test_real.height:
+                        real_budgets[f"{arm_name}/cov_lines_reranker"].update(
+                            _budget_metrics_by_change(test_real, rerank_scores)
+                        )
                     synth_rerank_scores = _ranker_scores(
                         synth_test, synth_scores, chosen_alpha
                     )
@@ -1268,8 +1321,21 @@ def _evaluate_week7_variant(
     comparisons: dict[str, Any] = {}
     for config, model_map in paired_model.items():
         keys = sorted(set(model_map) & set(paired_base))
+        per_repo, all_powered, per_repo_ok = _per_repo_real_gate(
+            repos, model_map, paired_base
+        )
         if not keys:
-            comparisons[config] = {"status": "no_aligned_real_test"}
+            comparisons[config] = {
+                "status": "no_aligned_real_test",
+                "per_repo": per_repo,
+                "criterion_2_4": {
+                    "model_macro_greater": False,
+                    "paired_ci_excludes_zero": False,
+                    "no_powered_repo_delta_below_minus_0_02": per_repo_ok,
+                    "all_repos_powered": all_powered,
+                    "accepted": False,
+                },
+            }
             continue
         per_model = [model_map[key] for key in keys]
         per_base = [paired_base[key] for key in keys]
@@ -1282,23 +1348,6 @@ def _evaluate_week7_variant(
             cluster_ids=clusters,
         )
         repos_seen = sorted({key[0] for key in keys})
-        per_repo: dict[str, Any] = {}
-        for repo in repos_seen:
-            repo_keys = [key for key in keys if key[0] == repo]
-            repo_deltas = [
-                model_map[key]["recall@10%"] - paired_base[key]["recall@10%"]
-                for key in repo_keys
-            ]
-            n_positive = len(repo_keys)
-            per_repo[repo] = (
-                {"status": "data_insufficient", "n_positive_changes": n_positive}
-                if n_positive < 10
-                else {
-                    "status": "ok",
-                    "n_positive_changes": n_positive,
-                    "delta_recall@10%": float(np.mean(repo_deltas)),
-                }
-            )
         macro_model = {
             metric: float(
                 np.mean(
@@ -1327,11 +1376,6 @@ def _evaluate_week7_variant(
         }
         model_macro = macro_model["recall@10%"]
         base_macro = macro_base["recall@10%"]
-        all_powered = all(item["status"] == "ok" for item in per_repo.values())
-        per_repo_ok = all(
-            item["status"] != "ok" or item["delta_recall@10%"] >= -0.02
-            for item in per_repo.values()
-        )
         comparisons[config] = {
             "n_unique_positive_changes": len(keys),
             "loro_macro_recall_model": macro_model,
