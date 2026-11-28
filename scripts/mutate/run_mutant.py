@@ -321,45 +321,48 @@ def _no_junit_mutant_changed_source_error(
     frames = list(_TRACEBACK_FRAME_RE.finditer(traceback_tail))
     if not frames:
         return False
-    frame = frames[-1]
     try:
         resolved_wt = worktree.resolve(strict=True)
-        frame_path = Path(frame.group("path") or frame.group("compact_path"))
-        if not frame_path.is_absolute():
-            frame_path = resolved_wt / frame_path
-        resolved_source = frame_path.resolve(strict=True)
-        if not resolved_source.is_file() or not resolved_source.is_relative_to(
-            resolved_wt
-        ):
-            return False
-        relpath = resolved_source.relative_to(resolved_wt).as_posix()
-        result = subprocess.run(
-            [
-                "git",
-                "diff",
-                "--unified=0",
-                "--no-ext-diff",
-                parent_sha,
-                mutant_sha,
-                "--",
-                relpath,
-            ],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return False
-        line = int(frame.group("line") or frame.group("compact_line"))
-        for hunk in result.stdout.splitlines():
-            match = _DIFF_HUNK_RE.match(hunk)
-            if match is None:
+        for frame in reversed(frames):
+            try:
+                frame_path = Path(frame.group("path") or frame.group("compact_path"))
+                if not frame_path.is_absolute():
+                    frame_path = resolved_wt / frame_path
+                resolved_source = frame_path.resolve(strict=True)
+                if not resolved_source.is_file() or not resolved_source.is_relative_to(
+                    resolved_wt
+                ):
+                    continue
+                relpath = resolved_source.relative_to(resolved_wt).as_posix()
+                result = subprocess.run(
+                    [
+                        "git",
+                        "diff",
+                        "--unified=0",
+                        "--no-ext-diff",
+                        parent_sha,
+                        mutant_sha,
+                        "--",
+                        relpath,
+                    ],
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    continue
+                line = int(frame.group("line") or frame.group("compact_line"))
+                for hunk in result.stdout.splitlines():
+                    match = _DIFF_HUNK_RE.match(hunk)
+                    if match is None:
+                        continue
+                    start = int(match.group("start"))
+                    count = int(match.group("count") or "1")
+                    if count > 0 and start <= line < start + count:
+                        return True
+            except (OSError, ValueError):
                 continue
-            start = int(match.group("start"))
-            count = int(match.group("count") or "1")
-            if count > 0 and start <= line < start + count:
-                return True
     except (OSError, ValueError):
         return False
     return False

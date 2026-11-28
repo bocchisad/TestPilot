@@ -399,12 +399,16 @@ def test_pytest_rc3_with_conftest_header_stays_infrastructure(tmp_path: Path) ->
     assert result.ok is False
 
 
-@pytest.mark.parametrize(("exit_code", "compact_traceback"), [(1, False), (3, True)])
+@pytest.mark.parametrize(
+    ("exit_code", "compact_traceback", "upstream_frame"),
+    [(1, False, False), (3, True, False), (3, False, True)],
+)
 def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     exit_code: int,
     compact_traceback: bool,
+    upstream_frame: bool,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -438,6 +442,11 @@ def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
         *(["Traceback (most recent call last):"] if not compact_traceback else []),
         frame,
         "    return 2",
+        *(
+            ['  File "/outside/site-packages/jsonschema/_types.py", line 172, in remove']
+            if upstream_frame
+            else []
+        ),
         exception,
     ]
     wrapper.write_text(
@@ -670,7 +679,9 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
         timeout_override=60,
     )
     assert result.pytest_rc == (
-        3 if failure_kind in {"pytest11_plugin", "hypothesis_profile"} else 1
+        3
+        if failure_kind in {"pytest11_plugin", "hypothesis_profile"}
+        else 1
     )
     if parent_collects:
         assert result.collection_error is True, result.collect_note[-2000:]
@@ -680,6 +691,62 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     else:
         assert result.collection_error is False
         assert "parent control collection failed" in result.collect_note
+
+
+def test_unclassified_runtime_error_on_changed_line_stays_infrastructure_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def value():\n    return 1\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text("def value():\n    return 2\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant changes value")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+
+    wrapper = tmp_path / "pytest_wrap"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "junit=''\n"
+        'for arg in "$@"; do case "$arg" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n'
+        'case "$PWD" in *wt-parent-*)\n'
+        'cat > "$junit" <<\'XML\'\n'
+        '<?xml version="1.0"?>\n'
+        '<testsuites><testsuite name="tests" tests="1">'
+        '<testcase classname="tests.test_basic" name="test_ok"/>'
+        '</testsuite></testsuites>\n'
+        'XML\necho "1 test collected"\nexit 0\nesac\n'
+        "printf '%s\\n' 'Traceback (most recent call last):'\n"
+        'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 2, in value"\n'
+        'printf "%s\\n" "AttributeError: unrelated upstream failure"\n'
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+
+    assert result.pytest_rc == 1
+    assert result.collection_error is False
 
 
 @pytest.mark.parametrize("parent_collects", [True, False])

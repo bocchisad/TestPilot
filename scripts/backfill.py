@@ -99,7 +99,18 @@ def _declared_extras(wt: Path) -> set[str]:
         tox = configparser.ConfigParser(interpolation=None)
         tox.read(tox_ini, encoding="utf-8")
         raw = tox.get("testenv", "extras", fallback="")
-        extras.update(part for part in re.split(r"[\s,]+", raw) if part)
+        for part in re.split(r"[\s,]+", raw):
+            if not part:
+                continue
+            # tox commonly expresses its default extra as
+            # ``{env:TOX_AP_TEST_EXTRAS:tests}``. Resolve the literal fallback
+            # so historical commits still install their test dependencies.
+            if part.startswith("{env:") and part.endswith("}"):
+                fields = part[5:-1].split(":")
+                if len(fields) >= 2 and fields[-1] in _EXTRA_CANDIDATES:
+                    extras.add(fields[-1])
+                    continue
+            extras.add(part)
     return extras
 
 
