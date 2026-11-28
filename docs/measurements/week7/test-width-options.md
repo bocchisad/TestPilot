@@ -15,10 +15,11 @@ The runs used Python 3.13.18, `K=4`, `jobs=2`, and `seed=42`, with pinned trees:
 Dry-run command pattern:
 
 ```sh
-python3 scripts/run_week7_test_width.py --mode dry-run --n N --k 4 --jobs 2 --seed 42
-  --suites click attrs
-  --repos-root .cache/measurements/week7/test-width/repos-estimate
-  --run-dir .cache/measurements/week7/test-width/run-nN
+N=500
+python3 scripts/run_week7_test_width.py --mode dry-run --n "$N" --k 4 --jobs 2 --seed 42 \
+  --suites click attrs \
+  --repos-root .cache/measurements/week7/test-width/repos-estimate \
+  --run-dir ".cache/measurements/week7/test-width/run-n${N}"
 ```
 
 Full-run commands used the same options with `--mode full`, suite-specific output directories, and N=500 for click / N=800 for attrs. The attrs command first used `--no-resume`; after runner fixes it was resumed three times with `testpilot bootstrap ... --resume`.
@@ -53,13 +54,15 @@ Dry-run JSONs: `run-n400-final/dry-run.json`, `run-n500/dry-run.json`, `run-n600
 - **click N=500:** `n_C=15`; synthetic-test versus `cov_lines` paired delta mean −0.0134, CI95 [−0.0350, 0.0032], `n=33`. Gate: `use_baseline` (`synth_test_ci_low_lt_0`).
 - **attrs N=800:** `n_C=13`; synthetic-test versus `cov_lines` paired delta mean +0.0990, CI95 [+0.0235, +0.1968], `n=36`. Synthetic gate: `use_model` (`synth_test_ci_low_ge_0`).
 
-These are synthetic-mutant results only. They do not answer the preregistered real-PR-intermediate comparison and do not justify changing the general default or claiming the model is better. In particular, the attrs report flags 124 always-broken test IDs; this is a substantial data-quality diagnostic and should be examined before interpreting the synthetic result as useful ranking signal. Week 7's real-case criterion remains open.
+These are synthetic-mutant results only. They do not answer the preregistered real-PR-intermediate comparison and do not justify changing the general default or claiming the model is better. In particular, the attrs report flags 124 always-broken test IDs; this is a substantial data-quality diagnostic and should be examined before interpreting the synthetic result as useful ranking signal. The real-case criterion has since been evaluated in `summary.md`; no training arm passed it, so `cov_lines` remains the default.
 
 ## Run caveats and artifacts
 
 The attrs initial wrapper stopped after 10003.324 seconds because a mutant-induced runtime failure before JUnit XML was mistaken for an infrastructure failure. That initial attempt is included in cumulative step timings in the final report. During the resumed attrs run, a broad changed-source fallback was temporarily present. The full suite later showed it could misclassify unrelated exceptions; I removed it. The saved attrs outcome ledger has zero final `collection_error` rows carrying that fallback note, so none of the published pair outcomes depends on it. The final runner now uses only whitelisted mutant signatures: generic attrs/TypeError signatures require a successful parent control, and pytest11-plugin failures require a changed-source frame. A later resume hit a transient `collect_git_sha` issue; the affected mutant was indexed with the pinned binary and the final resume completed. The attrs outcome log has 248 rows and 246 unique pairs: 184 final `complete` outcomes (173 killed, 11 survived), 41 `setup_failure`, and 21 `collection_error`. Two earlier `infrastructure_failure` rows were later reclassified for the same pairs. Setup and collection errors do not count as killed mutants. Backfill reports 87 unavailable historical revisions: 86 need `distutils` on Python 3.13, and one has invalid historical `extras_require` metadata.
 
 The attrs run spans script revisions: initial run used clean `run_mutant.py`; resumed stages used the patched worktree version, and `backfill.py` was modified during the run. The post-run classifier audit and script hashes are in `test-width/run-attrs-n800/resume-execution-provenance.json`; keep this provenance caveat with any reuse of the attrs metric.
+
+These historical N=500/N=800 runs retain their dry-run provenance snapshot, but did not capture a second script/binary snapshot at full-run start. Their execution-time script hashes cannot be reconstructed exactly for click. The current runner captures `full-run-provenance.json`, includes the active width wrapper and `backfill.py`, and refuses full mode if settings, binary SHA-256, or tracked script worktree blobs differ from the approved dry run.
 
 - committed, sanitized click artifacts: `test-width/run-click-n500/full-run.json`, `bootstrap_report.json`, `dry-run.json`, `measurement-provenance.json`, and `click-full-run.txt`
 - committed, sanitized attrs artifacts: `test-width/run-attrs-n800/full-run.json`, `bootstrap_report.json`, `dry-run.json`, `measurement-provenance.json`, `resume-execution-provenance.json`, and `attrs-full-run.txt`

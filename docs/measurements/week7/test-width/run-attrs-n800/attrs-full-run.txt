@@ -6651,64 +6651,7 @@ AttributeError: 'NoneType' object has no attribute '__dict__'. Did you mean: '__
       "python": "3.13.18"
     }
   },
-  "failure": "mutant C=4b1d869e9ad36c0e8f97f6a407d1fbe4c97f23c9 i=0: pytest produced no JUnit report: Traceback (most recent call last):
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/bin/pytest\", line 6, in <module>
-    sys.exit(console_main())
-             ~~~~~~~~~~~~^^
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/_pytest/config/__init__.py\", line 201, in console_main
-    code = main()
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/_pytest/config/__init__.py\", line 156, in main
-    config = _prepareconfig(args, plugins)
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/_pytest/config/__init__.py\", line 341, in _prepareconfig
-    config = pluginmanager.hook.pytest_cmdline_parse(
-        pluginmanager=pluginmanager, args=args
-    )
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/pluggy/_caller.py\", line 197, in __call__
-    return self._hookexec(
-           ~~~~~~~~~~~~~~^
-        self.name, self._hookimpls.copy(), call_kwargs, firstresult
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/pluggy/_manager.py\", line 183, in _hookexec
-    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
-
-... pytest output truncated ...
--week7/TestPilot/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 1094, in add_init
-    _make_init(
-    ~~~~~~~~~~^
-        self._cls,
-        ^^^^^^^^^^
-    ...<10 lines>...
-        attrs_init=False,
-        ^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2167, in _make_init
-    script, globs, annotations = _attrs_to_init_script(
-                                 ~~~~~~~~~~~~~~~~~~~~~^
-        filtered_attrs,
-        ^^^^^^^^^^^^^^^
-    ...<10 lines>...
-        attrs_init,
-        ^^^^^^^^^^^
-    )
-    ^
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2404, in _attrs_to_init_script
-    fmt_setter_with_converter(
-    ~~~~~~~~~~~~~~~~~~~~~~~~~^
-        attr_name, arg_name, has_on_setattr
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    )
-    ^
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2269, in fmt_setter_with_converter
-    if has_on_setattr or _is_slot_attr(attr_name, base_attr_map):
-                         ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2121, in _is_slot_attr
-    return cls or '__slots__' in cls.__dict__
-                                 ^^^^^^^^^^^^
-AttributeError: 'NoneType' object has no attribute '__dict__'. Did you mean: '__dir__'?
-",
+  "failure": "mutant C=4b1d869e9ad36c0e8f97f6a407d1fbe4c97f23c9 i=0: pytest produced no JUnit report: Traceback (most recent call last):\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/bin/pytest\", line 6, in <module>\n    sys.exit(console_main())\n             ~~~~~~~~~~~~^^\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/_pytest/config/__init__.py\", line 201, in console_main\n    code = main()\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/_pytest/config/__init__.py\", line 156, in main\n    config = _prepareconfig(args, plugins)\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/_pytest/config/__init__.py\", line 341, in _prepareconfig\n    config = pluginmanager.hook.pytest_cmdline_parse(\n        pluginmanager=pluginmanager, args=args\n    )\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/pluggy/_caller.py\", line 197, in __call__\n    return self._hookexec(\n           ~~~~~~~~~~~~~~^\n        self.name, self._hookimpls.copy(), call_kwargs, firstresult\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/venv-1/lib/python3.13/site-packages/pluggy/_manager.py\", line 183, in _hookexec\n    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)\n      \n... pytest output truncated ...\n-week7/TestPilot/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 1094, in add_init\n    _make_init(\n    ~~~~~~~~~~^\n        self._cls,\n        ^^^^^^^^^^\n    ...<10 lines>...\n        attrs_init=False,\n        ^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2167, in _make_init\n    script, globs, annotations = _attrs_to_init_script(\n                                 ~~~~~~~~~~~~~~~~~~~~~^\n        filtered_attrs,\n        ^^^^^^^^^^^^^^^\n    ...<10 lines>...\n        attrs_init,\n        ^^^^^^^^^^^\n    )\n    ^\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2404, in _attrs_to_init_script\n    fmt_setter_with_converter(\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^\n        attr_name, arg_name, has_on_setattr\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2269, in fmt_setter_with_converter\n    if has_on_setattr or _is_slot_attr(attr_name, base_attr_map):\n                         ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs/.testpilot/bootstrap/wt-mutate-9coqrv_n/runs/wt-05f96159adad/src/attr/_make.py\", line 2121, in _is_slot_attr\n    return cls or '__slots__' in cls.__dict__\n                                 ^^^^^^^^^^^^\nAttributeError: 'NoneType' object has no attribute '__dict__'. Did you mean: '__dir__'?\n",
   "interrupted": false,
   "kill_by_operator": {
     "bool_flip": 2,
