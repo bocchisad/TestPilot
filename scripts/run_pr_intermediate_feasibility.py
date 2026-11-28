@@ -12,7 +12,7 @@ import shutil
 import statistics
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -170,6 +170,84 @@ def _classify_check_runs(payload: dict) -> dict:
     }
 
 
+def _select_ci_pytest_rows(rows: list[dict], rng: random.Random) -> dict[str, object]:
+    """Choose all CI failures, seeded 10% of successes, or first PR commit on missing CI."""
+    by_pr: dict[str, list[tuple[dict, dict]]] = {}
+    for row in rows:
+        for link in row["pr_commit_indices"]:
+            by_pr.setdefault(link["pr"], []).append((row, link))
+
+    chosen: dict[str, dict] = {}
+    selection_reasons: dict[str, set[str]] = {}
+    fallback_prs = []
+    eligible_failures: dict[str, dict] = {}
+    eligible_successes: dict[str, dict] = {}
+    for pr_number, linked_rows in by_pr.items():
+        ordered = sorted(linked_rows, key=lambda item: item[1]["index"])
+        pr_rows = {row["head"]: row for row, _link in ordered}
+        if any(row["ci"]["status"] == "unavailable" for row in pr_rows.values()):
+            fallback_prs.append(pr_number)
+            first = ordered[0][0]
+            chosen[first["head"]] = first
+            selection_reasons.setdefault(first["head"], set()).add(
+                "fallback_first_commit_for_pr"
+            )
+            continue
+        for row in pr_rows.values():
+            if row["ci"]["status"] == "failure":
+                eligible_failures[row["head"]] = row
+            elif row["ci"]["status"] == "success":
+                eligible_successes[row["head"]] = row
+
+    for head, row in eligible_failures.items():
+        chosen[head] = row
+        selection_reasons.setdefault(head, set()).add("ci_failure")
+    sample_count = math.ceil(0.1 * len(eligible_successes)) if eligible_successes else 0
+    sampled_successes = (
+        rng.sample(list(eligible_successes.values()), sample_count)
+        if sample_count
+        else []
+    )
+    for row in sampled_successes:
+        chosen[row["head"]] = row
+        selection_reasons.setdefault(row["head"], set()).add(
+            "random_10_percent_ci_success"
+        )
+    for head, row in chosen.items():
+        row["selection_reasons"] = sorted(selection_reasons.get(head, set()))
+
+    return {
+        "selected": list(chosen.values()),
+        "fallback_pr_numbers": sorted(fallback_prs, key=int),
+        "eligible_failure_count": len(eligible_failures),
+        "sampled_success_count": len(sampled_successes),
+    }
+
+
+def _stable_positive_test_ids(outcomes: Mapping[str, Mapping[str, str]]) -> list[str]:
+    """Return only base-pass/head-fail test IDs stable across both runs per tree."""
+    required = ("base1", "base2", "head1", "head2")
+    if any(label not in outcomes for label in required):
+        return []
+    shared = set.intersection(*(set(outcomes[label]) for label in required))
+    return sorted(
+        test
+        for test in shared
+        if outcomes["base1"][test] == outcomes["base2"][test] == "pass"
+        and outcomes["head1"][test] == outcomes["head2"][test] == "fail"
+    )
+
+
+def _promote_pair_timeout(result: dict, remaining_s: int, pair_timeout_s: int) -> dict:
+    """Label a timed-out pair as batch-deadline only when the batch shortened it."""
+    if result.get("status") == "timeout" and remaining_s < pair_timeout_s:
+        result.update(
+            status="batch_deadline",
+            reason="batch_budget_exhausted_before_pair_timeout",
+        )
+    return result
+
+
 def _fetch_check_runs(slug: str, sha: str) -> dict:
     endpoint = f"repos/{slug}/commits/{sha}/check-runs?per_page=100"
     result = subprocess.run(
@@ -237,46 +315,8 @@ def _load_ci_inventory(
         unavailable = [row for row in rows if row["ci"]["status"] == "unavailable"]
         failures = [row for row in rows if row["ci"]["status"] == "failure"]
         successes = [row for row in rows if row["ci"]["status"] == "success"]
-        by_pr: dict[str, list[tuple[dict, dict]]] = {}
-        for row in rows:
-            for link in row["pr_commit_indices"]:
-                by_pr.setdefault(link["pr"], []).append((row, link))
-        chosen: dict[str, dict] = {}
-        selection_reasons: dict[str, set[str]] = {}
-        fallback_prs = []
-        eligible_failures: dict[str, dict] = {}
-        eligible_successes: dict[str, dict] = {}
-        for pr_number, linked_rows in by_pr.items():
-            ordered = sorted(linked_rows, key=lambda item: item[1]["index"])
-            pr_rows = {row["head"]: row for row, _link in ordered}
-            if any(row["ci"]["status"] == "unavailable" for row in pr_rows.values()):
-                fallback_prs.append(pr_number)
-                first = ordered[0][0]
-                chosen[first["head"]] = first
-                selection_reasons.setdefault(first["head"], set()).add(
-                    "fallback_first_commit_for_pr"
-                )
-                continue
-            for row in pr_rows.values():
-                if row["ci"]["status"] == "failure":
-                    eligible_failures[row["head"]] = row
-                elif row["ci"]["status"] == "success":
-                    eligible_successes[row["head"]] = row
-        for head, row in eligible_failures.items():
-            chosen[head] = row
-            selection_reasons.setdefault(head, set()).add("ci_failure")
-        count = math.ceil(0.1 * len(eligible_successes)) if eligible_successes else 0
-        sampled_successes = (
-            rng.sample(list(eligible_successes.values()), count) if count else []
-        )
-        for row in sampled_successes:
-            chosen[row["head"]] = row
-            selection_reasons.setdefault(row["head"], set()).add(
-                "random_10_percent_ci_success"
-            )
-        for head, row in chosen.items():
-            row["selection_reasons"] = sorted(selection_reasons.get(head, set()))
-        selected[name] = list(chosen.values())
+        selection = _select_ci_pytest_rows(rows, rng)
+        selected[name] = selection["selected"]
         ci_rows[f"{name}:summary"] = {
             "github_repo": slug,
             "raw_commit_appearances": sum(len(pr["commits"]) for pr in samples[name]),
@@ -288,10 +328,10 @@ def _load_ci_inventory(
             "ci_failure_commits": len(failures),
             "ci_success_commits": len(successes),
             "ci_unavailable_commits": len(unavailable),
-            "selected_failure_commits": len(eligible_failures),
-            "sampled_success_commits": len(sampled_successes),
-            "fallback_pr_count": len(fallback_prs),
-            "fallback_pr_numbers": sorted(fallback_prs, key=int),
+            "selected_failure_commits": selection["eligible_failure_count"],
+            "sampled_success_commits": selection["sampled_success_count"],
+            "fallback_pr_count": len(selection["fallback_pr_numbers"]),
+            "fallback_pr_numbers": selection["fallback_pr_numbers"],
             "selected_for_pytest": len(selected[name]),
             "selection_policy": "fallback_first_commit_for_pr_when_ci_unavailable; otherwise all_failure_plus_seeded_random_10_percent_success",
             "unavailable_shas": [row["head"] for row in unavailable],
@@ -481,12 +521,7 @@ def _run_pair(
                 outcomes[f"{label}{attempt}"] = _junit(xml)
         base_ids = set(outcomes["base1"]) & set(outcomes["base2"])
         shared = base_ids & set(outcomes["head1"]) & set(outcomes["head2"])
-        positive_ids = sorted(
-            test
-            for test in shared
-            if outcomes["base1"][test] == outcomes["base2"][test] == "pass"
-            and outcomes["head1"][test] == outcomes["head2"][test] == "fail"
-        )
+        positive_ids = _stable_positive_test_ids(outcomes)
         result.update(
             status="completed",
             base_test_ids=len(base_ids),
@@ -647,11 +682,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             batch_remaining = max(0, int(deadline - time.monotonic()))
             remaining = min(args.pair_timeout_s, batch_remaining)
             result = _run_pair(repo, row, work_root, python, remaining)
-            if result["status"] == "timeout" and remaining < args.pair_timeout_s:
-                result.update(
-                    status="batch_deadline",
-                    reason="batch_budget_exhausted_before_pair_timeout",
-                )
+            _promote_pair_timeout(result, remaining, args.pair_timeout_s)
             results.append(result)
             with pair_file.open("a", encoding="utf-8") as out:
                 out.write(json.dumps(result, sort_keys=True) + "\n")
