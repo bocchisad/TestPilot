@@ -29,11 +29,12 @@ def filter_table(
     return filtered, table.num_rows - filtered.num_rows
 
 
-def filter_parquet(input_path: Path, audit_path: Path, output_path: Path) -> dict[str, Any]:
+def filter_parquet(
+    input_path: Path, audit_path: Path, output_path: Path
+) -> dict[str, Any]:
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     excluded = {
-        (str(row["repo"]), str(row["head"]))
-        for row in audit.get("excluded", [])
+        (str(row["repo"]), str(row["head"])) for row in audit.get("excluded", [])
     }
     source = pq.read_table(input_path)
     filtered, excluded_rows = filter_table(source, excluded)
@@ -46,9 +47,9 @@ def filter_parquet(input_path: Path, audit_path: Path, output_path: Path) -> dic
         "excluded_rows": excluded_rows,
         "output": str(output_path),
         "output_rows": filtered.num_rows,
-        "features_version": (filtered.schema.metadata or {}).get(
-            b"features_version", b""
-        ).decode(),
+        "features_version": (filtered.schema.metadata or {})
+        .get(b"features_version", b"")
+        .decode(),
         "output_bytes": output_path.stat().st_size,
         "output_sha256": hashlib.sha256(output_path.read_bytes()).hexdigest(),
         "audit": str(audit_path),

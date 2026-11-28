@@ -19,9 +19,7 @@ def test_filter_drops_audited_heads_and_preserves_parquet_schema_metadata():
         }
     ).replace_schema_metadata({b"features_version": b"2"})
 
-    filtered, excluded_rows = filter_module.filter_table(
-        table, {("click", "bad")}
-    )
+    filtered, excluded_rows = filter_module.filter_table(table, {("click", "bad")})
 
     assert excluded_rows == 1
     assert filtered.num_rows == 2
