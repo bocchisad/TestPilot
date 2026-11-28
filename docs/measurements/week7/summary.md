@@ -1,43 +1,53 @@
 # Week 7: real and synthetic LORO evaluation
 
-> Итог по зарегистрированному критерию: **превосходство на реальных данных не доказано**. Дефолтом остаётся `cov_lines`. Ни одна модельная ветка не прошла критерий 2.4.
+> Итог после аудита завершения pytest: **превосходство на реальных данных не доказано**. Дефолтом остаётся `cov_lines`. Ни одна модельная ветка не прошла критерий 2.4.
+
+## Проверка полноты real-пар
+
+Ревью обнаружило, что прежний runner принимал наличие JUnit XML за достаточное подтверждение завершения pytest. В full-history артефактах проверены логи четырёх повторов для 452 последних уникальных завершённых голов:
+
+- 132 головы исключены: у 130 в логах есть `Interrupted:`/collection/internal error (click 112, Jinja 18), ещё 12 имеют ноль общих test IDs (click 9, Jinja 3). Категории пересекаются.
+- Положительных голов среди исключённых нет. 120 исключённых голов дали 680 строк в исходный feature parquet; 12 нулевых сравнений не дали строк.
+- Все пары и строки отфильтрованы по `repo/head` перед LORO. Основные 24 положительных изменения сохранились; метрики предыдущего LORO помечены как superseded.
+- Новый runner сохраняет exit code каждого повтора и не маркирует interrupted, internal/collection error, отсутствие тестов или пустое shared-сравнение как `completed`.
+
+Подробная разбивка и список голов: `real-pair-pytest-completeness.json`. Точный фильтр и размеры/sha parquet: `real-feature-build-audited.json`. Очищенные parquet остаются локально в `.cache/measurements/week7/pr-intermediate/real-features-audited/`.
 
 ## Данные и метод
 
-- Семантический аудит разобрал 26 кандидатов: 24 оставлены в основной выборке, click PR #3872/#3873 исключён как spam, Jinja #2256 помечен uncertain и исключён из основной выборки. Пары #1533/#1554 (attrs) и #765/#849 (click) могут быть коррелированы.
-- Основная популяция после исключения changed test functions: 24 положительных изменения (click 18, attrs 5, Jinja 1), 288,502 real feature rows. Чувствительность с функциями изменённых тестов: 26 изменений и 288,742 строки. Файлы тестов менялись в 2/24 основных строках; изменённые функции не совпадали с падающими функциями.
-- Synthetic TEST: отдельные 32 положительных изменения; synthetic partial rows: 0. Синтетические результаты не объединяются с real.
-- LORO, 3 удерживаемых репозитория. Для per-repo Δ нужно не менее 10 положительных изменений: click=18 (`ok`), attrs=5 и Jinja=1 (`data_insufficient`; числовой Δ не публикуется).
-- В каждом хронологическом real validation fold было 0 real positives. Поэтому tuning использовал хронологический validation pool из обучающих репозиториев с synthetic positives; `real_only` обучался только на real данных, но validation оставался mixed. Это ограничивает интерпретацию выбора гиперпараметров.
-- Paired CI в коде кластеризуется по `base_change`. В основных 24 строках это 22 bootstrap-кластера (две пары имеют одинаковый base). Связанные по issue/смыслу attrs #1533/#1554 и click #765/#849 имеют разные base и не сгруппированы; CI может недооценивать зависимость. Точечный paired mean взвешен по изменениям, а LORO macro recall даёт одинаковый вес репозиториям.
-- `partial=1` не участвовал; score не трактуется как вероятность. Бюджетная кривая усредняется по положительным изменениям, поэтому её recall может отличаться от equal-repo LORO macro.
+- Семантический аудит разобрал 26 кандидатов: 24 в основной выборке (click 18, attrs 5, Jinja 1), ещё 2 строки — sensitivity с функциями изменённых тестов. Click PR #3872/#3873 исключены как spam; Jinja #2256 исключён как uncertain.
+- После фильтра неполных прогонов primary feature parquet содержит 287,822 строки; sensitivity parquet — 288,062. В primary 24 real positive changes образуют 22 bootstrap-кластера `base_change`.
+- Тестовые файлы менялись в 2/24 основных строках, но падающие функции не менялись. Для per-repo Δ нужно ≥10 positive changes: click=18 (`ok`), attrs=5 и Jinja=1 (`data_insufficient`; числовой Δ не используется в гейте).
+- Synthetic TEST остался отдельным: 32 положительных изменения, 320,346 строк; `partial=1` не участвовал.
+- В каждом хронологическом real validation fold было 0 real positives. Tuning поэтому использовал validation pool из train-репозиториев с synthetic positives; `real_only` обучался только на real rows, validation оставался mixed. Это ограничивает интерпретацию выбора гиперпараметров.
+- Paired CI кластеризуется по `base_change`. Связанные по issue/смыслу attrs #1533/#1554 и click #765/#849 имеют разные base и не объединены; CI может недооценивать зависимость. Paired mean взвешен изменениями, LORO macro recall даёт равный вес репозиториям.
 
-## Основные результаты: changed test functions исключены
+## Основные real результаты: функции изменённых тестов исключены
 
-LORO macro recall и paired Δ@10 по одним и тем же 24 реальным изменениям.
+LORO macro recall по 24 real changes; paired Δ@10 сравнивает те же held-out changes с `cov_lines`.
 
 | Источник обучения | Recall @10 / @20 / @30 | Paired Δ@10 [95% CI] | click Δ@10 | Критерий 2.4 |
 | --- | ---: | ---: | ---: | --- |
-| Mutants only | 0.247 / 0.347 / 0.393 | +0.043 [-0.073, +0.172] | -0.011 | не пройден |
-| Real only | 0.184 / 0.262 / 0.505 | -0.051 [-0.186, +0.093] | -0.061 | не пройден |
-| Mix 4:1 | 0.064 / 0.236 / 0.459 | -0.098 [-0.205, +0.002] | -0.060 | не пройден |
-| Mix 1:1 | 0.191 / 0.316 / 0.485 | -0.103 [-0.232, -0.001] | -0.089 | не пройден |
-| Mix 1:4 | 0.278 / 0.585 / 0.691 | +0.021 [-0.143, +0.182] | -0.067 | не пройден |
+| Mutants only | 0.153 / 0.296 / 0.467 | −0.017 [−0.147, +0.118] | −0.014 | не пройден |
+| Real only | 0.068 / 0.214 / 0.304 | −0.087 [−0.213, +0.042] | −0.044 | не пройден |
+| Mix 4:1 | 0.114 / 0.519 / 0.630 | −0.057 [−0.195, +0.089] | −0.043 | не пройден |
+| Mix 1:1 | 0.259 / 0.465 / 0.559 | −0.092 [−0.216, +0.012] | −0.070 | не пройден |
+| Mix 1:4 | 0.330 / 0.426 / 0.463 | −0.043 [−0.190, +0.100] | −0.060 | не пройден |
 
-`cov_lines` baseline: 0.195 / 0.301 / 0.407. В основной real-only оценке модельный recall@10 ниже baseline; критерий не выполнен и все репозитории не имеют достаточной ширины данных.
+`cov_lines` baseline: **0.195 / 0.301 / 0.407**. Ни одна paired CI не исключает 0 для основных model arms; attrs и Jinja также недостаточно представлены для per-repo gate. Real-only @10 ниже `cov_lines`, а общий критерий требует одновременного прохождения всех условий.
 
 ### Real-only ablations
 
 | Вариант | Recall @10 / @20 / @30 | Paired Δ@10 [95% CI] |
 | --- | ---: | ---: |
-| full | 0.184 / 0.262 / 0.505 | -0.051 [-0.186, +0.093] |
-| cov_lines_reranker | 0.265 / 0.342 / 0.519 | +0.022 [-0.063, +0.126] |
-| without_cov_lines | 0.191 / 0.424 / 0.451 | -0.080 [-0.222, +0.042] |
-| noncoverage_only | 0.057 / 0.112 / 0.179 | -0.076 [-0.200, +0.043] |
-| without_import_distance | 0.019 / 0.127 / 0.305 | -0.167 [-0.271, -0.081] |
-| without_cochange | 0.251 / 0.334 / 0.583 | -0.099 [-0.221, +0.011] |
-| without_failure_history | 0.134 / 0.269 / 0.487 | -0.069 [-0.204, +0.062] |
-| without_change_size | 0.133 / 0.253 / 0.443 | -0.054 [-0.205, +0.111] |
+| full | 0.068 / 0.214 / 0.304 | −0.087 [−0.213, +0.042] |
+| cov_lines reranker | 0.194 / 0.281 / 0.409 | −0.001 [−0.056, +0.091] |
+| without cov_lines | 0.118 / 0.284 / 0.567 | −0.048 [−0.189, +0.104] |
+| noncoverage only | 0.044 / 0.138 / 0.535 | −0.110 [−0.213, −0.027] |
+| without import distance | 0.056 / 0.136 / 0.224 | −0.134 [−0.262, −0.011] |
+| without co-change | 0.095 / 0.228 / 0.268 | −0.100 [−0.222, +0.022] |
+| without failure history | 0.058 / 0.169 / 0.240 | −0.172 [−0.276, −0.095] |
+| without change size | 0.148 / 0.315 / 0.353 | −0.048 [−0.183, +0.093] |
 
 Ablations descriptive and underpowered; they do not establish causal feature effects.
 
@@ -45,58 +55,59 @@ Ablations descriptive and underpowered; they do not establish causal feature eff
 
 | Источник обучения | Recall @10 / @20 / @30 | Paired Δ@10 [95% CI] |
 | --- | ---: | ---: |
-| Mutants only | 0.674 / 0.807 / 0.875 | -0.003 [-0.019, +0.011] |
-| Real only | 0.111 / 0.253 / 0.405 | -0.567 [-0.714, -0.417] |
-| Mix 4:1 | 0.679 / 0.784 / 0.854 | +0.002 [-0.019, +0.023] |
-| Mix 1:1 | 0.675 / 0.759 / 0.846 | -0.002 [-0.019, +0.016] |
-| Mix 1:4 | 0.712 / 0.816 / 0.888 | +0.034 [+0.001, +0.083] |
+| Mutants only | 0.685 / 0.781 / 0.864 | +0.008 [−0.018, +0.035] |
+| Real only | 0.166 / 0.263 / 0.324 | −0.512 [−0.661, −0.362] |
+| Mix 4:1 | 0.685 / 0.775 / 0.856 | +0.008 [+0.001, +0.013] |
+| Mix 1:1 | 0.719 / 0.813 / 0.878 | +0.041 [+0.009, +0.085] |
+| Mix 1:4 | 0.681 / 0.755 / 0.846 | +0.003 [−0.011, +0.015] |
 
-Эти synthetic результаты не отвечают на вопрос о real-коммитах и не меняют решение по дефолту.
+Synthetic `cov_lines` baseline: 0.678 / 0.762 / 0.837. Эти данные — только диагностика synthetic TEST и не отвечают на вопрос о реальных коммитах.
 
-## Бюджетная кривая — real-only
+## Бюджетная кривая — primary real-only
 
-Среднее по 24 изменениям. Для tie на бюджетной границе берётся ожидаемое значение при равновероятном выборе среди тестов с одинаковым score; это устраняет зависимость от порядка строк.
+Среднее по 24 изменениям; на budget boundary используется ожидаемый вклад при равновероятном выборе среди тестов с одинаковым score.
 
 | Selector | Recall @10 / @20 / @30 | Время сэкономлено @10 / @20 / @30 |
 | --- | ---: | ---: |
-| Модель | 0.140 / 0.230 / 0.397 | 0.675 / 0.547 / 0.384 |
+| Модель | 0.104 / 0.185 / 0.327 | 0.777 / 0.638 / 0.453 |
 | cov_lines | 0.191 / 0.291 / 0.388 | 0.902 / 0.786 / 0.669 |
 | Запустить всё | 1.000 / 1.000 / 1.000 | 0 / 0 / 0 |
 
-Покрытие длительностей: 14,361 известных, 0 неизвестных (100%). На границе выбора у `cov_lines` ties во всех 24 изменениях при каждом бюджете; у модели — 22/24, 21/24 и 23/24.
+Покрытие длительностей: 14,361 известных, 0 неизвестных. У `cov_lines` ties на границе во всех 24 изменениях; у модели — 22/24, 21/24 и 24/24.
 
-## Чувствительность: включить changed test functions
+## Чувствительность: включить функции изменённых тестов
 
-| Источник обучения | Recall @10 / @20 / @30 | Paired Δ@10 [95% CI] | click Δ@10 |
-| --- | ---: | ---: | ---: |
-| Mutants only | 0.242 / 0.340 / 0.381 | +0.032 [-0.062, +0.151] | -0.019 |
-| Real only | 0.188 / 0.338 / 0.407 | -0.052 [-0.181, +0.077] | -0.007 |
-| Mix 4:1 | 0.050 / 0.213 / 0.372 | -0.085 [-0.195, +0.024] | -0.031 |
-| Mix 1:1 | 0.384 / 0.404 / 0.560 | -0.028 [-0.182, +0.123] | +0.000 |
-| Mix 1:4 | 0.296 / 0.491 / 0.603 | -0.091 [-0.207, +0.009] | -0.110 |
+| Источник обучения | Recall @10 / @20 / @30 | Paired Δ@10 [95% CI] |
+| --- | ---: | ---: |
+| Mutants only | 0.148 / 0.289 / 0.471 | −0.023 [−0.149, +0.097] |
+| Real only | 0.058 / 0.134 / 0.272 | −0.062 [−0.193, +0.062] |
+| Mix 4:1 | 0.221 / 0.512 / 0.593 | −0.028 [−0.177, +0.126] |
+| Mix 1:1 | 0.266 / 0.388 / 0.548 | −0.070 [−0.180, +0.032] |
+| Mix 1:4 | 0.393 / 0.511 / 0.625 | +0.028 [−0.077, +0.159] |
+
+Sensitivity не меняет решение: включение функций тестов добавляет пару, но CI всё ещё включает 0 и per-repo gate недостаточно мощный.
 
 ## Запуск и артефакты
 
-Повторить из корня репозитория, указав локальный Week 6 checkout в `W6_ROOT` и Python 3.13 training env в `PYTHON`:
+Команда очищенного LORO запуска, код завершения 0, длительность около 32 минут:
 
 ```sh
 $PYTHON scripts/run_week7_loro.py \
   --synthetic "$W6_ROOT/docs/measurements/bootstrap-click/pairs.parquet" \
   --synthetic "$W6_ROOT/docs/measurements/bootstrap-jinja/pairs.parquet" \
   --synthetic "$W6_ROOT/docs/measurements/bootstrap-attrs/pairs.parquet" \
-  --real-all .cache/measurements/week7/pr-intermediate/real-features/real-pair-features-all.parquet \
-  --real-without-changed-functions .cache/measurements/week7/pr-intermediate/real-features/real-pair-features-without_changed_functions.parquet \
+  --real-all .cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-all.parquet \
+  --real-without-changed-functions .cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-without_changed_functions.parquet \
   --schema features_schema.json \
-  --out .cache/measurements/week7/pr-intermediate/loro-summary.json
+  --out .cache/measurements/week7/pr-intermediate/loro-summary-audited.json
 ```
 
-- Машиночитаемые метрики и provenance: `summary.json`; полные кривые: `budget-curve.json`.
-- Вывод команды: `loro-run-output.json`; feature-build summary: `real-feature-build-output.json`.
-- Pair audit и семантические решения: `real-pair-audit.md`, `real-pair-semantic-audit.md`, три manifest JSONL.
-- Feature build обработал 447 уникальных head SHA, исключил click PR group #3872/#3873 и Jinja #2256, записал 0 feature errors; parquet содержит 288,742 / 288,502 rows. На legacy source встречались Python `SyntaxWarning` про `\s`; построение завершилось успешно. Сводка и SHA артефактов: `real-feature-build-output.json`.
-- Реальные parquet и raw JSON остаются локальными в `.cache/measurements/week7/pr-intermediate/`.
-- Python 3.13.18; polars 1.17.1; LightGBM 4.5.0; NumPy 2.1.3; PyArrow 18.1.0; testpilot-train 0.1.0.
-- Week 6 provenance восстановлен из исторических файлов/Git, а не зафиксирован snapshot во время прогона. В attrs 36 пар относятся к последнему запуску, 76 — оценка более ранних запусков; точная версия classifier на каждую пару неизвестна.
-- Финальный LORO процесс завершился с exit code 0 примерно за 39 минут. PR #10 на head `74e00e7` прошёл GitHub Actions run `45917443530` после исправления теста, зависевшего от локального venv. Локальные проверки перед закрытием этапа: `PYTHONPATH=scripts .cache/week7-train-env/bin/python -m pytest scripts/mutate -q --durations=20` — 267 passed; `.cache/week7-train-env/bin/python -m pytest python/testpilot-train -q --durations=10` — 55 passed; `ruff check --select E4,E7,E9,F scripts/` — all checks passed; targeted `ruff format --check` для трёх новых/изменённых файлов и `git diff --check` — чисто. Результат независимого review и stage commit IDs указаны в closure-разделе плана.
-- Task 1: первоначальный `N=400`, `K=4` не достиг цели (`n_C=9` click, `6` attrs; см. `test-width/test-width-report.md`). После новой dry-run оценки и отдельного OK пользователя выполнены click `N=500` и attrs `N=800`: `n_C=15` и `13`, цель `n_C ≥ 10` достигнута. click gate — `use_baseline`; attrs gate — `use_model` только на синтетических мутантах. Эти результаты не меняют общего дефолта: по real-only LORO превосходство не доказано, `cov_lines` остаётся дефолтом. Оценки и измеренные времена, provenance и ограничения: `test-width-options.md`; копии pinned JSON и sanitized logs сохранены под `test-width/run-click-n500/` и `test-width/run-attrs-n800/`, исходные JSON остаются локально в `.cache/measurements/week7/test-width/`.
-- Task 3 (`select --explain`) не запускался: это условный этап после закрытия 0–2 и подтверждения, что осталось время.
+- Полные метрики: `summary.json`; curves всех arm/ablation/source: `budget-curve.json`.
+- stdout-компактная сводка: `loro-run-output.json`; hashes/inputs и версия кода: `loro-provenance-audited.json`.
+- Полный audit interrupted heads: `real-pair-pytest-completeness.json`; размеры и sha очищенных features: `real-feature-build-audited.json`.
+- Исходные real feature parquet, очищенные parquet и полный raw LORO JSON остаются локально в `.cache/measurements/week7/pr-intermediate/`.
+- Чистые исходы pytest для истории восстановлены по четырём сохранённым логам; у прежних записей не было exit code в JSON. Поэтому audit исключает все головы с interruption/collection markers или нулём shared IDs и не пытается ретроспективно восстановить отсутствующие return codes.
+- Python 3.13.18; polars 1.17.1; LightGBM 4.5.0; NumPy 2.1.3; PyArrow 18.1.0; `testpilot-train` 0.1.0. Источники и SHA-256 зафиксированы в `loro-provenance-audited.json`.
+- CI run `45917443530` прошёл на PR #10 до этих review fixes; новых remote CI запусков не было. Итоговые локальные проверки после исправлений: `scripts/mutate` — 275 passed in 170.25s; `python/testpilot-train` — 56 passed in 6.09s; `ruff check --select E4,E7,E9,F scripts/` и тот же lint на изменённых training-файлах — all checks passed; targeted `ruff format --check` на 10 новых/затронутых файлах — already formatted; `git diff --check` — clean.
+- Task 1 достиг ширины: после первоначального N=400 ниже порога выполнены с разрешения click N=500 (`n_C=15`, gate `use_baseline`) и attrs N=800 (`n_C=13`, synthetic gate `use_model`). Данные и времена — `test-width-options.md` и его run artifacts.
+- Task 3 (`select --explain`) не запускался: это условный этап после закрытия 0–2, в рамках данного закрытия не реализовывался.

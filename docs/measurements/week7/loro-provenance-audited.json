@@ -1,0 +1,77 @@
+{
+  "command": "$PYTHON scripts/run_week7_loro.py --synthetic \"$W6_ROOT/docs/measurements/bootstrap-click/pairs.parquet\" --synthetic \"$W6_ROOT/docs/measurements/bootstrap-jinja/pairs.parquet\" --synthetic \"$W6_ROOT/docs/measurements/bootstrap-attrs/pairs.parquet\" --real-all .cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-all.parquet --real-without-changed-functions .cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-without_changed_functions.parquet --schema features_schema.json --out .cache/measurements/week7/pr-intermediate/loro-summary-audited.json",
+  "criterion_2_4_passed": false,
+  "default": "cov_lines",
+  "elapsed_minutes_approx": 32,
+  "execution_code": [
+    {
+      "commit_blob_sha1": "4661aeff23a025a618fcbaff869baf05e4877e31",
+      "path": "scripts/run_week7_loro.py",
+      "sha256": "73fd17bf9acc94e3af4dd3458104776f065b32d8323a2c8a1de161bb578e79be",
+      "worktree_blob_sha1": "4661aeff23a025a618fcbaff869baf05e4877e31"
+    },
+    {
+      "commit_blob_sha1": "1ac0f559854488761bfef66689beda93e06d5b90",
+      "path": "python/testpilot-train/src/testpilot_train/train_lib.py",
+      "sha256": "9cf9a2be160e07c2c986c5e39f81493ad7be9ba4018238b74ca80ffb4cdcc970",
+      "worktree_blob_sha1": "1ac0f559854488761bfef66689beda93e06d5b90"
+    }
+  ],
+  "exit_code": 0,
+  "input_paths_user_independent": true,
+  "inputs": [
+    {
+      "bytes": 840097,
+      "name": "real_all",
+      "path": ".cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-all.parquet",
+      "sha256": "d8f9d5a96b80ac75dedd00df4cf2d68ad6fcad56943fd219b43649ecb117f233"
+    },
+    {
+      "bytes": 857649,
+      "name": "real_without_changed_functions",
+      "path": ".cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-without_changed_functions.parquet",
+      "sha256": "844734b27c126718db9246bad9c222416df42b90c313d478ab9f4c52c8ed9883"
+    },
+    {
+      "bytes": 455157,
+      "name": "synthetic_click",
+      "path": "docs/measurements/bootstrap-click/pairs.parquet",
+      "sha256": "8c2b630e543f46f3686fb4a5adf24bc1fe3f66f7cc1f1805928aef31cf90eb81"
+    },
+    {
+      "bytes": 604753,
+      "name": "synthetic_jinja",
+      "path": "docs/measurements/bootstrap-jinja/pairs.parquet",
+      "sha256": "7a41f800f85a782f92fbebb4f92c2561e5f21b2863f879f8a248504742702426"
+    },
+    {
+      "bytes": 959671,
+      "name": "synthetic_attrs",
+      "path": "docs/measurements/bootstrap-attrs/pairs.parquet",
+      "sha256": "f50f25a01b1961690e659fc1d0a296fb145daa9e5a6fecca648bc283024e2394"
+    },
+    {
+      "bytes": 2462,
+      "name": "schema",
+      "path": "features_schema.json",
+      "sha256": "9e5e9243326d8870bd33dcf8c59b49d34a76d60e921435f501638db23e2c5269"
+    }
+  ],
+  "partial_synthetic_rows_included": 0,
+  "process_start_head_sha": "38a0d3aa418123d779a91fed2c6acb7b45d183ce",
+  "pytest_completeness_audit": "docs/measurements/week7/real-pair-pytest-completeness.json",
+  "raw_output": ".cache/measurements/week7/pr-intermediate/loro-summary-audited.json",
+  "raw_output_sha256": "ae6eefa3c784c0534444e67f18d4116b0714540bdd49194af95ec687ac457701",
+  "real_sample_counts": {
+    "excluding_changed_functions": 24,
+    "including_changed_functions": 26
+  },
+  "reproduction_code": {
+    "commit": "818f38bf26c4fc0eb2206342425515cfee23fc99",
+    "note": "Added after the run; rerunning it reproduced the exact real parquet hashes consumed by LORO.",
+    "path": "scripts/filter_week7_real_features.py",
+    "sha256": "ea2fda0f4f09b3617702e5468bf52d0cae2087ab038082db1d6085895d702112"
+  },
+  "training_code_commit": "6577ff22e61db0a59d03496513db4f04b8f234f8",
+  "training_code_commit_matches_loaded_worktree_blob": true
+}

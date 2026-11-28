@@ -205,7 +205,9 @@
 - [x] Report `test_modified_in_head` and unique positive failure-set counts in the audit and full summary.
 - [x] Produce budget curves using real `dur` milliseconds; report duration coverage and leave unknown savings unavailable.
 - [x] Apply the real-only success criterion verbatim. It fails/is underpowered: report “real-data superiority not demonstrated” and keep `cov_lines` default.
-- [x] Report commands, stdout summary, artifact paths, counts, and remaining analysis in `docs/measurements/week7/summary.md` and `loro-run-output.json`. The clean LORO run completed with exit 0; final local suites and independent review are recorded in the closure section of the plan and the stage report.
+- [x] Audit saved pytest logs before finalizing model metrics. Exclude 132 interrupted/collection-error/no-shared heads; 120 contributed 680 rows and none of the excluded heads was positive. The previous LORO metrics are superseded.
+- [x] Filter the audited heads out of both real feature variants, preserve feature schema metadata, and rerun LORO. The cleaned run completed with exit 0 in about 32 minutes; exact outputs, hashes, commands, and counts are recorded in `docs/measurements/week7/summary.md`, `loro-run-output.json`, `real-pair-pytest-completeness.json`, `real-feature-build-audited.json`, and `loro-provenance-audited.json`.
+- [x] Report commands, stdout summary, artifact paths, counts, and remaining analysis in `docs/measurements/week7/summary.md` and `loro-run-output.json`. Final local suites and the independent review verdict are recorded in the closure section below.
 
 **Acceptance:** Every comparison names source arm, fold, real/synthetic subset, and counts; the success gate is computed only on real held-out TEST; `partial=1` is absent; default remains `cov_lines` unless all three real-only conditions pass.
 
@@ -224,6 +226,7 @@
 
 - [x] Add runner validation for positive N/K/jobs, known suite names, unique output directories, and pin/hash match; isolated tests are in `scripts/mutate/test_week7_test_width.py`.
 - [x] Add a dry-run-only test proving it never enters a full measurement path.
+- [x] Bind full mode to dry-run `N/K/jobs/seed/suites`, Python version, binary version/SHA-256, and script worktree blobs; include active width wrapper and `backfill.py` in provenance.
 - [x] Fourth-repository candidate screening was not needed after click N=500 and attrs N=800 both reached the width target; no fourth-repository measurement was started.
 - [x] After Task 2A, compared dry-run options N=500/600/800 and presented the targeted click N=500 + attrs N=800 estimate before waiting for explicit approval. A fourth-repository option was not needed after both target repositories reached `n_C ≥ 10`.
 - [x] The N=500 click and N=800 attrs full runs started only after explicit user approval; no unapproved measurement was launched.
@@ -253,9 +256,11 @@
 
 - Added isolated coverage for latest CI conclusion classification, deterministic 10% success sampling and unavailable-CI first-commit fallback, stable repeated base/head positives, and pair-timeout versus batch-deadline classification.
 - Replayed the refactored selector against `.cache/measurements/week7/pr-intermediate/ci-inventory.json`: selected SHA sets matched the stored inventory for click (12), Jinja (16), and attrs (16).
-- Fresh local verification: `PYTHONPATH=scripts .cache/week7-train-env/bin/python -m pytest scripts/mutate -q --durations=20` → 267 passed in 125.40s; `.cache/week7-train-env/bin/python -m pytest python/testpilot-train -q --durations=10` → 55 passed in 6.11s; `ruff check --select E4,E7,E9,F scripts/` → all checks passed; targeted `ruff format --check` → 3 files already formatted; `git diff --check` → clean.
-- Stage commits: `1c2f87f` feasibility runner tests/refactor; `abc2a62` precise mutant collection-error classification and width-runner tests; `7578271` approved N=500/N=800 measurement report and artifacts. All are on `feat/week7`.
-- Independent full-range review verdict and any final documentation commit will be added after review. No push or merge to `main` was performed.
+- Independent reviewer verdict on base `b0fb10f7`..`38a0d3a`: **With fixes**. Findings: interrupted pytest rows in training data (critical), empty-repo gate/synthetic-fold handling (important), weak full-run settings/provenance validation (important), distorted copied attrs log and stale example/claim (minor). Fixed in follow-up commits; the review was not rerun after fixes.
+- The cleaned LORO uses 24 primary real positive changes, 287,822 filtered feature rows, 320,346 synthetic rows, no `partial=1`, exit code 0, approximately 32 minutes. Real-only full recall@10 is 0.068 vs `cov_lines` 0.195, paired Δ −0.087, CI95 [−0.213, +0.042]. Attrs (5) and Jinja (1) remain `data_insufficient`; no arm passes 2.4; `cov_lines` remains default.
+- Fresh local verification: `PYTHONPATH=scripts .cache/week7-train-env/bin/python -m pytest scripts/mutate -q --durations=20` → 275 passed in 170.25s; `.cache/week7-train-env/bin/python -m pytest python/testpilot-train -q --durations=10` → 56 passed in 6.09s; `ruff check --select E4,E7,E9,F scripts/` and the same check on modified train files → all checks passed; targeted `ruff format --check` → 10 files already formatted; `git diff --check` → clean.
+- GitHub Actions run `45917443530` was green on PR #10 before the review fixes. No remote CI was triggered for these follow-ups because they were kept local; `main` was not changed, and nothing was pushed or merged.
+- Stage commits on `feat/week7`: `1c2f87f` feasibility runner tests/refactor; `abc2a62` collection-error classification and width-runner tests; `7578271` synthetic width artifacts; `38a0d3a` stage summary; `2eed309` reject incomplete pytest pairs; `3bd69fa` bind full measurement to dry-run provenance; `6577ff2` include every repo in real gate; `5409145` audit/report fixes; `818f38b` reusable feature filter; `76011c2` format filter utility and test. Final report/plan commit follows after status checks.
 
 ## Stage report and commit protocol
 
