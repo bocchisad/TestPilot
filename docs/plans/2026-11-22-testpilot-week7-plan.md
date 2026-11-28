@@ -159,7 +159,7 @@
 
 - [x] Add scanner tests for old layouts, `bugfix`, Revert exclusion, and patch-id dedupe across a cherry-pick and first-parent merge diff.
 - [x] Validate pair-result and unique-positive counts in the full-run audit/report pipeline.
-- [ ] Add isolated runner tests for CI conclusion/fallback sampling, repeated pair outcomes, and `batch_deadline` versus per-pair `timeout`; these remain a test-coverage gap even though recorded full-run outcomes are in the raw artifacts.
+- [x] Add isolated runner tests for CI conclusion/fallback sampling, repeated pair outcomes, and `batch_deadline` versus per-pair `timeout`; tests live in `scripts/mutate/test_pr_intermediate_feasibility.py`.
 - [x] Explicitly scan merge commits against first parent while retaining internal commits; sort the deduplicated shortlist newest-first.
 - [x] Expand CI Ruff coverage to `scripts/` (baseline rules E4/E7/E9/F); fix reported issues and format the four reviewed files.
 - [x] Remove machine-specific absolute paths from the screening report; add optional SHA-256 for the measurement binary provenance.
@@ -205,11 +205,11 @@
 - [x] Report `test_modified_in_head` and unique positive failure-set counts in the audit and full summary.
 - [x] Produce budget curves using real `dur` milliseconds; report duration coverage and leave unknown savings unavailable.
 - [x] Apply the real-only success criterion verbatim. It fails/is underpowered: report “real-data superiority not demonstrated” and keep `cov_lines` default.
-- [x] Report commands, stdout summary, artifact paths, counts, and remaining analysis in `docs/measurements/week7/summary.md` and `loro-run-output.json`. The clean LORO run completed with exit 0. Final local suites and independent report review are being completed before the stage commit/PR.
+- [x] Report commands, stdout summary, artifact paths, counts, and remaining analysis in `docs/measurements/week7/summary.md` and `loro-run-output.json`. The clean LORO run completed with exit 0; final local suites and independent review are recorded in the closure section of the plan and the stage report.
 
 **Acceptance:** Every comparison names source arm, fold, real/synthetic subset, and counts; the success gate is computed only on real held-out TEST; `partial=1` is absent; default remains `cov_lines` unless all three real-only conditions pass.
 
-## Task 1: Reach sufficient synthetic TEST width (N=400 click/attrs attempted; target missed)
+## Task 1: Reach sufficient synthetic TEST width (N=400 missed; approved N=500/800 reached target)
 
 **Files:**
 - Modify: `scripts/measure_bootstrap_w6.sh` or add a Week 7 measurement command wrapper with `N`, repo subset, and pins as explicit arguments.
@@ -222,17 +222,17 @@
 
 **Estimate:** 4–6 engineering hours for runner changes, plus user-owned measurement time. Formula proxy from the spec: click N=400 ≈53.4 min; attrs N=400 ≈94.5 min (cross-suite proxy only); a fourth repo N=200 ≈50.0 min before exact pin dry-run. These are planning estimates only; no run is approved by this plan.
 
-- [ ] Add runner validation for positive N/K/jobs, known suite names, unique output directories, and pin/hash match.
-- [ ] Add a dry-run-only test proving it never enters a full measurement path.
-- [ ] Screen `pluggy`, `packaging`, and `iniconfig` at exact pins for Python 3.13, pytest default-suite command, no network/service use, and plausible history/test count; reject candidates that fail any condition.
-- [ ] Only if time remains after Task 2A, present exact pins, commands, and calibrated dry-run estimates for variants A/B/C from the spec. Ask the user to choose only after this evidence is reviewable.
-- [ ] No measurement run is authorized in advance. After the user chooses a variant, provide commands and estimates and wait for explicit OK before starting any run; runs expected to take more than 30 minutes always require explicit OK.
-- [x] After explicit user approval, run the selected full measurements. Import only complete (`partial=0`) outputs, calculate `n_C` per repo, and report whether it reached 10. click `n_C=9`; attrs `n_C=6`; both miss the target. Stop before another N or repository run and provide a new estimate first. See `docs/measurements/week7/test-width/test-width-report.md`.
+- [x] Add runner validation for positive N/K/jobs, known suite names, unique output directories, and pin/hash match; isolated tests are in `scripts/mutate/test_week7_test_width.py`.
+- [x] Add a dry-run-only test proving it never enters a full measurement path.
+- [x] Fourth-repository candidate screening was not needed after click N=500 and attrs N=800 both reached the width target; no fourth-repository measurement was started.
+- [x] After Task 2A, compared dry-run options N=500/600/800 and presented the targeted click N=500 + attrs N=800 estimate before waiting for explicit approval. A fourth-repository option was not needed after both target repositories reached `n_C ≥ 10`.
+- [x] The N=500 click and N=800 attrs full runs started only after explicit user approval; no unapproved measurement was launched.
+- [x] After explicit user approval, run the selected full measurements. Initial N=400 gave click `n_C=9` and attrs `n_C=6`; after a new dry-run and additional explicit approval, click N=500 and attrs N=800 reached `n_C=15` and `n_C=13`. Results and caveats: `docs/measurements/week7/test-width-options.md`; the original N=400 report remains at `docs/measurements/week7/test-width/test-width-report.md`.
 - [x] Keep the runner/code commits separate from generated results; attach copied pinned JSON outputs and sanitized completion logs under `docs/measurements/week7/test-width/`.
 
 **Acceptance:** Each chosen repo has `n_C ≥ 10` in synthetic TEST, or the report explicitly says target not reached and leaves `cov_lines` default; no long measurement starts without user OK.
 
-**Current status:** The chosen click/attrs `N=400` run satisfies the reporting branch of acceptance but does not provide sufficient TEST width. A new dry-run estimate and explicit user OK are required before any follow-up full run. The fourth-repository candidates have not been pinned or screened in this task.
+**Current status:** The initial N=400 run missed the target; the user then approved click N=500 and attrs N=800, and both reached `n_C ≥ 10`. The general default remains `cov_lines` because the real-only acceptance criterion failed. N=600 was estimated but not run; fourth-repository candidates were not needed for the width target and remain unpinned.
 
 ## Task 3: Conditional `select --explain`
 
@@ -248,6 +248,14 @@
 - [ ] Add `ranker=cov_lines` explanation test with exact phrase “covers N changed lines”.
 - [ ] Assert no output labels a raw score as a probability.
 - [ ] Implement only if condition is met; otherwise record `not done: stages 0–2 consumed available time` in the final report.
+
+## Closure record — final local review
+
+- Added isolated coverage for latest CI conclusion classification, deterministic 10% success sampling and unavailable-CI first-commit fallback, stable repeated base/head positives, and pair-timeout versus batch-deadline classification.
+- Replayed the refactored selector against `.cache/measurements/week7/pr-intermediate/ci-inventory.json`: selected SHA sets matched the stored inventory for click (12), Jinja (16), and attrs (16).
+- Fresh local verification: `PYTHONPATH=scripts .cache/week7-train-env/bin/python -m pytest scripts/mutate -q --durations=20` → 267 passed in 125.40s; `.cache/week7-train-env/bin/python -m pytest python/testpilot-train -q --durations=10` → 55 passed in 6.11s; `ruff check --select E4,E7,E9,F scripts/` → all checks passed; targeted `ruff format --check` → 3 files already formatted; `git diff --check` → clean.
+- Stage commits: `1c2f87f` feasibility runner tests/refactor; `abc2a62` precise mutant collection-error classification and width-runner tests; `7578271` approved N=500/N=800 measurement report and artifacts. All are on `feat/week7`.
+- Independent full-range review verdict and any final documentation commit will be added after review. No push or merge to `main` was performed.
 
 ## Stage report and commit protocol
 
