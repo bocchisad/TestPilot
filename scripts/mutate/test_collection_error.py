@@ -399,12 +399,16 @@ def test_pytest_rc3_with_conftest_header_stays_infrastructure(tmp_path: Path) ->
     assert result.ok is False
 
 
-@pytest.mark.parametrize(("exit_code", "compact_traceback"), [(1, False), (3, True)])
+@pytest.mark.parametrize(
+    ("exit_code", "compact_traceback", "upstream_frame"),
+    [(1, False, False), (3, True, False), (3, False, True)],
+)
 def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     exit_code: int,
     compact_traceback: bool,
+    upstream_frame: bool,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -438,6 +442,11 @@ def test_pytest11_plugin_failure_at_mutated_line_is_collection_error(
         *(["Traceback (most recent call last):"] if not compact_traceback else []),
         frame,
         "    return 2",
+        *(
+            ['  File "/outside/site-packages/jsonschema/_types.py", line 172, in remove']
+            if upstream_frame
+            else []
+        ),
         exception,
     ]
     wrapper.write_text(
@@ -548,6 +557,7 @@ def test_pytest11_plugin_failure_at_unchanged_line_stays_infrastructure(
         "hypothesis_profile",
         "generated_init_typeerror",
         "frozen_setattr",
+        "attrs_fields_guard",
     ],
 )
 def test_no_junit_mutant_failure_uses_same_worker_parent_control(
@@ -560,13 +570,33 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
     repo, _initial = _init_tiny_repo(tmp_path)
     source = repo / "src" / "attr" / "_make.py"
     source.parent.mkdir(parents=True)
-    source.write_text("def value():\n    return 1\n", encoding="utf-8")
+    if failure_kind == "attrs_fields_guard":
+        source.write_text(
+            "def fields(cls):\n"
+            "    generic_base = None\n"
+            "    if generic_base is None and not isinstance(cls, type):\n"
+            "        raise TypeError('Passed object must be a class.')\n"
+            "    return cls\n",
+            encoding="utf-8",
+        )
+    else:
+        source.write_text("def value():\n    return 1\n", encoding="utf-8")
     _git(repo, "add", "src/attr/_make.py")
     _git(repo, "commit", "-m", "baseline package")
     parent = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repo, text=True
     ).strip()
-    source.write_text("def value():\n    return 2\n", encoding="utf-8")
+    if failure_kind == "attrs_fields_guard":
+        source.write_text(
+            "def fields(cls):\n"
+            "    generic_base = None\n"
+            "    if generic_base is None or not isinstance(cls, type):\n"
+            "        raise TypeError('Passed object must be a class.')\n"
+            "    return cls\n",
+            encoding="utf-8",
+        )
+    else:
+        source.write_text("def value():\n    return 2\n", encoding="utf-8")
     _git(repo, "add", "src/attr/_make.py")
     _git(repo, "commit", "-m", "mutant fails from generated code")
     mutant = subprocess.check_output(
@@ -613,6 +643,13 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
             '"ValueError: Can\'t freeze a class with a custom __setattr__."\n'
             "exit 1\n"
         )
+    elif failure_kind == "attrs_fields_guard":
+        failure_output = (
+            "printf '%s\\n' 'Traceback (most recent call last):'\n"
+            'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 4, in fields"\n'
+            "printf '%s\\n' 'TypeError: Passed object must be a class.'\n"
+            "exit 1\n"
+        )
     else:
         failure_output = (
             "printf '%s\\n' 'Error while loading plugin \"pytest11\".' "
@@ -642,7 +679,9 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
         timeout_override=60,
     )
     assert result.pytest_rc == (
-        3 if failure_kind in {"pytest11_plugin", "hypothesis_profile"} else 1
+        3
+        if failure_kind in {"pytest11_plugin", "hypothesis_profile"}
+        else 1
     )
     if parent_collects:
         assert result.collection_error is True, result.collect_note[-2000:]
@@ -654,11 +693,69 @@ def test_no_junit_mutant_failure_uses_same_worker_parent_control(
         assert "parent control collection failed" in result.collect_note
 
 
+def test_unclassified_runtime_error_on_changed_line_stays_infrastructure_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
+    repo, _initial = _init_tiny_repo(tmp_path)
+    source = repo / "src" / "attr" / "_make.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def value():\n    return 1\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "baseline package")
+    parent = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    source.write_text("def value():\n    return 2\n", encoding="utf-8")
+    _git(repo, "add", "src/attr/_make.py")
+    _git(repo, "commit", "-m", "mutant changes value")
+    mutant = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+    ).strip()
+    _git(repo, "reset", "--hard", parent)
+
+    wrapper = tmp_path / "pytest_wrap"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        "junit=''\n"
+        'for arg in "$@"; do case "$arg" in --junitxml=*) junit=${arg#--junitxml=};; esac; done\n'
+        'case "$PWD" in *wt-parent-*)\n'
+        'cat > "$junit" <<\'XML\'\n'
+        '<?xml version="1.0"?>\n'
+        '<testsuites><testsuite name="tests" tests="1">'
+        '<testcase classname="tests.test_basic" name="test_ok"/>'
+        '</testsuite></testsuites>\n'
+        'XML\necho "1 test collected"\nexit 0\nesac\n'
+        "printf '%s\\n' 'Traceback (most recent call last):'\n"
+        'printf \'%s\\n\' "  File \\"$PWD/src/attr/_make.py\\", line 2, in value"\n'
+        'printf "%s\\n" "AttributeError: unrelated upstream failure"\n'
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+
+    result = run_mutant(
+        repo,
+        tmp_path / "tp.sqlite",
+        mutant,
+        parent_sha=parent,
+        pytest_bin=wrapper,
+        python_bin=Path(sys.executable),
+        work_dir=tmp_path / "work",
+        timeout_override=60,
+    )
+
+    assert result.pytest_rc == 1
+    assert result.collection_error is False
+
+
 @pytest.mark.parametrize("parent_collects", [True, False])
+@pytest.mark.parametrize("frame_style", ["full", "compact"])
 def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
+    frame_style: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -695,6 +792,15 @@ def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
     )
     if not parent_collects:
         parent_output = "exit 1\n"
+    full_frame = (
+        "'  File "
+        + chr(34)
+        + "$PWD/venv/lib/python3.13/site-packages/jsonschema/_types.py"
+        + chr(34)
+        + ", line 195, in <module>'"
+    )
+    compact_frame = "'../../venv-1/lib/python3.13/site-packages/jsonschema/_types.py:195: in <module>'"
+    frame = full_frame if frame_style == "full" else compact_frame
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"
@@ -703,8 +809,8 @@ def test_jsonschema_import_failure_from_mutated_evolve_uses_parent_control(
         + parent_output
         + "esac\n"
         + "printf '%s\\n' 'Traceback (most recent call last):' "
-        + "'  File \"$PWD/venv/lib/python3.13/site-packages/jsonschema/_types.py\", line 195, in <module>' "
-        + "\"AttributeError: 'NoneType' object has no attribute 'redefine'\"\n"
+        + frame + " "
+        + "\"E   AttributeError: 'NoneType' object has no attribute 'redefine'\"\n"
         + "exit 1\n",
         encoding="utf-8",
     )
@@ -940,6 +1046,7 @@ def test_attrs_metadata_bool_failure_requires_matching_mutation_and_parent_contr
     "mutation_kind", ["kw_only_separator", "generated_body", "other"]
 )
 @pytest.mark.parametrize("error_kind", ["syntax", "typechecker"])
+@pytest.mark.parametrize("pytest_error_prefix", ["", "E   "])
 def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -947,6 +1054,7 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
     include_mutant_frame: bool,
     mutation_kind: str,
     error_kind: str,
+    pytest_error_prefix: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -1020,7 +1128,7 @@ def test_attrs_generated_init_syntax_error_requires_matching_mutation_and_parent
         + (
             "printf '%s\\n' \"SyntaxError: invalid syntax\"\n"
             if error_kind == "syntax"
-            else "printf '%s\\n' \"AttributeError: 'jsonschema._types.TypeChecker' object has no attribute '_type_checkers'\"\n"
+            else f"printf '%s\\n' \"{pytest_error_prefix}AttributeError: 'jsonschema._types.TypeChecker' object has no attribute '_type_checkers'\"\n"
         )
         + "exit 1\n",
         encoding="utf-8",
@@ -1175,12 +1283,14 @@ def test_attrs_generated_eq_syntax_error_requires_matching_mutation_and_parent_c
 @pytest.mark.parametrize("parent_collects", [True, False])
 @pytest.mark.parametrize("error_kind", ["unexpected_keyword", "missing_opaque"])
 @pytest.mark.parametrize("mutation_kind", ["sentinel", "class_var", "other"])
+@pytest.mark.parametrize("pytest_error_prefix", ["", "E   "])
 def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_control(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     parent_collects: bool,
     error_kind: str,
     mutation_kind: str,
+    pytest_error_prefix: str,
 ) -> None:
     monkeypatch.setenv("TESTPILOT_BIN", _testpilot())
     repo, _initial = _init_tiny_repo(tmp_path)
@@ -1249,6 +1359,7 @@ def test_attrs_referencing_import_failure_requires_matching_mutation_and_parent_
         if error_kind == "unexpected_keyword"
         else "TypeError: Specification.__init__() missing 1 required positional argument: 'OPAQUE'"
     )
+    error_line = f"{pytest_error_prefix}{error_line}"
     wrapper.write_text(
         "#!/bin/sh\n"
         "junit=''\n"

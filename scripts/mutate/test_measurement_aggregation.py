@@ -5,7 +5,16 @@ import sqlite3
 
 import pytest
 
-from aggregate_bootstrap_w6 import collect_mutants, compare_level_b, git_blob_sha1, paired_ci, test_nc as counts, run_loro
+from aggregate_bootstrap_w6 import (
+    attach_provenance,
+    collect_mutants,
+    compare_level_b,
+    git_blob_sha1,
+    load_provenance_snapshot,
+    paired_ci,
+    test_nc as counts,
+    run_loro,
+)
 from mutate.run_mutant import MutantRunResult
 from mutate_bootstrap import _append_outcome
 
@@ -52,7 +61,16 @@ def test_labels_subtract_parent_and_flaky_and_timeouts_are_explicit(tmp_path):
     assert result['timeout_pairs'] == ['C:1']
     con.execute("INSERT INTO test_results(run_id,test_pk,outcome,duration_ms) VALUES(2,2,'fail',1)")
     con.commit()
-    assert collect_mutants(tmp_path)['labels'] == {'M':'kill'}
+    result = collect_mutants(tmp_path)
+    assert result['labels'] == {'M':'survive'}
+    assert result['label_details']['M']['new_fail_tests'] == []
+    assert result['label_details']['M']['missing_from_base_tests'] == ['new']
+    con.execute("INSERT INTO test_results(run_id,test_pk,outcome,duration_ms) VALUES(1,2,'pass',1)")
+    con.commit()
+    result = collect_mutants(tmp_path)
+    assert result['labels'] == {'M':'kill'}
+    assert result['label_details']['M']['new_fail_tests'] == ['new']
+    assert result['label_details']['M']['missing_from_base_tests'] == []
     con.close()
 
 
@@ -80,6 +98,22 @@ def test_level_b_only_ignores_explicitly_matching_collection_errors():
     mismatched = {**row, 'collection_error_shas':[]}
     result = compare_level_b(row, mismatched)
     assert not result['label_match']
+
+
+def test_level_b_reports_per_test_label_changes():
+    gold = {'m_shas_non_timeout':['M'], 'timeout_shas':[], 'label_details':{
+        'M':{'new_fail_tests':['missing-in-base'],'flaky_tests':[]}}}
+    second = {'m_shas_non_timeout':['M'], 'timeout_shas':[], 'label_details':{
+        'M':{'new_fail_tests':[],'missing_from_base_tests':['missing-in-base'],'flaky_tests':[]}}}
+
+    result = compare_level_b(gold, second)
+
+    assert not result['label_match']
+    assert result['n_label_changes'] == 1
+    assert result['changed_labels'] == [{
+        'sha':'M', 'old_new_fail_tests':['missing-in-base'], 'new_new_fail_tests':[],
+        'removed_tests':['missing-in-base'], 'added_tests':[]
+    }]
 
 
 def test_level_b_excludes_union_of_timeouts_and_flaky_tests():
@@ -173,3 +207,44 @@ def test_strict_json_loader_rejects_non_finite_constants(tmp_path):
     with pytest.raises(ValueError,match='non-finite'):
         import aggregate_bootstrap_w6 as agg
         agg.load(path)
+
+
+def test_provenance_snapshot_is_required_and_reused_for_every_report(tmp_path):
+    snapshot = {
+        'head_sha': 'a' * 40,
+        'captured_at_utc': '2026-11-22T00:00:00Z',
+        'bin_version': 'testpilot 0.1.0',
+        'scripts': [
+            {'path': path, 'commit_blob_sha1': 'b' * 40, 'worktree_blob_sha1': 'b' * 40, 'dirty': False}
+            for path in (
+                'scripts/mutate_bootstrap.py',
+                'scripts/mutate/run_mutant.py',
+                'scripts/aggregate_bootstrap_w6.py',
+                'scripts/features_reference.py',
+                'scripts/measurement_provenance.py',
+                'scripts/measure_bootstrap_w6.sh',
+            )
+        ],
+    }
+    source = tmp_path / 'provenance.json'
+    source.write_text(json.dumps(snapshot))
+    loaded = load_provenance_snapshot(source)
+    for filename in ('report.json', 'model.json', 'bootstrap_report.json'):
+        output = tmp_path / filename
+        output.write_text('{}')
+        attach_provenance(output, loaded)
+        assert json.loads(output.read_text())['provenance']['run_snapshot'] == snapshot
+
+
+def test_provenance_snapshot_rejects_stale_or_malformed_records(tmp_path):
+    source = tmp_path / 'provenance.json'
+    source.write_text(json.dumps({'head_sha': 'a' * 40, 'scripts': []}))
+    with pytest.raises(ValueError, match='bin_version'):
+        load_provenance_snapshot(source)
+
+
+def test_aggregator_has_no_obsolete_hardcoded_measurement_revisions():
+    source = (ROOT / 'scripts' / 'aggregate_bootstrap_w6.py').read_text()
+    assert 'd7c73f1e1a8fdf207c8f044ba0f160dbb9288912' not in source
+    assert '2f09ab29a91b597369cb7d76dfbade9dc397ecca' not in source
+    assert 'normalize_attrs_run_name' not in source

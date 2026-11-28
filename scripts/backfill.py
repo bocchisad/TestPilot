@@ -13,8 +13,10 @@ CI environment (not a bare `pip install .`).
 from __future__ import annotations
 
 import argparse
+import configparser
 import json
 import os
+import re
 import signal
 import shutil
 import sqlite3
@@ -91,7 +93,25 @@ def _requires_python(wt: Path) -> str | None:
 def _declared_extras(wt: Path) -> set[str]:
     doc = _pyproject(wt)
     opt = (doc.get("project") or {}).get("optional-dependencies") or {}
-    return set(opt)
+    extras = set(opt)
+    tox_ini = wt / "tox.ini"
+    if tox_ini.is_file():
+        tox = configparser.ConfigParser(interpolation=None)
+        tox.read(tox_ini, encoding="utf-8")
+        raw = tox.get("testenv", "extras", fallback="")
+        for part in re.split(r"[\s,]+", raw):
+            if not part:
+                continue
+            # tox commonly expresses its default extra as
+            # ``{env:TOX_AP_TEST_EXTRAS:tests}``. Resolve the literal fallback
+            # so historical commits still install their test dependencies.
+            if part.startswith("{env:") and part.endswith("}"):
+                fields = part[5:-1].split(":")
+                if len(fields) >= 2 and fields[-1] in _EXTRA_CANDIDATES:
+                    extras.add(fields[-1])
+                    continue
+            extras.add(part)
+    return extras
 
 
 def _declared_groups(wt: Path) -> set[str]:
@@ -127,7 +147,9 @@ def install_project(pip: Path, wt: Path) -> tuple[bool, str]:
     extras = _declared_extras(wt)
     for name in _EXTRA_CANDIDATES:
         if name in extras:
-            pip_run(["install", "-e", f".[{name}]"])
+            r = pip_run(["install", "-e", f".[{name}]"])
+            if r.returncode != 0:
+                return False, "\n".join(logs)[-4000:]
 
     groups = _declared_groups(wt)
     for name in _GROUP_CANDIDATES:
@@ -138,12 +160,16 @@ def install_project(pip: Path, wt: Path) -> tuple[bool, str]:
                 # Fallback: parse group list as requirement specs when possible
                 specs = groups_get_specs(wt, name)
                 if specs:
-                    pip_run(["install", *specs])
+                    r = pip_run(["install", *specs])
+                if not specs or r.returncode != 0:
+                    return False, "\n".join(logs)[-4000:]
 
     for rel in _REQ_FILE_CANDIDATES:
         req = wt / rel
         if req.is_file():
-            pip_run(["install", "-r", str(req)])
+            r = pip_run(["install", "-r", str(req)])
+            if r.returncode != 0:
+                return False, "\n".join(logs)[-4000:]
 
     # Historical lockfiles may downgrade pytest/pluggy below the plugin's
     # supported runner, or make pytest unimportable on the selected Python.

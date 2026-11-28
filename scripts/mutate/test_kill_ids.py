@@ -8,7 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from mutate.testpilot_bin import resolve_testpilot_bin  # noqa: E402
 
@@ -106,7 +105,7 @@ def test_junit_and_plugin_ids_match_after_collect(tmp_path: Path) -> None:
         repo, db, sha, str(junit), force=True
     )
     assert ok, msg
-    junit_ids = run_fail_set(db, sha, synthetic=True)  # may be empty (pass)
+    _junit_ids = run_fail_set(db, sha, synthetic=True)  # may be empty (pass)
     # All collected synthetic test_ids for this sha
     syn_ids = {
         str(t[0])

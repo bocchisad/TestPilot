@@ -1,0 +1,2035 @@
+{
+  "baselines": {
+    "best_for_paired_gate": "cov_lines",
+    "test": {
+      "cc_max": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.046405228758169936,
+            0.3432840030815872
+          ],
+          "mean": 0.19461964760555683
+        }
+      },
+      "cov_lines": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.7049905901545983,
+            0.9332436518877574
+          ],
+          "mean": 0.8281802776371151
+        }
+      },
+      "fail_per_day": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.09696280054175944,
+            0.09712190659687826
+          ],
+          "mean": 0.09704343052986382
+        }
+      },
+      "imp_dist": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.1260927185188704,
+            0.40533249941034266
+          ],
+          "mean": 0.25363023519763106
+        }
+      },
+      "random": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.09950382850608237,
+            0.09965927044706861
+          ],
+          "mean": 0.09958170866356433
+        }
+      },
+      "t_fail_rate": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.09696280054175944,
+            0.09712190659687826
+          ],
+          "mean": 0.09704343052986382
+        }
+      }
+    },
+    "test_synthetic": {
+      "cc_max": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.046405228758169936,
+            0.3712418300653595
+          ],
+          "mean": 0.19461964760555683
+        }
+      },
+      "cov_lines": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.6981949079898493,
+            0.9400077808396821
+          ],
+          "mean": 0.8281802776371151
+        }
+      },
+      "fail_per_day": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.09696163531581141,
+            0.09711954801804328
+          ],
+          "mean": 0.09704343052986382
+        }
+      },
+      "imp_dist": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.1248790066884676,
+            0.39579292357968826
+          ],
+          "mean": 0.25363023519763106
+        }
+      },
+      "random": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.09950077355298306,
+            0.09965596034012232
+          ],
+          "mean": 0.09958170866356433
+        }
+      },
+      "t_fail_rate": {
+        "n": 20,
+        "recall@10%": {
+          "ci95": [
+            0.09696163531581141,
+            0.09711954801804328
+          ],
+          "mean": 0.09704343052986382
+        }
+      }
+    },
+    "val": {
+      "cc_max": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.3826975921784288,
+            0.705248426294903
+          ],
+          "mean": 0.5514401452788618
+        }
+      },
+      "cov_lines": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.6897451494013188,
+            1.0
+          ],
+          "mean": 0.8454159133582979
+        }
+      },
+      "fail_per_day": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.0968683513710496,
+            0.09705569733246354
+          ],
+          "mean": 0.09695851179690958
+        }
+      },
+      "imp_dist": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.16958947147040462,
+            0.33698332318059093
+          ],
+          "mean": 0.2559601409616533
+        }
+      },
+      "random": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09946951297226841,
+            0.09965340569951875
+          ],
+          "mean": 0.0995603031873609
+        }
+      },
+      "t_fail_rate": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.0968683513710496,
+            0.09705569733246354
+          ],
+          "mean": 0.09695851179690958
+        }
+      }
+    },
+    "val_synthetic": {
+      "cc_max": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.39713734072295176,
+            0.7104638709734574
+          ],
+          "mean": 0.5514401452788618
+        }
+      },
+      "cov_lines": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.6900520980932522,
+            1.0
+          ],
+          "mean": 0.8454159133582979
+        }
+      },
+      "fail_per_day": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09687077714097712,
+            0.09706139264834097
+          ],
+          "mean": 0.09695851179690958
+        }
+      },
+      "imp_dist": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.17091972401939576,
+            0.3452557586009721
+          ],
+          "mean": 0.2559601409616533
+        }
+      },
+      "random": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09946783577579149,
+            0.09966304239168389
+          ],
+          "mean": 0.0995603031873609
+        }
+      },
+      "t_fail_rate": {
+        "n": 16,
+        "recall@10%": {
+          "ci95": [
+            0.09687077714097712,
+            0.09706139264834097
+          ],
+          "mean": 0.09695851179690958
+        }
+      }
+    }
+  },
+  "best_baseline_val": "cov_lines",
+  "best_iteration": 43,
+  "bootstrap": {
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "insufficient_test_C",
+    "verdict": "use_baseline"
+  },
+  "candidates": [
+    {
+      "best_iteration": 1,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "binary",
+      "stopping_metric": "auc",
+      "val_recall@10%_new_fail": 0.8803505570008616
+    },
+    {
+      "best_iteration": 43,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "lambdarank",
+      "stopping_metric": "ndcg",
+      "val_recall@10%_new_fail": 0.9081196581196581
+    }
+  ],
+  "constraints": {
+    "categorical": false,
+    "linear_tree": false,
+    "num_threads_train": 1,
+    "use_missing": true,
+    "zero_as_missing": false
+  },
+  "diagnostics": {
+    "always_broken_tests": [
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None2]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None3]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddHash::test_hash_works[None4]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddRepr::test_repr_works[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestAddRepr::test_repr_works[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_equal[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_equal[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_ge_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_gt_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_le_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt_unordable[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_lt_unordable[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_different_class[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None0]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_dunders.py::TestEqOrder::test_unequal_same_class[None1]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_frozen_instance[None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[2-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[3-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[4-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_attributes[5-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[2-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[3-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[4-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 1,
+        "n_fail": 1,
+        "repo": "attrs",
+        "test": "tests/test_functional.py::TestFunctional::test_pickle_object[5-None]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::attr_s_with_type_annotations"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::attr_s_with_type_argument[val=a = attr.ib(type=int)]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::attr_s_with_type_argument[val=a: int = attr.ib()]"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 98,
+        "n_fail": 98,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAsDict"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 98,
+        "n_fail": 98,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAsDictError"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsAnnotated"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsAutoAttribs"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsAutoMustBeAll"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsCallableAttributes"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsCmpEqOrderValues"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsCmpTrue"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsCmpWithSubclasses"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsComplexSuperclass"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsDataClass"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsDefaultAndInit"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsDefaultDecorator"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsDefaultDecoratorDeferred"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsDefaultErrors"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsDefaultsMroOtherFile"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsDisallowUntypedWorksForward"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsEqFalse"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsFactoryAndDefault"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsFactoryBadReturn"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsForwardReference"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsForwardReferenceInClass"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsFrozen"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsFrozenSubclass"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsGeneric"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsGenericClassmethod"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsGenericInheritance"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsImporting"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsInheritance"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsInheritanceNoAnnotation"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsInheritanceOverride"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsInitAttribFalse"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsInitFalse"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsKwOnlyAttrib"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsKwOnlyClass"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsKwOnlyClassNoInit"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsKwOnlyClassWithMixedDefaults"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsKwOnlySubclass"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsKwOnlyWithDefault"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsLocalVariablesInClassMethod"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsMultiAssign"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsMultiAssign2"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsNestedInClasses"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsNextGenDetect"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsNextGenFrozen"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsNonKwOnlyAfterKwOnly"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsNotBooleans"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsOptionalConverter"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsOrderFalse"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsOtherMethods"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsOtherOverloads"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsPrivateInit"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsPython2Annotations"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsRepeatedName"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsSeriousNames"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsSimple"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsTypeAlias"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsTypeEquals"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsTypeVarNoCollision"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUnionForward"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUntypedNoUntypedDefs"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUsingBadConverter"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUsingBadConverterReprocess"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUsingConverter"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUsingConverterAndSubclass"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUsingConverterWithTypes"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsUsingUnsupportedConverter"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsValidatorDecorator"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsValidatorDecoratorDeferred"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsWithFactory"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testAttrsWrongReturnValue"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testDefaultInAttrForward"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testDisallowUntypedWorksForwardBad"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testFields"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testFieldsError"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testHasTypeGuard"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 3,
+        "n_fail": 3,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testNothingType"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 34,
+        "n_fail": 34,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testThreeArgConverterTypes"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testTypeInAttrDeferredStar"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testTypeInAttrForwardInRuntime"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testTypeInAttrUndefined"
+      },
+      {
+        "fail_rate": 1.0,
+        "n_appear": 105,
+        "n_fail": 105,
+        "repo": "attrs",
+        "test": "tests/test_mypy/yml.py::testTypeInAttrUndefinedFrozen"
+      }
+    ],
+    "exclude_high_fail_rate": true,
+    "fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 181
+        },
+        {
+          "bin": "[1,2)",
+          "count": 0
+        },
+        {
+          "bin": "[2,5)",
+          "count": 224
+        },
+        {
+          "bin": "[5,10)",
+          "count": 5
+        },
+        {
+          "bin": "[10,20)",
+          "count": 1
+        },
+        {
+          "bin": "[20,50)",
+          "count": 1
+        },
+        {
+          "bin": "[50,100)",
+          "count": 81
+        },
+        {
+          "bin": "100+",
+          "count": 25
+        }
+      ],
+      "max": 283,
+      "min": 0,
+      "p50": 4.0,
+      "p90": 88.0
+    },
+    "fail_per_change_mean": 21.913127413127413,
+    "mutant_test_distinct_base_change": 6,
+    "mutant_test_new_fail_changes": 20,
+    "n_always_broken_tests": 123,
+    "n_changes": 518,
+    "n_changes_with_new_fail": 96,
+    "n_flaky": 0,
+    "n_high_fail_rate_changes": 0,
+    "n_label1": 11351,
+    "n_orphan_vs_parent": 8776,
+    "n_persistent": 975,
+    "n_persistent_among_label1": 975,
+    "n_rows_parent_missing": 1241,
+    "new_fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 422
+        },
+        {
+          "bin": "[1,2)",
+          "count": 17
+        },
+        {
+          "bin": "[2,5)",
+          "count": 28
+        },
+        {
+          "bin": "[5,10)",
+          "count": 22
+        },
+        {
+          "bin": "[10,20)",
+          "count": 11
+        },
+        {
+          "bin": "[20,50)",
+          "count": 11
+        },
+        {
+          "bin": "[50,100)",
+          "count": 3
+        },
+        {
+          "bin": "100+",
+          "count": 4
+        }
+      ],
+      "max": 199,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 4.0
+    },
+    "new_fail_per_change_mean": 3.083011583011583,
+    "persistent_share_among_label1": 0.0858955158135847
+  },
+  "early_stopping_rounds": 50,
+  "feature_gain": [
+    {
+      "gain": 8816.752315670252,
+      "name": "cov_lines"
+    },
+    {
+      "gain": 822.3761894591153,
+      "name": "cov_breadth"
+    },
+    {
+      "gain": 641.8915057331324,
+      "name": "cc_max"
+    },
+    {
+      "gain": 525.4811107814312,
+      "name": "cov_func"
+    },
+    {
+      "gain": 512.1048550605774,
+      "name": "cov_file"
+    },
+    {
+      "gain": 489.16748851537704,
+      "name": "cov_mod"
+    },
+    {
+      "gain": 372.46024806052446,
+      "name": "t_obs"
+    },
+    {
+      "gain": 231.50584971904755,
+      "name": "t_age_days"
+    },
+    {
+      "gain": 201.60297551751137,
+      "name": "dur"
+    },
+    {
+      "gain": 193.01518586277962,
+      "name": "tfile_ntests"
+    },
+    {
+      "gain": 149.42961516976357,
+      "name": "cc_sum"
+    },
+    {
+      "gain": 145.30766451358795,
+      "name": "ch_rm"
+    },
+    {
+      "gain": 38.62296938896179,
+      "name": "imp_dist"
+    },
+    {
+      "gain": 26.342888593673706,
+      "name": "imp_direct"
+    },
+    {
+      "gain": 20.482234984636307,
+      "name": "name_jac"
+    },
+    {
+      "gain": 18.41007572412491,
+      "name": "name_file"
+    },
+    {
+      "gain": 8.36424207687378,
+      "name": "pq_max"
+    },
+    {
+      "gain": 5.323441922664642,
+      "name": "ch_nfunc"
+    },
+    {
+      "gain": 0.0,
+      "name": "name_func"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_known"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_lag"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_fail_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_fail_cnt"
+    },
+    {
+      "gain": 0.0,
+      "name": "pf_max"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_changed"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_flaky_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_nfiles"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_nsrc"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_add"
+    }
+  ],
+  "feature_names": [
+    "cc_max",
+    "cc_sum",
+    "imp_dist",
+    "imp_direct",
+    "name_file",
+    "name_jac",
+    "name_func",
+    "cov_known",
+    "cov_file",
+    "cov_func",
+    "cov_lines",
+    "cov_breadth",
+    "cov_mod",
+    "cov_lag",
+    "t_fail_rate",
+    "t_fail_cnt",
+    "t_obs",
+    "pf_max",
+    "pq_max",
+    "t_age_days",
+    "dur",
+    "tfile_ntests",
+    "t_changed",
+    "t_flaky_rate",
+    "ch_nfiles",
+    "ch_nsrc",
+    "ch_add",
+    "ch_rm",
+    "ch_nfunc"
+  ],
+  "feature_value_stats_synthetic": [
+    {
+      "n_rows": 164005,
+      "n_unique": 1,
+      "name": "cov_lag",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 1,
+      "name": "t_changed",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 1,
+      "name": "t_flaky_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "imp_direct",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "name_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "name_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "cov_known",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "cov_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "cov_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "cov_mod",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "ch_nfiles",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "ch_nsrc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2,
+      "name": "ch_add",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 4,
+      "name": "ch_nfunc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 5,
+      "name": "imp_dist",
+      "sentinel": 99,
+      "sentinel_share": 0.29818603091369167
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 5,
+      "name": "name_jac",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 10,
+      "name": "cov_lines",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 10,
+      "name": "ch_rm",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 25,
+      "name": "pq_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.2218712844120606
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 31,
+      "name": "t_fail_cnt",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 47,
+      "name": "pf_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.10185055333678851
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 47,
+      "name": "tfile_ntests",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 63,
+      "name": "t_fail_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 316,
+      "name": "t_obs",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 358,
+      "name": "dur",
+      "sentinel": -1,
+      "sentinel_share": 0.053510563702326146
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 638,
+      "name": "cov_breadth",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 692,
+      "name": "cc_max",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 692,
+      "name": "cc_sum",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 164005,
+      "n_unique": 2072,
+      "name": "t_age_days",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    }
+  ],
+  "features_version": 2,
+  "foil_baseline_mutation_bootstrap": "cov_lines",
+  "lambdarank_truncation_level": 131,
+  "lightgbm_version": "4.5.0",
+  "loro": {
+    "reason": "need \u22652 repos",
+    "skipped": true
+  },
+  "metrics_test_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.005126099835890191,
+        0.10562482796616877
+      ],
+      "mean": 0.041793873250057456,
+      "n_changes": 20
+    },
+    "apfd": {
+      "ci95": [
+        0.9439616323243487,
+        0.9975340924739462
+      ],
+      "mean": 0.9781879635194457,
+      "n_changes": 20
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0008140132579491436,
+        0.0074301592140586905
+      ],
+      "mean": 0.003650150405537304,
+      "n_changes": 20
+    },
+    "recall@10%": {
+      "ci95": [
+        0.8947368421052632,
+        1.0
+      ],
+      "mean": 0.9604271356783919,
+      "n_changes": 20
+    },
+    "recall@20%": {
+      "ci95": [
+        0.9210526315789473,
+        1.0
+      ],
+      "mean": 0.975,
+      "n_changes": 20
+    },
+    "recall@5%": {
+      "ci95": [
+        0.8379166666666666,
+        0.9913134057971015
+      ],
+      "mean": 0.9325879396984925,
+      "n_changes": 20
+    }
+  },
+  "metrics_test_new_fail_real": {},
+  "metrics_test_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.005902220996537853,
+        0.1096149678019449
+      ],
+      "mean": 0.041793873250057456,
+      "n_changes": 20
+    },
+    "apfd": {
+      "ci95": [
+        0.9420901065802438,
+        0.9971258725559745
+      ],
+      "mean": 0.9781879635194457,
+      "n_changes": 20
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0008621252598920722,
+        0.007895794329580407
+      ],
+      "mean": 0.003650150405537304,
+      "n_changes": 20
+    },
+    "recall@10%": {
+      "ci95": [
+        0.8889447236180904,
+        1.0
+      ],
+      "mean": 0.9604271356783919,
+      "n_changes": 20
+    },
+    "recall@20%": {
+      "ci95": [
+        0.9166666666666666,
+        1.0
+      ],
+      "mean": 0.975,
+      "n_changes": 20
+    },
+    "recall@5%": {
+      "ci95": [
+        0.834653737437186,
+        0.991304347826087
+      ],
+      "mean": 0.9325879396984925,
+      "n_changes": 20
+    }
+  },
+  "metrics_val_label_no_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.24991852204880344,
+        0.43887738560946876
+      ],
+      "mean": 0.3389231557093391,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.6300755566285606,
+        0.8017182130896172
+      ],
+      "mean": 0.7191914434999546,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.017309865991673064,
+        0.1691939497031766
+      ],
+      "mean": 0.0812607316912485,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.059724346492990854,
+        0.3079207690199458
+      ],
+      "mean": 0.1668630929160612,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.32880251423435713,
+        0.6036300149138216
+      ],
+      "mean": 0.47211704970392776,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.058416717554416915,
+        0.2982358564595058
+      ],
+      "mean": 0.16048058653355482,
+      "n_changes": 22
+    }
+  },
+  "metrics_val_label_with_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.24261766562084353,
+        0.4418157517358596
+      ],
+      "mean": 0.3389231557093391,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.625300115816889,
+        0.8092432644759017
+      ],
+      "mean": 0.7191914434999546,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.017405993693093286,
+        0.16414792475350992
+      ],
+      "mean": 0.0812607316912485,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.03491620168113931,
+        0.33205966464881564
+      ],
+      "mean": 0.1668630929160612,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.3309580778420545,
+        0.6219185516789703
+      ],
+      "mean": 0.47211704970392776,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.02838919155489251,
+        0.31559985138944807
+      ],
+      "mean": 0.16048058653355482,
+      "n_changes": 22
+    }
+  },
+  "metrics_val_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.003262723586885961,
+        0.2539327195485783
+      ],
+      "mean": 0.07849659604545003,
+      "n_changes": 16
+    },
+    "apfd": {
+      "ci95": [
+        0.8613332005851263,
+        0.9981384747807189
+      ],
+      "mean": 0.9571429459422369,
+      "n_changes": 16
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.000721414059072948,
+        0.0036818404254770985
+      ],
+      "mean": 0.0018385691879187296,
+      "n_changes": 16
+    },
+    "recall@10%": {
+      "ci95": [
+        0.684690001356668,
+        1.0
+      ],
+      "mean": 0.9081196581196581,
+      "n_changes": 16
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7181895063343475,
+        1.0
+      ],
+      "mean": 0.9178813085063086,
+      "n_changes": 16
+    },
+    "recall@5%": {
+      "ci95": [
+        0.6273371029323409,
+        1.0
+      ],
+      "mean": 0.8914072039072038,
+      "n_changes": 16
+    }
+  },
+  "metrics_val_new_fail_real": {},
+  "metrics_val_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.0031634270109020465,
+        0.25466077884794286
+      ],
+      "mean": 0.07849659604545003,
+      "n_changes": 16
+    },
+    "apfd": {
+      "ci95": [
+        0.8607074450412509,
+        0.9981688119180383
+      ],
+      "mean": 0.9571429459422369,
+      "n_changes": 16
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0007225673153040789,
+        0.004006598557278679
+      ],
+      "mean": 0.0018385691879187296,
+      "n_changes": 16
+    },
+    "recall@10%": {
+      "ci95": [
+        0.684981684981685,
+        1.0
+      ],
+      "mean": 0.9081196581196581,
+      "n_changes": 16
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7184502005930576,
+        1.0
+      ],
+      "mean": 0.9178813085063086,
+      "n_changes": 16
+    },
+    "recall@5%": {
+      "ci95": [
+        0.6276818419675562,
+        1.0
+      ],
+      "mean": 0.8914072039072038,
+      "n_changes": 16
+    }
+  },
+  "ndcg_eval_at": 131,
+  "note": "synthetic data present: test needs \u226520 mutant changes with \u22651 new_fail and \u226510 distinct base_change; metrics shown but no conclusions",
+  "note_gate": "bootstrap verdict=use_baseline ranker=cov_lines reason=insufficient_test_C (accept on synth TEST cluster CI only; val is report-only)",
+  "note_real_gate": "useful_on_real_val=null: no real new_fail changes on val (data_insufficient for the real gate)",
+  "num_boost_round": 500,
+  "objective": "lambdarank",
+  "paired_delta_ci_synthetic_test_cov_lines": {
+    "ci95": [
+      0.013878918401531468,
+      0.2734312770260847
+    ],
+    "mean": 0.13224685804127692,
+    "n": 20,
+    "n_C": 6,
+    "n_mutants": 20
+  },
+  "paired_delta_ci_synthetic_val_cov_lines": {
+    "ci95": [
+      0.0,
+      0.22048712229271342
+    ],
+    "mean": 0.06270374476136016,
+    "n": 16
+  },
+  "paired_delta_ci_test": {
+    "ci95": [
+      0.013878918401531468,
+      0.2779856857387545
+    ],
+    "mean": 0.13224685804127692,
+    "n": 20
+  },
+  "paired_delta_ci_val": {
+    "ci95": [
+      0.0,
+      0.20532319391634982
+    ],
+    "mean": 0.06270374476136016,
+    "n": 16
+  },
+  "paired_delta_ci_val_cov_lines": {
+    "ci95": [
+      0.0,
+      0.2190482997303216
+    ],
+    "mean": 0.06270374476136016,
+    "n": 16
+  },
+  "params": {
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "bagging_seed": 21624,
+    "data_random_seed": 21624,
+    "deterministic": true,
+    "eval_at": [
+      131
+    ],
+    "feature_fraction": 0.8,
+    "feature_fraction_seed": 21624,
+    "force_col_wise": true,
+    "label_gain": [
+      0,
+      1
+    ],
+    "lambdarank_truncation_level": 131,
+    "learning_rate": 0.05,
+    "linear_tree": false,
+    "metric": "ndcg",
+    "min_data_in_leaf": 50,
+    "num_leaves": 31,
+    "num_threads": 1,
+    "objective": "lambdarank",
+    "seed": 21624,
+    "use_missing": true,
+    "verbosity": -1,
+    "zero_as_missing": false
+  },
+  "parent_for_new_fail": "first_parent",
+  "predict_raw_score": true,
+  "ranker": "cov_lines",
+  "schema_sha256": "9e5e9243326d8870bd33dcf8c59b49d34a76d60e921435f501638db23e2c5269",
+  "seed": 21624,
+  "sentinel_notes": {
+    "dur": -1,
+    "imp_dist": 99,
+    "pf_max": -1,
+    "pq_max": -1
+  },
+  "splits": {
+    "chrono": {
+      "attrs": {
+        "n_changes": {
+          "test": 83,
+          "train": 353,
+          "val": 82
+        },
+        "test": [
+          341,
+          400
+        ],
+        "train": [
+          1,
+          280
+        ],
+        "val": [
+          281,
+          340
+        ]
+      }
+    },
+    "n_changes_with_new_fail": {
+      "test": 20,
+      "train": 60,
+      "val": 16
+    }
+  },
+  "status": "data_insufficient",
+  "stopping_metric": "ndcg",
+  "useful_on_synthetic_test": true,
+  "useful_on_synthetic_test_label": "useful_on_synthetic_test",
+  "useful_on_synthetic_val": true,
+  "useful_on_synthetic_val_label": "useful_on_synthetic_val",
+  "useful_on_val": null,
+  "useful_on_val_label": "useful_on_real_val"
+}

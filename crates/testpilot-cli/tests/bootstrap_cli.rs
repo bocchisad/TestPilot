@@ -115,6 +115,13 @@ fn dry_run_writes_nothing_and_prints_priors_source() {
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("backfill"), "{stdout}");
+    assert!(stdout.contains("estimate collect_git:"), "{stdout}");
+    assert!(stdout.contains("estimate mutate:"), "{stdout}");
+    assert!(stdout.contains("estimate features_dump:"), "{stdout}");
+    assert!(stdout.contains("estimate train:"), "{stdout}");
+    assert!(stdout.contains("components_s: collect="), "{stdout}");
+    assert!(stdout.contains("eligible_hat="), "{stdout}");
+    assert!(stdout.contains("assumptions:"), "{stdout}");
     assert!(stdout.contains("|B_set|≈1"), "{stdout}");
     assert!(
         stdout.contains("docs/measurements/bootstrap_time_priors.json"),

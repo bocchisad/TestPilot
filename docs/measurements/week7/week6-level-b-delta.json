@@ -1,0 +1,47 @@
+{
+  "changed_labels": [],
+  "kill_mutant_delta": 0,
+  "label_rule": "new_fail requires a failing non-flaky test ID present in both base and head",
+  "labels_match": false,
+  "missing_from_base_pairs": [
+    {
+      "sha": "3332b6d1271b37177fe7b3996de5df6e2c54dcc3",
+      "tests": [
+        "tests.test_info_dict"
+      ]
+    },
+    {
+      "sha": "4d4d4a303ab74e8f315f7eaa71e781aa8aea3157",
+      "tests": [
+        "tests.test_info_dict"
+      ]
+    },
+    {
+      "sha": "53f01e33ddfea66b5cb6f243c3528a06bb13004d",
+      "tests": [
+        "tests.test_info_dict",
+        "tests.test_options"
+      ]
+    },
+    {
+      "sha": "c416c54bbfc39e8edda4b4d9c0a89eb5338d1fe7",
+      "tests": [
+        "tests.test_info_dict",
+        "tests.test_options"
+      ]
+    }
+  ],
+  "n_changed_mutant_labels": 0,
+  "n_changed_test_labels": 0,
+  "n_compared_mutants": 132,
+  "n_failures_missing_from_base": 6,
+  "n_pairs_with_failures_missing_from_base": 4,
+  "old_kill_mutants": 111,
+  "scope": "Week 6 click Level-B only",
+  "sha_match": true,
+  "shared_test_kill_mutants": 111,
+  "source_paths": {
+    "recalculated_runs": "<repos-root>/click/.testpilot/{db.sqlite,bootstrap/mutate_outcomes.jsonl}",
+    "saved_gold": "docs/measurements/bootstrap-click/level_b_gold.json"
+  }
+}

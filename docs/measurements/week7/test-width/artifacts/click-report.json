@@ -1,0 +1,1455 @@
+{
+  "baselines": {
+    "best_for_paired_gate": "cov_lines",
+    "test": {
+      "cc_max": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.08797061458704422,
+            0.3416560751643894
+          ],
+          "mean": 0.20554086361247173
+        }
+      },
+      "cov_lines": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.45736125685762424,
+            0.8190390524946008
+          ],
+          "mean": 0.6432285055412915
+        }
+      },
+      "fail_per_day": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.09348916192243045,
+            0.09382948806278534
+          ],
+          "mean": 0.09364643752270538
+        }
+      },
+      "imp_dist": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.10012053600595221,
+            0.40645520556496195
+          ],
+          "mean": 0.24554821614748729
+        }
+      },
+      "random": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.09938499084157496,
+            0.09966551427967034
+          ],
+          "mean": 0.09952063918305298
+        }
+      },
+      "t_fail_rate": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.09348916192243045,
+            0.09382948806278534
+          ],
+          "mean": 0.09364643752270538
+        }
+      }
+    },
+    "test_synthetic": {
+      "cc_max": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.08701044595672205,
+            0.3383567923468891
+          ],
+          "mean": 0.20554086361247173
+        }
+      },
+      "cov_lines": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.45979794025122817,
+            0.8179261797116363
+          ],
+          "mean": 0.6432285055412915
+        }
+      },
+      "fail_per_day": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.09348916333830082,
+            0.09381564275374304
+          ],
+          "mean": 0.09364643752270538
+        }
+      },
+      "imp_dist": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.10183986723749312,
+            0.40662236482721104
+          ],
+          "mean": 0.24554821614748729
+        }
+      },
+      "random": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.09938507882425492,
+            0.09966526309870534
+          ],
+          "mean": 0.09952063918305298
+        }
+      },
+      "t_fail_rate": {
+        "n": 18,
+        "recall@10%": {
+          "ci95": [
+            0.09348916333830082,
+            0.09381564275374304
+          ],
+          "mean": 0.09364643752270538
+        }
+      }
+    },
+    "val": {
+      "cc_max": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.16932481164784624,
+            0.44091727538204245
+          ],
+          "mean": 0.30235335528128615
+        }
+      },
+      "cov_lines": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.7289746262053766,
+            0.9555071222746051
+          ],
+          "mean": 0.8486205038272313
+        }
+      },
+      "fail_per_day": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.09326721059404397,
+            0.09558033590012056
+          ],
+          "mean": 0.09410358309863323
+        }
+      },
+      "imp_dist": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.19606840011901291,
+            0.49822669297460886
+          ],
+          "mean": 0.3411010952948577
+        }
+      },
+      "random": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.09916287516974803,
+            0.09952525048869862
+          ],
+          "mean": 0.09934416021840448
+        }
+      },
+      "t_fail_rate": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.09326721059404397,
+            0.09558033590012056
+          ],
+          "mean": 0.09410358309863323
+        }
+      }
+    },
+    "val_synthetic": {
+      "cc_max": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.17489043520415598,
+            0.43609268978249677
+          ],
+          "mean": 0.30235335528128615
+        }
+      },
+      "cov_lines": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.7251840529741325,
+            0.955371983453516
+          ],
+          "mean": 0.8486205038272313
+        }
+      },
+      "fail_per_day": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.09329674788734499,
+            0.09538784028951319
+          ],
+          "mean": 0.09410358309863323
+        }
+      },
+      "imp_dist": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.20372105051576053,
+            0.5030136293654704
+          ],
+          "mean": 0.3411010952948577
+        }
+      },
+      "random": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.0991629035080227,
+            0.09952455934535086
+          ],
+          "mean": 0.09934416021840448
+        }
+      },
+      "t_fail_rate": {
+        "n": 21,
+        "recall@10%": {
+          "ci95": [
+            0.09329674788734499,
+            0.09538784028951319
+          ],
+          "mean": 0.09410358309863323
+        }
+      }
+    }
+  },
+  "best_baseline_val": "cov_lines",
+  "best_iteration": 18,
+  "bootstrap": {
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "insufficient_test_C",
+    "verdict": "use_baseline"
+  },
+  "candidates": [
+    {
+      "best_iteration": 172,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "binary",
+      "stopping_metric": "auc",
+      "val_recall@10%_new_fail": 0.8476507919453753
+    },
+    {
+      "best_iteration": 18,
+      "early_stopping_rounds": 50,
+      "num_boost_round": 500,
+      "objective": "lambdarank",
+      "stopping_metric": "ndcg",
+      "val_recall@10%_new_fail": 0.8662569790144077
+    }
+  ],
+  "constraints": {
+    "categorical": false,
+    "linear_tree": false,
+    "num_threads_train": 1,
+    "use_missing": true,
+    "zero_as_missing": false
+  },
+  "diagnostics": {
+    "always_broken_tests": [],
+    "exclude_high_fail_rate": true,
+    "fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 84
+        },
+        {
+          "bin": "[1,2)",
+          "count": 101
+        },
+        {
+          "bin": "[2,5)",
+          "count": 365
+        },
+        {
+          "bin": "[5,10)",
+          "count": 71
+        },
+        {
+          "bin": "[10,20)",
+          "count": 42
+        },
+        {
+          "bin": "[20,50)",
+          "count": 37
+        },
+        {
+          "bin": "[50,100)",
+          "count": 18
+        },
+        {
+          "bin": "100+",
+          "count": 13
+        }
+      ],
+      "max": 279,
+      "min": 0,
+      "p50": 4.0,
+      "p90": 17.0
+    },
+    "fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 84
+        },
+        {
+          "bin": "[1,2)",
+          "count": 101
+        },
+        {
+          "bin": "[2,5)",
+          "count": 365
+        },
+        {
+          "bin": "[5,10)",
+          "count": 71
+        },
+        {
+          "bin": "[10,20)",
+          "count": 42
+        },
+        {
+          "bin": "[20,50)",
+          "count": 37
+        },
+        {
+          "bin": "[50,100)",
+          "count": 18
+        },
+        {
+          "bin": "100+",
+          "count": 23
+        }
+      ],
+      "max": 338,
+      "min": 0,
+      "p50": 4.0,
+      "p90": 21.0
+    },
+    "fail_per_change_mean": 10.488372093023257,
+    "fail_per_change_mean_including_high_fail": 13.456140350877194,
+    "mutant_test_distinct_base_change": 9,
+    "mutant_test_new_fail_changes": 18,
+    "n_always_broken_tests": 0,
+    "n_changes": 731,
+    "n_changes_with_new_fail": 250,
+    "n_flaky": 284,
+    "n_high_fail_rate_changes": 10,
+    "n_label1": 7667,
+    "n_orphan_vs_parent": 4,
+    "n_persistent": 1787,
+    "n_persistent_among_label1": 1784,
+    "n_rows_parent_missing": 301,
+    "new_fail_per_change": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 481
+        },
+        {
+          "bin": "[1,2)",
+          "count": 48
+        },
+        {
+          "bin": "[2,5)",
+          "count": 67
+        },
+        {
+          "bin": "[5,10)",
+          "count": 42
+        },
+        {
+          "bin": "[10,20)",
+          "count": 30
+        },
+        {
+          "bin": "[20,50)",
+          "count": 34
+        },
+        {
+          "bin": "[50,100)",
+          "count": 16
+        },
+        {
+          "bin": "100+",
+          "count": 13
+        }
+      ],
+      "max": 275,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 14.0
+    },
+    "new_fail_per_change_including_high_fail": {
+      "histogram": [
+        {
+          "bin": "[0,1)",
+          "count": 481
+        },
+        {
+          "bin": "[1,2)",
+          "count": 48
+        },
+        {
+          "bin": "[2,5)",
+          "count": 67
+        },
+        {
+          "bin": "[5,10)",
+          "count": 42
+        },
+        {
+          "bin": "[10,20)",
+          "count": 30
+        },
+        {
+          "bin": "[20,50)",
+          "count": 34
+        },
+        {
+          "bin": "[50,100)",
+          "count": 16
+        },
+        {
+          "bin": "100+",
+          "count": 23
+        }
+      ],
+      "max": 338,
+      "min": 0,
+      "p50": 0.0,
+      "p90": 18.0
+    },
+    "new_fail_per_change_mean": 8.042407660738714,
+    "new_fail_per_change_mean_including_high_fail": 11.039136302294198,
+    "persistent_share_among_label1": 0.23268553541150386
+  },
+  "early_stopping_rounds": 50,
+  "feature_gain": [
+    {
+      "gain": 12326.332622051239,
+      "name": "cov_lines"
+    },
+    {
+      "gain": 2521.6855903863907,
+      "name": "cov_func"
+    },
+    {
+      "gain": 1572.0678251981735,
+      "name": "t_obs"
+    },
+    {
+      "gain": 754.1068258881569,
+      "name": "t_age_days"
+    },
+    {
+      "gain": 719.1555876731873,
+      "name": "cov_mod"
+    },
+    {
+      "gain": 622.7329598665237,
+      "name": "cov_breadth"
+    },
+    {
+      "gain": 430.2683870792389,
+      "name": "cov_file"
+    },
+    {
+      "gain": 412.43262350559235,
+      "name": "tfile_ntests"
+    },
+    {
+      "gain": 342.95509135723114,
+      "name": "cc_max"
+    },
+    {
+      "gain": 311.07080459594727,
+      "name": "pf_max"
+    },
+    {
+      "gain": 282.25892078876495,
+      "name": "cc_sum"
+    },
+    {
+      "gain": 232.00238555669785,
+      "name": "imp_dist"
+    },
+    {
+      "gain": 70.6268618106842,
+      "name": "ch_nsrc"
+    },
+    {
+      "gain": 41.102699875831604,
+      "name": "ch_nfunc"
+    },
+    {
+      "gain": 40.41345036029816,
+      "name": "dur"
+    },
+    {
+      "gain": 37.79904007911682,
+      "name": "ch_rm"
+    },
+    {
+      "gain": 31.94625997543335,
+      "name": "name_jac"
+    },
+    {
+      "gain": 14.201280117034912,
+      "name": "name_file"
+    },
+    {
+      "gain": 7.0253400802612305,
+      "name": "name_func"
+    },
+    {
+      "gain": 1.722830057144165,
+      "name": "imp_direct"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_known"
+    },
+    {
+      "gain": 0.0,
+      "name": "cov_lag"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_fail_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_fail_cnt"
+    },
+    {
+      "gain": 0.0,
+      "name": "pq_max"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_changed"
+    },
+    {
+      "gain": 0.0,
+      "name": "t_flaky_rate"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_nfiles"
+    },
+    {
+      "gain": 0.0,
+      "name": "ch_add"
+    }
+  ],
+  "feature_names": [
+    "cc_max",
+    "cc_sum",
+    "imp_dist",
+    "imp_direct",
+    "name_file",
+    "name_jac",
+    "name_func",
+    "cov_known",
+    "cov_file",
+    "cov_func",
+    "cov_lines",
+    "cov_breadth",
+    "cov_mod",
+    "cov_lag",
+    "t_fail_rate",
+    "t_fail_cnt",
+    "t_obs",
+    "pf_max",
+    "pq_max",
+    "t_age_days",
+    "dur",
+    "tfile_ntests",
+    "t_changed",
+    "t_flaky_rate",
+    "ch_nfiles",
+    "ch_nsrc",
+    "ch_add",
+    "ch_rm",
+    "ch_nfunc"
+  ],
+  "feature_value_stats_synthetic": [
+    {
+      "n_rows": 162467,
+      "n_unique": 1,
+      "name": "cov_lag",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 1,
+      "name": "t_changed",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 1,
+      "name": "t_flaky_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "imp_direct",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "name_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "name_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "cov_known",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "cov_file",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "cov_func",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "cov_mod",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "ch_nfiles",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "ch_nsrc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2,
+      "name": "ch_add",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 3,
+      "name": "ch_nfunc",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 4,
+      "name": "name_jac",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 6,
+      "name": "imp_dist",
+      "sentinel": 99,
+      "sentinel_share": 0.11306296047812786
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 9,
+      "name": "cov_lines",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 10,
+      "name": "ch_rm",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 15,
+      "name": "dur",
+      "sentinel": -1,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 20,
+      "name": "pq_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.13933906577951213
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 32,
+      "name": "t_fail_rate",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 38,
+      "name": "pf_max",
+      "sentinel": -1.0,
+      "sentinel_share": 0.04280869345774834
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 81,
+      "name": "tfile_ntests",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 151,
+      "name": "t_fail_cnt",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 376,
+      "name": "t_obs",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 850,
+      "name": "cov_breadth",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2376,
+      "name": "cc_max",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 2376,
+      "name": "cc_sum",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    },
+    {
+      "n_rows": 162467,
+      "n_unique": 16056,
+      "name": "t_age_days",
+      "sentinel": null,
+      "sentinel_share": 0.0
+    }
+  ],
+  "features_version": 2,
+  "foil_baseline_mutation_bootstrap": "cov_lines",
+  "lambdarank_truncation_level": 46,
+  "lightgbm_version": "4.5.0",
+  "loro": {
+    "reason": "need \u22652 repos",
+    "skipped": true
+  },
+  "metrics_test_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.052890949670899225,
+        0.3293409932222288
+      ],
+      "mean": 0.20038543913529522,
+      "n_changes": 18
+    },
+    "apfd": {
+      "ci95": [
+        0.86502896136463,
+        0.976499659194673
+      ],
+      "mean": 0.9204793343955855,
+      "n_changes": 18
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.001696796512028987,
+        0.017449092843982442
+      ],
+      "mean": 0.008162339999786121,
+      "n_changes": 18
+    },
+    "recall@10%": {
+      "ci95": [
+        0.44226533634799325,
+        0.9289736519607843
+      ],
+      "mean": 0.6788516312378821,
+      "n_changes": 18
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7634888128987035,
+        0.9574468085106383
+      ],
+      "mean": 0.8672116240122643,
+      "n_changes": 18
+    },
+    "recall@5%": {
+      "ci95": [
+        0.32551569554259563,
+        0.9061227576136837
+      ],
+      "mean": 0.6139848568736517,
+      "n_changes": 18
+    }
+  },
+  "metrics_test_new_fail_excluding_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.052890949670899225,
+        0.3293409932222288
+      ],
+      "mean": 0.20038543913529522,
+      "n_changes": 18
+    },
+    "apfd": {
+      "ci95": [
+        0.86502896136463,
+        0.976499659194673
+      ],
+      "mean": 0.9204793343955855,
+      "n_changes": 18
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.001696796512028987,
+        0.017449092843982442
+      ],
+      "mean": 0.008162339999786121,
+      "n_changes": 18
+    },
+    "recall@10%": {
+      "ci95": [
+        0.44226533634799325,
+        0.9289736519607843
+      ],
+      "mean": 0.6788516312378821,
+      "n_changes": 18
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7634888128987035,
+        0.9574468085106383
+      ],
+      "mean": 0.8672116240122643,
+      "n_changes": 18
+    },
+    "recall@5%": {
+      "ci95": [
+        0.32551569554259563,
+        0.9061227576136837
+      ],
+      "mean": 0.6139848568736517,
+      "n_changes": 18
+    }
+  },
+  "metrics_test_new_fail_including_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.05920534419845956,
+        0.3527482154777443
+      ],
+      "mean": 0.22304644893907793,
+      "n_changes": 19
+    },
+    "apfd": {
+      "ci95": [
+        0.8450114539833363,
+        0.9781241785721833
+      ],
+      "mean": 0.9087090716419951,
+      "n_changes": 19
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0017196539490565955,
+        0.01645558681416687
+      ],
+      "mean": 0.007818462341645483,
+      "n_changes": 19
+    },
+    "recall@10%": {
+      "ci95": [
+        0.42721767705452557,
+        0.9188429705215417
+      ],
+      "mean": 0.6518426229291926,
+      "n_changes": 19
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7031294821683753,
+        0.9690992063492063
+      ],
+      "mean": 0.8396318157101551,
+      "n_changes": 19
+    },
+    "recall@5%": {
+      "ci95": [
+        0.3280023328010488,
+        0.894369311465721
+      ],
+      "mean": 0.5860298768637958,
+      "n_changes": 19
+    }
+  },
+  "metrics_test_new_fail_real": {},
+  "metrics_test_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.048331531346595624,
+        0.3384861701528468
+      ],
+      "mean": 0.20038543913529522,
+      "n_changes": 18
+    },
+    "apfd": {
+      "ci95": [
+        0.860917692186133,
+        0.9800710735631343
+      ],
+      "mean": 0.9204793343955855,
+      "n_changes": 18
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0017128349083540952,
+        0.017994644457064217
+      ],
+      "mean": 0.008162339999786121,
+      "n_changes": 18
+    },
+    "recall@10%": {
+      "ci95": [
+        0.4214748822205547,
+        0.9423899371069183
+      ],
+      "mean": 0.6788516312378821,
+      "n_changes": 18
+    },
+    "recall@20%": {
+      "ci95": [
+        0.7496303726112816,
+        0.9729554521276595
+      ],
+      "mean": 0.8672116240122643,
+      "n_changes": 18
+    },
+    "recall@5%": {
+      "ci95": [
+        0.318319746793705,
+        0.9378616352201258
+      ],
+      "mean": 0.6139848568736517,
+      "n_changes": 18
+    }
+  },
+  "metrics_val_label_no_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.7162162801093782,
+        0.8178314754263112
+      ],
+      "mean": 0.7704007373355799,
+      "n_changes": 86
+    },
+    "apfd": {
+      "ci95": [
+        0.34870602948723733,
+        0.4718139641964505
+      ],
+      "mean": 0.40854085613838975,
+      "n_changes": 86
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.4145993714610341,
+        0.561700164126914
+      ],
+      "mean": 0.49042211235894884,
+      "n_changes": 86
+    },
+    "recall@10%": {
+      "ci95": [
+        0.12637088342906314,
+        0.2635972258829481
+      ],
+      "mean": 0.19198104744755412,
+      "n_changes": 86
+    },
+    "recall@20%": {
+      "ci95": [
+        0.13912655994851,
+        0.282258093514654
+      ],
+      "mean": 0.209227001215402,
+      "n_changes": 86
+    },
+    "recall@5%": {
+      "ci95": [
+        0.08946568645979835,
+        0.202488515015467
+      ],
+      "mean": 0.14447654859532047,
+      "n_changes": 86
+    }
+  },
+  "metrics_val_label_with_flaky": {
+    "all_fail_frac": {
+      "ci95": [
+        0.7226721109726416,
+        0.8196583247901079
+      ],
+      "mean": 0.7705567017523072,
+      "n_changes": 86
+    },
+    "apfd": {
+      "ci95": [
+        0.3481504734368355,
+        0.46750187465918697
+      ],
+      "mean": 0.4093366144385826,
+      "n_changes": 86
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.42137584970048764,
+        0.5623259260698058
+      ],
+      "mean": 0.48678418574733173,
+      "n_changes": 86
+    },
+    "recall@10%": {
+      "ci95": [
+        0.12317429950159,
+        0.25739631836011856
+      ],
+      "mean": 0.19133135421586636,
+      "n_changes": 86
+    },
+    "recall@20%": {
+      "ci95": [
+        0.13674962028517826,
+        0.2806727037929341
+      ],
+      "mean": 0.20852448697771092,
+      "n_changes": 86
+    },
+    "recall@5%": {
+      "ci95": [
+        0.08952167691811606,
+        0.2003420790298396
+      ],
+      "mean": 0.14395313037458132,
+      "n_changes": 86
+    }
+  },
+  "metrics_val_new_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.03863515185223526,
+        0.200803368678421
+      ],
+      "mean": 0.10881553382702194,
+      "n_changes": 21
+    },
+    "apfd": {
+      "ci95": [
+        0.916114269063166,
+        0.9818877307383913
+      ],
+      "mean": 0.9510996936343387,
+      "n_changes": 21
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0017512020855444494,
+        0.016843284984921422
+      ],
+      "mean": 0.0073194017683152705,
+      "n_changes": 21
+    },
+    "recall@10%": {
+      "ci95": [
+        0.7324944406465672,
+        0.9815809344470132
+      ],
+      "mean": 0.8662569790144077,
+      "n_changes": 21
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8567955265885279,
+        0.994003094936237
+      ],
+      "mean": 0.9389701281649787,
+      "n_changes": 21
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5504159281740414,
+        0.9490220557636287
+      ],
+      "mean": 0.7553568267790934,
+      "n_changes": 21
+    }
+  },
+  "metrics_val_new_fail_excluding_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.03863515185223526,
+        0.200803368678421
+      ],
+      "mean": 0.10881553382702194,
+      "n_changes": 21
+    },
+    "apfd": {
+      "ci95": [
+        0.916114269063166,
+        0.9818877307383913
+      ],
+      "mean": 0.9510996936343387,
+      "n_changes": 21
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0017512020855444494,
+        0.016843284984921422
+      ],
+      "mean": 0.0073194017683152705,
+      "n_changes": 21
+    },
+    "recall@10%": {
+      "ci95": [
+        0.7324944406465672,
+        0.9815809344470132
+      ],
+      "mean": 0.8662569790144077,
+      "n_changes": 21
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8567955265885279,
+        0.994003094936237
+      ],
+      "mean": 0.9389701281649787,
+      "n_changes": 21
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5504159281740414,
+        0.9490220557636287
+      ],
+      "mean": 0.7553568267790934,
+      "n_changes": 21
+    }
+  },
+  "metrics_val_new_fail_including_high_fail": {
+    "all_fail_frac": {
+      "ci95": [
+        0.04850241764730829,
+        0.28718897476380806
+      ],
+      "mean": 0.14874840720798974,
+      "n_changes": 22
+    },
+    "apfd": {
+      "ci95": [
+        0.8851877642837529,
+        0.9757063898335668
+      ],
+      "mean": 0.9362675736171482,
+      "n_changes": 22
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.001741023596397423,
+        0.015522767587046776
+      ],
+      "mean": 0.007062712633513466,
+      "n_changes": 22
+    },
+    "recall@10%": {
+      "ci95": [
+        0.6870879566453533,
+        0.9655118601747815
+      ],
+      "mean": 0.8356403449637678,
+      "n_changes": 22
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8057695562239247,
+        0.9885151763740773
+      ],
+      "mean": 0.913807034148419,
+      "n_changes": 22
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5288733793335936,
+        0.920399792402605
+      ],
+      "mean": 0.7254017671505059,
+      "n_changes": 22
+    }
+  },
+  "metrics_val_new_fail_real": {},
+  "metrics_val_new_fail_synthetic": {
+    "all_fail_frac": {
+      "ci95": [
+        0.03568667560969986,
+        0.2086343083539865
+      ],
+      "mean": 0.10881553382702194,
+      "n_changes": 21
+    },
+    "apfd": {
+      "ci95": [
+        0.9148661703508987,
+        0.9818431293193179
+      ],
+      "mean": 0.9510996936343387,
+      "n_changes": 21
+    },
+    "first_fail_frac": {
+      "ci95": [
+        0.0017545935158499095,
+        0.01759893245842784
+      ],
+      "mean": 0.0073194017683152705,
+      "n_changes": 21
+    },
+    "recall@10%": {
+      "ci95": [
+        0.7262201757281669,
+        0.9830974842767296
+      ],
+      "mean": 0.8662569790144077,
+      "n_changes": 21
+    },
+    "recall@20%": {
+      "ci95": [
+        0.8483819142148128,
+        0.994496855345912
+      ],
+      "mean": 0.9389701281649787,
+      "n_changes": 21
+    },
+    "recall@5%": {
+      "ci95": [
+        0.5377297341339762,
+        0.9517051054602799
+      ],
+      "mean": 0.7553568267790934,
+      "n_changes": 21
+    }
+  },
+  "ndcg_eval_at": 46,
+  "note": "synthetic data present: test needs \u226520 mutant changes with \u22651 new_fail and \u226510 distinct base_change; metrics shown but no conclusions",
+  "note_gate": "bootstrap verdict=use_baseline ranker=cov_lines reason=insufficient_test_C (accept on synth TEST cluster CI only; val is report-only)",
+  "note_real_gate": "useful_on_real_val=null: no real new_fail changes on val (data_insufficient for the real gate)",
+  "num_boost_round": 500,
+  "objective": "lambdarank",
+  "paired_delta_ci_synthetic_test_cov_lines": {
+    "ci95": [
+      -0.0015615874778204771,
+      0.0896320507824685
+    ],
+    "mean": 0.035623125696590555,
+    "n": 18,
+    "n_C": 9,
+    "n_mutants": 18
+  },
+  "paired_delta_ci_synthetic_val_cov_lines": {
+    "ci95": [
+      -0.0015556764627103576,
+      0.055017109212211576
+    ],
+    "mean": 0.01763647518717633,
+    "n": 21
+  },
+  "paired_delta_ci_test": {
+    "ci95": [
+      -0.001559987540161973,
+      0.09022938308390016
+    ],
+    "mean": 0.035623125696590555,
+    "n": 18
+  },
+  "paired_delta_ci_val": {
+    "ci95": [
+      -0.0014753785554778216,
+      0.05703860858191717
+    ],
+    "mean": 0.01763647518717633,
+    "n": 21
+  },
+  "paired_delta_ci_val_cov_lines": {
+    "ci95": [
+      -0.0014469648230680343,
+      0.05756578377063132
+    ],
+    "mean": 0.01763647518717633,
+    "n": 21
+  },
+  "params": {
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "bagging_seed": 21624,
+    "data_random_seed": 21624,
+    "deterministic": true,
+    "eval_at": [
+      46
+    ],
+    "feature_fraction": 0.8,
+    "feature_fraction_seed": 21624,
+    "force_col_wise": true,
+    "label_gain": [
+      0,
+      1
+    ],
+    "lambdarank_truncation_level": 46,
+    "learning_rate": 0.05,
+    "linear_tree": false,
+    "metric": "ndcg",
+    "min_data_in_leaf": 50,
+    "num_leaves": 31,
+    "num_threads": 1,
+    "objective": "lambdarank",
+    "seed": 21624,
+    "use_missing": true,
+    "verbosity": -1,
+    "zero_as_missing": false
+  },
+  "parent_for_new_fail": "first_parent",
+  "predict_raw_score": true,
+  "ranker": "cov_lines",
+  "schema_sha256": "9e5e9243326d8870bd33dcf8c59b49d34a76d60e921435f501638db23e2c5269",
+  "seed": 21624,
+  "sentinel_notes": {
+    "dur": -1,
+    "imp_dist": 99,
+    "pf_max": -1,
+    "pq_max": -1
+  },
+  "splits": {
+    "chrono": {
+      "click": {
+        "n_changes": {
+          "test": 89,
+          "train": 556,
+          "val": 86
+        },
+        "test": [
+          341,
+          400
+        ],
+        "train": [
+          1,
+          280
+        ],
+        "val": [
+          281,
+          340
+        ]
+      }
+    },
+    "n_changes_with_new_fail": {
+      "test": 18,
+      "train": 211,
+      "val": 21
+    }
+  },
+  "status": "data_insufficient",
+  "stopping_metric": "ndcg",
+  "useful_on_synthetic_test": false,
+  "useful_on_synthetic_test_label": "useful_on_synthetic_test",
+  "useful_on_synthetic_val": false,
+  "useful_on_synthetic_val_label": "useful_on_synthetic_val",
+  "useful_on_val": null,
+  "useful_on_val_label": "useful_on_real_val"
+}

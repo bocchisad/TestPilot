@@ -1,24 +1,22 @@
 {
-  "note": "User N=20 K=4 calibration. Per-suite provenance; density assumes n_samples=attempted and n_new=20 pending raw verification. Worker-local venv setup is not remeasured.",
+  "note": "Per-step timing priors. Click and jinja use same-run W6 step timings in an in-sample reconstruction; attrs resumed-run data is excluded from fitting. Attrs eligibility/features-dump uses an explicit conservative max(click,jinja) proxy.",
   "source_scale": "docs/measurements/mut2-80x5-click-jinja.json",
   "backfill_s_per_commit": {
     "measured": false,
     "metadata": {
       "click": {
         "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
-        "jobs": 1,
-        "n_samples": 20,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
+        "source": "docs/measurements/bootstrap-click/bootstrap_report.json#step_timings_s.backfill",
+        "n_samples": 200,
+        "jobs": 2,
+        "confidence": "in_sample_low"
       },
       "jinja": {
         "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
+        "source": "docs/measurements/bootstrap-jinja/bootstrap_report.json#step_timings_s.backfill",
+        "n_samples": 199,
         "jobs": 2,
-        "n_samples": 20,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
+        "confidence": "in_sample_low"
       },
       "attrs": {
         "measured": true,
@@ -29,8 +27,8 @@
         "note": "attrs 16.926 after --ignore=tests/test_mypy.yml; older 17.139 WITH mypy"
       }
     },
-    "click": 3.673,
-    "jinja": 5.998,
+    "click": 4.995384116455,
+    "jinja": 6.171390503351759,
     "attrs": 16.926
   },
   "mutate_s_per_mutant": {
@@ -38,19 +36,17 @@
     "metadata": {
       "click": {
         "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
-        "jobs": 1,
-        "n_samples": 12,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
+        "source": "docs/measurements/bootstrap-click/bootstrap_report.json#step_timings_s.mutate",
+        "n_samples": 142,
+        "jobs": 2,
+        "confidence": "in_sample_low"
       },
       "jinja": {
         "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
+        "source": "docs/measurements/bootstrap-jinja/bootstrap_report.json#step_timings_s.mutate",
+        "n_samples": 169,
         "jobs": 2,
-        "n_samples": 22,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
+        "confidence": "in_sample_low"
       },
       "attrs": {
         "measured": true,
@@ -61,8 +57,8 @@
         "note": "attrs 16.926 after --ignore=tests/test_mypy.yml; older 17.139 WITH mypy"
       }
     },
-    "click": 3.018,
-    "jinja": 3.325,
+    "click": 3.989567377640845,
+    "jinja": 3.648142669130178,
     "attrs": 5.491
   },
   "collect_git_s": {
@@ -70,19 +66,17 @@
     "metadata": {
       "click": {
         "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
-        "jobs": 1,
+        "source": "docs/measurements/bootstrap-click/bootstrap_report.json#step_timings_s.collect_git",
         "n_samples": 1,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
+        "jobs": 2,
+        "confidence": "in_sample_low"
       },
       "jinja": {
         "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
-        "jobs": 2,
+        "source": "docs/measurements/bootstrap-jinja/bootstrap_report.json#step_timings_s.collect_git",
         "n_samples": 1,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
+        "jobs": 2,
+        "confidence": "in_sample_low"
       },
       "attrs": {
         "measured": true,
@@ -93,41 +87,9 @@
         "note": "attrs 16.926 after --ignore=tests/test_mypy.yml; older 17.139 WITH mypy"
       }
     },
-    "click": 2.4,
-    "jinja": 2.6,
+    "click": 2.235353875,
+    "jinja": 2.647851916,
     "attrs": 1.2
-  },
-  "dump_train_s": {
-    "measured": false,
-    "metadata": {
-      "click": {
-        "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
-        "jobs": 1,
-        "n_samples": 1,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
-      },
-      "jinja": {
-        "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
-        "jobs": 2,
-        "n_samples": 1,
-        "confidence": "low",
-        "note": "Transfer to worker-local venv not measured"
-      },
-      "attrs": {
-        "measured": true,
-        "source": "User calibration in imported chat, 2026-11-18",
-        "jobs": 2,
-        "n_samples": 1,
-        "confidence": "low",
-        "note": "attrs 16.926 after --ignore=tests/test_mypy.yml; older 17.139 WITH mypy"
-      }
-    },
-    "click": 4.2,
-    "jinja": 10.5,
-    "attrs": 5.7
   },
   "attempted_per_commit": {
     "click": 0.6,
@@ -160,5 +122,93 @@
       "eligible": 8,
       "unique_mutant_c": 5
     }
-  }
+  },
+  "train_s": {
+    "click": 8.548876583,
+    "jinja": 7.075118125,
+    "attrs": 5.7,
+    "measured": false,
+    "metadata": {
+      "click": {
+        "measured": true,
+        "source": "docs/measurements/bootstrap-click/bootstrap_report.json#step_timings_s.train",
+        "n_samples": 1,
+        "jobs": 2,
+        "confidence": "in_sample_low"
+      },
+      "jinja": {
+        "measured": true,
+        "source": "docs/measurements/bootstrap-jinja/bootstrap_report.json#step_timings_s.train",
+        "n_samples": 1,
+        "jobs": 2,
+        "confidence": "in_sample_low"
+      },
+      "attrs": {
+        "measured": false,
+        "source": "User calibration in imported chat, 2026-11-18",
+        "jobs": 2,
+        "n_samples": 1,
+        "confidence": "low",
+        "note": "not refit; resumed attrs run excluded from calibration"
+      }
+    }
+  },
+  "features_dump_s_per_eligible": {
+    "click": 1.287735076890909,
+    "jinja": 5.14331345259633,
+    "attrs": 5.14331345259633,
+    "measured": false,
+    "metadata": {
+      "click": {
+        "measured": true,
+        "source": "docs/measurements/bootstrap-click/bootstrap_report.json#step_timings_s.features_dump",
+        "n_samples": 110,
+        "jobs": 2,
+        "confidence": "in_sample_low"
+      },
+      "jinja": {
+        "measured": true,
+        "source": "docs/measurements/bootstrap-jinja/bootstrap_report.json#step_timings_s.features_dump",
+        "n_samples": 109,
+        "jobs": 2,
+        "confidence": "in_sample_low"
+      },
+      "attrs": {
+        "measured": false,
+        "source": "conservative max(click,jinja) proxy",
+        "n_samples": 0,
+        "jobs": null,
+        "confidence": "proxy",
+        "note": "attrs excluded from coefficient fitting because the W6 run resumed"
+      }
+    }
+  },
+  "eligible_per_attempted": {
+    "click": 0.7746478873239436,
+    "jinja": 0.6449704142011834,
+    "attrs": 0.7746478873239436
+  },
+  "eligibility_metadata": {
+    "click": {
+      "source": "docs/measurements/bootstrap-click/bootstrap_report.json",
+      "observed_eligible": 110,
+      "observed_attempted": 142,
+      "ratio": 0.7746478873239436,
+      "measured": true
+    },
+    "jinja": {
+      "source": "docs/measurements/bootstrap-jinja/bootstrap_report.json",
+      "observed_eligible": 109,
+      "observed_attempted": 169,
+      "ratio": 0.6449704142011834,
+      "measured": true
+    },
+    "attrs": {
+      "source": "conservative max(click,jinja) proxy",
+      "ratio": 0.7746478873239436,
+      "measured": false,
+      "note": "attrs excluded from coefficient fitting because the W6 run resumed"
+    }
+  },
+  "calibration_method": "For each suite: estimate collect_git and train as observed fixed step costs; backfill as observed seconds/n_backfill_new; mutate as observed seconds/n_mutants_attempted. attempted_hat=min(N,B)×attempted_per_commit×K/4; eligible_hat=attempted_hat×observed_eligible/observed_attempted; features_dump_hat=eligible_hat×observed_features_dump/observed_eligible."
 }

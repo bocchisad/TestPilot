@@ -1,8 +1,17 @@
 import polars as pl
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from testpilot_train.data import add_new_fail, feature_matrix, load_parquets, training_mask
+from testpilot_train.data import (
+    add_new_fail,
+    feature_matrix,
+    load_parquets,
+    load_real_pair_parquet,
+    training_mask,
+)
 from testpilot_train.schema import FeaturesSchema
+from testpilot_train.synth import generate_synthetic_parquet
 
 
 def test_load_and_schema_gate(tiny_parquet, features_schema: FeaturesSchema):
@@ -109,6 +118,34 @@ def test_feature_matrix_rejects_service_columns(features_schema: FeaturesSchema,
     df = pl.DataFrame({n: [0.0] for n in features_schema.feature_names + ("synthetic",)})
     with pytest.raises(ValueError, match="service columns"):
         feature_matrix(df, features_schema.feature_names + ("synthetic",))
+
+
+def test_feature_matrix_accepts_explicit_ablation_subset(features_schema: FeaturesSchema):
+    names = tuple(name for name in features_schema.feature_names if not name.startswith("cov_"))
+    frame = pl.DataFrame({name: [0.0] for name in names})
+
+    matrix = feature_matrix(frame, names)
+
+    assert matrix.shape == (1, len(names))
+
+
+def test_real_pair_target_is_not_rederived_from_missing_parent(tmp_path, features_schema):
+    path = tmp_path / "real.parquet"
+    generate_synthetic_parquet(path, features_schema, n_changes=12, n_tests=20, seed=2)
+    frame = pl.read_parquet(path).with_columns(
+        pl.lit(0).alias("synthetic"), pl.lit(1).alias("label")
+    )
+    pq.write_table(
+        pa.Table.from_pylist(frame.to_dicts()).replace_schema_metadata(
+            {b"features_version": str(features_schema.features_version).encode()}
+        ),
+        path,
+    )
+
+    loaded = load_real_pair_parquet(path, features_schema)
+
+    assert loaded["new_fail"].sum() == loaded.height
+    assert not loaded["parent_missing"].any()
 
 
 def test_nan_rejected(tiny_parquet, features_schema: FeaturesSchema, tmp_path):

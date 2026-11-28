@@ -1,0 +1,157 @@
+{
+  "scope": "one-pair pilot; excluded from final model metrics until Task 2A audit",
+  "repo": "click",
+  "source_bugfix_commit": "c53d3732b98c764932e146c007146ad402acb229",
+  "base_sha": "c53d3732b98c764932e146c007146ad402acb229",
+  "head_sha": "c74942ad32c5a7ee926b65c5a80030c9bf8e96af",
+  "head_description": "fixed commit with only src/click/core.py restored from the first parent; regression tests and CHANGES.md unchanged",
+  "diff_paths": [
+    "src/click/core.py"
+  ],
+  "regression_test_paths": [
+    "tests/test_options.py"
+  ],
+  "python": "3.13.18",
+  "pytest": "9.0.2",
+  "environment": {
+    "base_install": "passed",
+    "head_install": "passed",
+    "classification": "compatible",
+    "pip_freeze_artifact": "pip-freeze.txt"
+  },
+  "runs": {
+    "base_first": {
+      "exit_code": 0,
+      "passed": 2110,
+      "skipped": 25,
+      "xfailed": 1,
+      "deselected": 31000,
+      "elapsed_s": 6.47
+    },
+    "head_first": {
+      "exit_code": 1,
+      "passed": 2101,
+      "failed": 9,
+      "skipped": 25,
+      "xfailed": 1,
+      "deselected": 31000,
+      "elapsed_s": 3.1
+    },
+    "base_repeat": {
+      "exit_code": 0,
+      "passed": 2110,
+      "skipped": 25,
+      "xfailed": 1,
+      "deselected": 31000,
+      "elapsed_s": 2.46
+    },
+    "head_repeat": {
+      "exit_code": 1,
+      "passed": 2101,
+      "failed": 9,
+      "skipped": 25,
+      "xfailed": 1,
+      "deselected": 31000,
+      "elapsed_s": 3.28
+    },
+    "shared_test_ids": 2136,
+    "flaky_test_ids": [],
+    "new_fail_test_ids": [
+      "tests.test_options::test_missing_envvar_sequence[-'--units']",
+      "tests.test_options::test_missing_envvar_sequence[envvar1-'--units' (env var: 'UNITS')]",
+      "tests.test_options::test_missing_envvar_sequence[envvar2-'--units' (env var: 'WEATHER_UNITS', 'UNITS')]",
+      "tests.test_options::test_missing_envvar_sequence[envvar3-'--units' (env var: 'WEATHER_UNITS', 'UNITS')]",
+      "tests.test_options::test_missing_envvar_sequence[envvar4-'--units']",
+      "tests.test_options::test_show_envvar_empty[None-  --units TEXT\\n-]",
+      "tests.test_options::test_show_envvar_empty[None-  --units TEXT\\n-envvar1]",
+      "tests.test_options::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\\n-]",
+      "tests.test_options::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\\n-envvar1]"
+    ],
+    "missing_from_base_failure_ids": [],
+    "other_than_new_regression_test_failures": [],
+    "positive_pair": true,
+    "positive_pairs_with_other_failure": 0,
+    "positive_pair_fraction_with_other_failure": 0.0,
+    "new_regression_test_case_ids": [
+      "tests.test_options::test_missing_envvar_sequence[-'--units']",
+      "tests.test_options::test_missing_envvar_sequence[UNITS-'--units' (env var: 'UNITS')]",
+      "tests.test_options::test_missing_envvar_sequence[envvar1-'--units' (env var: 'UNITS')]",
+      "tests.test_options::test_missing_envvar_sequence[envvar2-'--units' (env var: 'WEATHER_UNITS', 'UNITS')]",
+      "tests.test_options::test_missing_envvar_sequence[envvar3-'--units' (env var: 'WEATHER_UNITS', 'UNITS')]",
+      "tests.test_options::test_missing_envvar_sequence[envvar4-'--units']",
+      "tests.test_options::test_show_envvar_empty[None-  --units TEXT\\n-None]",
+      "tests.test_options::test_show_envvar_empty[None-  --units TEXT\\n-]",
+      "tests.test_options::test_show_envvar_empty[None-  --units TEXT\\n-envvar1]",
+      "tests.test_options::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\\n-None]",
+      "tests.test_options::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\\n-]",
+      "tests.test_options::test_show_envvar_empty[WEATHER-  --units TEXT  [env var: WEATHER_UNITS]\\n-envvar1]"
+    ]
+  },
+  "timing": {
+    "pytest_total_s": 15.31,
+    "end_to_end_pilot_approx_s": 25,
+    "estimate_before_run": "5–10 min",
+    "setup_install_build_s": [
+      {
+        "step": "venv_setup",
+        "elapsed_s": 1.522,
+        "returncode": 0
+      },
+      {
+        "step": "install_test_dependencies",
+        "elapsed_s": 0.993,
+        "returncode": 0
+      },
+      {
+        "step": "build_install_base",
+        "elapsed_s": 0.716,
+        "returncode": 0
+      },
+      {
+        "step": "build_install_head",
+        "elapsed_s": 0.719,
+        "returncode": 0
+      }
+    ]
+  },
+  "artifacts": {
+    "base_log": "base.log",
+    "head_log": "head.log",
+    "base_junit": "base.xml",
+    "head_junit": "head.xml",
+    "base_repeat_log": "base-repeat.log",
+    "head_repeat_log": "head-repeat.log",
+    "base_repeat_junit": "base-repeat.xml",
+    "head_repeat_junit": "head-repeat.xml",
+    "head_install_log": "head-install.log",
+    "environment_log": "dependencies.log",
+    "pair_summary": "pilot-shared-test-report.json",
+    "setup_install_timings": "setup-timings.json",
+    "timed_setup_venv": "timed-venv/"
+  },
+  "notes": [
+    "A first install command referenced requirements/tests.txt, which is absent at the selected historical commit. It was not an environment failure; pytest 9.0.2 from that commit’s uv.lock was installed instead.",
+    "Both base and head built/installed on Python 3.13.18. Two runs per tree had identical outcome sets, with no observed flaky test IDs.",
+    "All 9 shared new-fail test IDs are parametrized cases from the added regression tests; no other shared test failed. The positive-pair fraction with a non-new-test failure is 0/1.",
+    "The pilot demonstrates this candidate’s regression but is not a model comparison or part of the final real dataset until Task 2A audit.",
+    "Each run deselected 31,000 stress tests via Click pytest addopts.",
+    "The without-regression-test metric excludes both added test functions in full (12 parametrized cases), leaving zero positives; it does not remove only the nine failing IDs.",
+    "The Week 7 primary real-pair counter starts at 0 pairs with an outside-regression-test failure among 1 audited positive pair."
+  ],
+  "local_artifact_location": "Temporary local directory; exact path was reported in the work session. Raw logs are intentionally not tracked.",
+  "metrics_without_regression_tests": {
+    "excluded_test_functions": [
+      "tests.test_options::test_show_envvar_empty",
+      "tests.test_options::test_missing_envvar_sequence"
+    ],
+    "excluded_parametrized_case_count": 12,
+    "positive_test_ids": [],
+    "positive_count": 0,
+    "positive_pair": false
+  },
+  "week7_primary_real_pair_counter": {
+    "positive_pairs_with_failure_outside_added_regression_test": 0,
+    "audited_positive_pairs": 1,
+    "fraction": 0.0
+  }
+}

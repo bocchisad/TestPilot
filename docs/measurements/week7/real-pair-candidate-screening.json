@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-11-22",
+  "method": "offline full local Git history scan across all refs; no fetch and no test execution",
+  "matching": [
+    "commit subject/body: fix|bug|regression|revert, fixes #, closes #",
+    "changed CHANGES/CHANGELOG/NEWS paths"
+  ],
+  "candidate_note": "Matches and static source/test heuristics are not confirmed bug-fix pairs or positives.",
+  "repositories": [
+    {
+      "name": "click",
+      "head": "934813e4d421071a1b3db3973c02fe2721359a6e",
+      "local_commits": 3547,
+      "shallow": false,
+      "message_matches": 760,
+      "changes_file_matches": 813,
+      "union_candidates": 1388,
+      "source_and_test_changes": 247,
+      "added_test_code_heuristic": 217,
+      "test_diff_unavailable": 0
+    },
+    {
+      "name": "jinja",
+      "head": "15206881c006c79667fe5154fe80c01c65410679",
+      "local_commits": 2949,
+      "shallow": false,
+      "message_matches": 694,
+      "changes_file_matches": 523,
+      "union_candidates": 1100,
+      "source_and_test_changes": 81,
+      "added_test_code_heuristic": 66,
+      "test_diff_unavailable": 0
+    },
+    {
+      "name": "attrs",
+      "head": "598494a618410490cfbe0c896b7a544f6d23e0d9",
+      "local_commits": 1864,
+      "shallow": false,
+      "message_matches": 474,
+      "changes_file_matches": 164,
+      "union_candidates": 600,
+      "source_and_test_changes": 183,
+      "added_test_code_heuristic": 138,
+      "test_diff_unavailable": 20
+    }
+  ],
+  "pilot_reference": {
+    "pair_count": 1,
+    "repo": "click",
+    "outside_regression_test_positive_pairs": 0,
+    "positive_pairs": 1,
+    "wall_s_per_pair_approximate": 25,
+    "note": "Pilot is not yet included in the final real-data inventory."
+  },
+  "planning_estimates": {
+    "all_added_test_code_candidates": 421,
+    "straight_line_seconds_at_click_pilot_rate": 10525,
+    "straight_line_minutes_at_click_pilot_rate": 175.4167,
+    "best_case_additional_pairs_to_reach_10_per_repo": 29,
+    "best_case_seconds_at_click_pilot_rate": 725,
+    "caveat": "Coarse mixed-repository proxy before manual triage; no duration guarantee. Any batch forecast above 30 minutes remains unstarted pending explicit user OK."
+  },
+  "local_ci_logs_found_by_filename_scan": false,
+  "pair_runs_started": 0
+}

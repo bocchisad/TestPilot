@@ -34,6 +34,32 @@ def test_compatible_pinned_runner_is_not_overwritten(tmp_path,monkeypatch):
     assert not any('pytest==8.3.4' in a for a in calls)
 
 
+def test_tox_test_extra_is_installed_for_legacy_setuptools_project(tmp_path, monkeypatch):
+    (tmp_path/'setup.py').write_text('from setuptools import setup; setup()\n')
+    (tmp_path/'tox.ini').write_text('[testenv]\nextras = tests\n')
+    calls=[]
+    def run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args,0,'','')
+    monkeypatch.setattr(backfill,'run',run)
+    ok, _ = backfill.install_project(Path('/venv/bin/pip'),tmp_path)
+    assert ok
+    assert any(a[-2:] == ['-e','.[tests]'] for a in calls)
+
+
+def test_failed_test_extra_install_is_env_failure(tmp_path, monkeypatch):
+    (tmp_path/'setup.py').write_text('from setuptools import setup; setup()\n')
+    (tmp_path/'tox.ini').write_text('[testenv]\nextras = tests\n')
+    def run(args, **kwargs):
+        if args[-2:] == ['-e','.[tests]']:
+            return subprocess.CompletedProcess(args,1,'','extra install failed')
+        return subprocess.CompletedProcess(args,0,'','')
+    monkeypatch.setattr(backfill,'run',run)
+    ok, log = backfill.install_project(Path('/venv/bin/pip'),tmp_path)
+    assert not ok
+    assert 'extra install failed' in log
+
+
 def test_rc_one_without_recorded_results_is_not_success(tmp_path,monkeypatch):
     monkeypatch.setattr(backfill,'_has_reusable_real_run',lambda *a: False)
     assert not backfill.backfill_result_ok(1,tmp_path/'db.sqlite','sha')

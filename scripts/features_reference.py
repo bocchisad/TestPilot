@@ -9,7 +9,6 @@ import math
 import re
 import sqlite3
 import subprocess
-import sys
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -213,6 +212,15 @@ def parse_hunks(cwd: Path, parent: str, sha: str) -> list[dict]:
     return [h for h in hunks if h["path"]]
 
 
+def export_repo_name(repo: Path, explicit_name: str | None) -> str:
+    """Resolve the stable dataset repo label at the export boundary."""
+    value = explicit_name if explicit_name is not None else repo.name
+    value = value.strip()
+    if not value:
+        raise ValueError("repo name must not be empty")
+    return value
+
+
 def show_blob(cwd: Path, rev: str, path: str) -> str | None:
     try:
         return subprocess.check_output(
@@ -390,6 +398,7 @@ def main() -> int:
     ap.add_argument("--repo", type=Path, required=True)
     ap.add_argument("--db", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--repo-name", help="canonical repo label written to every row")
     args = ap.parse_args()
     repo: Path = args.repo
     conn = sqlite3.connect(args.db)
@@ -406,7 +415,7 @@ def main() -> int:
     cov_snaps: dict[str, dict[str, dict[str, set[int]]]] = {}
     rows = []
     commit_idx = 0
-    repo_name = repo.name
+    repo_name = export_repo_name(repo, args.repo_name)
 
     def last_clean_with_results(sha: str) -> int | None:
         gate = _test_runs_partial_gate(conn, "r")

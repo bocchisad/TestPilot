@@ -120,6 +120,13 @@ testpilot select \
 
 Exactly one budget: `--budget-frac F` (0<F≤1), `--max-tests N` (N≥1), or `--time-budget SECONDS`. Formats: `lines` (default), `table`, `json`. Use `--worktree` or `--head WORKTREE` for dirty trees (time features use **HEAD** author time, not wall clock).
 
+Pass `--explain` to include up to three LightGBM TreeSHAP feature contributions per selected test. JSON output declares `schema_version: 2`; the previous fields remain and consumers can ignore the added `schema_version` and optional `explanation`. The explanation includes the raw score, baseline value, top contributions, and a residual so their sum reconstructs the raw score. A raw score is a ranking margin, not a probability. For `ranker=cov_lines`, the explanation is `covers N changed lines`. `table` adds explanations to each row; `lines` keeps stdout as nodeids and writes explanations to stderr.
+
+```bash
+testpilot select --model "$MODEL" --base HEAD~1 --head HEAD \
+  --budget-frac 0.1 --format json --explain
+```
+
 **Limitations:** models trained on mutation bootstrap may have near-constant history features (`t_fail_rate`, `t_fail_cnt`, `t_changed`, `t_flaky_rate`, `cov_lag`); if `useful_on_val` is null the CLI warns that the model was validated on synthetic data only. Candidates are pytest nodeids (as in dump/train); parametrized ids from the base run are kept, but newly discovered defs are emitted bare (no param expansion — one bare id may expand to N collected nodeids). **Scanner change (PR #6):** `scan_python` now handles `#` comments, triple-quoted strings in paren continuations, and nested `@` correctly — change/import features that depend on def spans differ from earlier builds. **Retrain** models trained before this fix: re-run `features dump --include-mutants` + `testpilot-train` (no need to regenerate mutants). Design: [`docs/specs/2026-11-13-testpilot-select-design.md`](docs/specs/2026-11-13-testpilot-select-design.md). Latency: `scripts/bench_select.py` (pass **`--no-safe`** for Week-4 parity). Local scan vs collect check: `scripts/check_scan_collect_coverage.py`.
 
 ## Safe mode + plugin select + Action (week 5)

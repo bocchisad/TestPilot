@@ -18,7 +18,7 @@ if str(_SCRIPTS) not in sys.path:
 
 from mutate.ast_ops import MutationSite  # noqa: E402
 from mutate.run_mutant import MutantRunResult  # noqa: E402
-from mutate_bootstrap import BootstrapStats, run_bootstrap  # noqa: E402
+from mutate_bootstrap import BootstrapStats, run_bootstrap, stats_to_report  # noqa: E402
 import mutate_bootstrap as mb  # noqa: E402
 
 
@@ -205,7 +205,7 @@ def test_jobs_same_counts_and_parallel(tmp_path: Path, monkeypatch: pytest.Monke
         work_root=tmp_path / "wt1",
         jobs=1,
     )
-    calls1 = calls["n"]
+    _calls1 = calls["n"]
     max1 = active["max"]
     calls["n"] = 0
     active["max"] = 0
@@ -228,6 +228,51 @@ def test_jobs_same_counts_and_parallel(tmp_path: Path, monkeypatch: pytest.Monke
     assert calls["n"] == 4
     assert active["max"] >= 2, "jobs=2 should run two pytest workers overlapping"
     assert max1 == 1
+
+
+def test_mutant_setup_failure_is_counted_and_does_not_abort(tmp_path, monkeypatch):
+    repo, db, c_sha = _seed_eligible(tmp_path)
+    sites = [
+        ("pkg/__init__.py", _fake_site(i), f"def f(x):\n    return x + {i}\n")
+        for i in range(2)
+    ]
+    monkeypatch.setattr(mb, "_candidate_mutants", lambda *a, **k: (sites, 0))
+    monkeypatch.setattr(mb, "sample_commits", lambda *a, **k: type(
+        "S",
+        (),
+        {"n_eligible_C": 1,
+         "sampled": [type("E", (), {"sha": c_sha, "duration_sec": 0.1})()]},
+    )())
+    monkeypatch.setattr(mb, "first_parent", lambda *a, **k: "parent")
+    monkeypatch.setattr(mb, "create_mutant_commit", lambda *a, **k: f"m{a[2]}")
+    monkeypatch.setattr(mb, "collect_git_sha", lambda *a, **k: type(
+        "R", (), {"ok": True, "note": "", "stderr": ""}
+    )())
+    monkeypatch.setattr(mb, "synthetic_run_exists", lambda *a, **k: False)
+    monkeypatch.setattr(mb, "run", lambda *a, **k: type(
+        "P", (), {"returncode": 0, "stdout": "", "stderr": ""}
+    )())
+    monkeypatch.setattr(mb, "resolve_plugin", lambda *a, **k: ROOT / "python" / "pytest-testpilot")
+    outcomes = iter([
+        MutantRunResult(ok=False, setup_failed=True, log_tail="mutant setup failed"),
+        MutantRunResult(ok=True, collect_ok=True, killed=True, n_new_fail=1),
+    ])
+    monkeypatch.setattr(mb, "run_mutant", lambda *a, **k: next(outcomes))
+    pairs_out = tmp_path / "mutate_pairs.jsonl"
+
+    stats = run_bootstrap(
+        repo, db, commits_n=1, mutants_k=2, seed=1, timeout_sec=5,
+        python=Path(sys.executable), plugin=None, pytest_args="-q",
+        work_root=tmp_path / "wt", jobs=1, pairs_out=pairs_out,
+    )
+
+    assert stats.n_setup_failed == 1
+    assert stats.n_killed == 1
+    assert len(stats.completed_pairs) == 2
+    assert stats_to_report(stats)["n_setup_failed"] == 1
+    assert pairs_out.read_text().count("\n") == 1
+    outcomes_path = pairs_out.with_name("mutate_outcomes.jsonl")
+    assert '"status": "setup_failure"' in outcomes_path.read_text()
 
 
 def test_time_budget_soft_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

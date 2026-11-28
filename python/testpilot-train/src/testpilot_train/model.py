@@ -83,9 +83,16 @@ def _group_sizes(frame: pl.DataFrame) -> list[int]:
     changes = frame["change"].to_list()
     repos = frame["repo"].to_list()
     keys = list(zip(repos, changes, strict=True))
-    for i in range(1, len(keys)):
-        if keys[i] != keys[i - 1] and keys[i] in set(keys[:i]):
+    seen: set[tuple[str, str]] = set()
+    previous = keys[0] if keys else None
+    for key in keys[1:]:
+        if key == previous:
+            continue
+        if key in seen:
             raise AssertionError("change rows not contiguous for lambdarank group")
+        if previous is not None:
+            seen.add(previous)
+        previous = key
     sizes: list[int] = []
     i = 0
     n = len(keys)
@@ -111,7 +118,7 @@ def fit_binary(
     schema: FeaturesSchema,
     seed: int,
 ) -> FitResult:
-    Xtr, ytr, _ = _prepare_xy(train, schema)
+    Xtr, ytr, sub_tr = _prepare_xy(train, schema)
     Xva, yva, sub_va = _prepare_xy(val, schema)
     n_pos = max(float(ytr.sum()), 1.0)
     n_neg = max(float(len(ytr) - ytr.sum()), 1.0)
@@ -125,7 +132,18 @@ def fit_binary(
         "data_random_seed": seed,
         "scale_pos_weight": n_neg / n_pos,
     }
-    dtrain = lgb.Dataset(Xtr, label=ytr, feature_name=list(schema.feature_names), free_raw_data=False)
+    row_weight = (
+        sub_tr["sample_weight"].to_numpy().astype(np.float64)
+        if "sample_weight" in sub_tr.columns
+        else None
+    )
+    dtrain = lgb.Dataset(
+        Xtr,
+        label=ytr,
+        weight=row_weight,
+        feature_name=list(schema.feature_names),
+        free_raw_data=False,
+    )
     dval = lgb.Dataset(Xva, label=yva, reference=dtrain, free_raw_data=False)
     booster = lgb.train(
         params,
@@ -160,6 +178,11 @@ def fit_lambdarank(
     Xva, yva, sub_va = _prepare_xy(val, schema)
     gtr = _group_sizes(sub_tr)
     gva = _group_sizes(sub_va)
+    row_weight = (
+        sub_tr["sample_weight"].to_numpy().astype(np.float64)
+        if "sample_weight" in sub_tr.columns
+        else None
+    )
     trunc = _truncation_level(gtr)
     params = {
         **DEFAULT_PARAMS,
@@ -174,7 +197,12 @@ def fit_lambdarank(
         "label_gain": list(range(max(2, int(ytr.max()) + 1))),
     }
     dtrain = lgb.Dataset(
-        Xtr, label=ytr, group=gtr, feature_name=list(schema.feature_names), free_raw_data=False
+        Xtr,
+        label=ytr,
+        group=gtr,
+        weight=row_weight,
+        feature_name=list(schema.feature_names),
+        free_raw_data=False,
     )
     dval = lgb.Dataset(
         Xva, label=yva, group=gva, reference=dtrain, free_raw_data=False

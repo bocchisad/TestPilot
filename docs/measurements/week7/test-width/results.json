@@ -1,0 +1,165 @@
+{
+  "metadata": {
+    "K": 4,
+    "N": 400,
+    "attrs_classifier_commits_in_resume_chain": [
+      "0cabedf",
+      "72e639e",
+      "52e5c44",
+      "d3d4878",
+      "1b28f9d",
+      "e899527"
+    ],
+    "binary_sha256": "eadf90c80386589015a2eafce0062b8d30e50b30bea916cd0da2e83ba62abe65",
+    "binary_version": "testpilot 0.1.0 (b9433610fc61)",
+    "branch": "feat/week7",
+    "decision": "both N=400 runs missed n_C >= 10; leave cov_lines as default; do not infer model superiority",
+    "jinja_week6_n_C": 11,
+    "jobs": 2,
+    "provenance_note": "click run started at b943361. attrs initial run provenance snapshot was captured at d04e853; resumed mutation classification proceeded across the fixes through e899527. No per-pair script-version ledger exists for the resumed attrs attempts.",
+    "python": "3.13.18",
+    "seed": 42,
+    "source_head_before_report": "e899527",
+    "suite_order": [
+      "click",
+      "attrs"
+    ]
+  },
+  "results": {
+    "attrs": {
+      "bootstrap_report_sha256": "8a192ce5cdfdc728c54fcc5a7a4865aec1f2b9eab4a7d586c27731b108a0957e",
+      "dry_run_seconds": 10567.403,
+      "duplicate_outcome_rows": 6,
+      "elapsed_from_first_full_run_to_final_report_seconds": 8641.75,
+      "gate": {
+        "gate": "synthetic_test_vs_cov_lines_cluster_C",
+        "reason": "insufficient_test_C",
+        "verdict": "use_baseline"
+      },
+      "local_artifact_dir": ".cache/measurements/week7/test-width/run-n400-attrs-py313c/out/attrs",
+      "local_artifacts": {
+        "bootstrap_state": {
+          "bytes": 28675,
+          "path": ".cache/measurements/week7/test-width/repos-py313c/attrs/.testpilot/bootstrap/state.json",
+          "sha256": "fbc816453306041498134a17126773483fabf0870455a82db92488c65afe5628"
+        },
+        "final_resume_log": {
+          "bytes": 1073,
+          "path": ".cache/measurements/week7/test-width/run-n400-attrs-py313c/logs/attrs-resume-08.log",
+          "sha256": "44f7b91683cc595c3260bc548c961ecde0219c23db749e4939fb46b441cff64f"
+        },
+        "measurement_provenance_initial_snapshot": {
+          "bytes": 1649,
+          "path": ".cache/measurements/week7/test-width/run-n400-attrs-py313c/measurement-provenance.json",
+          "sha256": "c8f332c9e0a7e3f35cb9e0581397521bcdb33f9991c423c7c65d7c0a1cfe5fb9"
+        },
+        "model_json": {
+          "bytes": 46808,
+          "path": ".cache/measurements/week7/test-width/run-n400-attrs-py313c/out/attrs/model.json",
+          "sha256": "c743cbaaa74ecc80fa2c58065b8814548ca00e1ad3a37ff59f393ea00e8c3fbd"
+        },
+        "outcomes_jsonl": {
+          "bytes": 64525,
+          "path": ".cache/measurements/week7/test-width/repos-py313c/attrs/.testpilot/bootstrap/mutate_outcomes.jsonl",
+          "sha256": "8afa633ac24676946eb2553bdd03dd941de099bad4281bba1816297dc6af7ab1"
+        },
+        "pairs_parquet": {
+          "bytes": 1862774,
+          "path": ".cache/measurements/week7/test-width/run-n400-attrs-py313c/out/attrs/pairs.parquet",
+          "sha256": "7365f711bcf3acb22a261d5a637c4a67e5d50986201dcae8403be6875a95aae1"
+        }
+      },
+      "mutate_completed_pairs": 161,
+      "mutate_rate_incomplete": true,
+      "n_C": 6,
+      "n_backfill_new": 400,
+      "n_eligible": 91,
+      "n_mutants": 20,
+      "n_mutants_attempted_last_successful_invocation": 69,
+      "outcome_rows": 167,
+      "pin": "598494a618410490cfbe0c896b7a544f6d23e0d9",
+      "report_sha256": "c743cbaaa74ecc80fa2c58065b8814548ca00e1ad3a37ff59f393ea00e8c3fbd",
+      "state_path": ".cache/measurements/week7/test-width/repos-py313c/attrs/.testpilot/bootstrap/state.json",
+      "status": "data_insufficient",
+      "step_timings_last_state_seconds": {
+        "backfill": 5271.308430584,
+        "cleanup": 0.168269999,
+        "collect_git": 1.064588084,
+        "features_dump": 487.867060791,
+        "finalize": 2.5e-07,
+        "gate": 0.000155792,
+        "init": 0.099794249,
+        "mutate": 1060.335769291,
+        "train": 12.060929167
+      },
+      "step_timings_note": "mutate timing and n_mutants_attempted in bootstrap_report cover only the last successful invocation; mutate_rate_incomplete=true. End-to-end elapsed includes earlier failed runs and resumes.",
+      "test_positive_changes": 20,
+      "unique_outcome_pairs": 161,
+      "unique_pair_final_status_counts": {
+        "collection_error": 18,
+        "complete": 118,
+        "setup_failure": 25
+      },
+      "width_target_met": false
+    },
+    "click": {
+      "bootstrap_report_sha256": "0ecac0736f739d1e0b0ef399257e455ff5dee80c80a3ccf721f1b40b5d67b289",
+      "dry_run_seconds": 3205.844,
+      "gate": {
+        "gate": "synthetic_test_vs_cov_lines_cluster_C",
+        "reason": "insufficient_test_C",
+        "verdict": "use_baseline"
+      },
+      "local_artifact_dir": ".cache/measurements/week7/test-width/run-n400-py313b/out/click",
+      "local_artifacts": {
+        "measurement_provenance": {
+          "bytes": 1649,
+          "path": ".cache/measurements/week7/test-width/run-n400-py313b/measurement-provenance.json",
+          "sha256": "c17a3487b89a7aee6ed2a474454c38ad8768da6a5cc0f6f6276770d4f007f159"
+        },
+        "model_json": {
+          "bytes": 29945,
+          "path": ".cache/measurements/week7/test-width/run-n400-py313b/out/click/model.json",
+          "sha256": "d454a797b2586e3857a2c0822cb54e34b87941ec1a909e41798c26607c322c71"
+        },
+        "pairs_parquet": {
+          "bytes": 1161980,
+          "path": ".cache/measurements/week7/test-width/run-n400-py313b/out/click/pairs.parquet",
+          "sha256": "8976f525932652df3667a3944bffe4c4f608a09ff6e07b2e2f9767200efd9f2b"
+        },
+        "raw_run_log": {
+          "bytes": 53664,
+          "path": ".cache/measurements/week7/test-width/run-n400-py313b/logs/click-full-run.txt",
+          "sha256": "1aefb30fe052956b9d660a3a668a3d256c923c8573bfbf835349bba77ed31301"
+        }
+      },
+      "mutate_completed_pairs": 348,
+      "n_C": 9,
+      "n_backfill_new": 400,
+      "n_eligible": 211,
+      "n_mutants": 18,
+      "n_mutants_attempted": 358,
+      "n_timeout": 10,
+      "pin": "934813e4d421071a1b3db3973c02fe2721359a6e",
+      "report_sha256": "d454a797b2586e3857a2c0822cb54e34b87941ec1a909e41798c26607c322c71",
+      "status": "data_insufficient",
+      "test_positive_changes": 18,
+      "wall_seconds": 3474.168,
+      "width_target_met": false
+    }
+  },
+  "tests": {
+    "command": ".cache/week7-train-env/bin/python -m pytest -q scripts/mutate",
+    "github_ci": {
+      "conclusion": "success",
+      "deploy": "skipped_by_condition",
+      "head": "74e00e7",
+      "note": "First run failed train-oracle because a test assumed a local cached venv; fixed to use sys.executable. This follow-up run passed.",
+      "pr": 10,
+      "run_id": 45917443530
+    },
+    "result": "258 passed in 117.17s",
+    "ruff_command": ".cache/week7-train-env/bin/ruff check --select E4,E7,E9,F scripts/",
+    "ruff_result": "All checks passed"
+  }
+}

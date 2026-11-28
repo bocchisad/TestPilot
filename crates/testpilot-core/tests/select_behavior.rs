@@ -8,8 +8,8 @@ use std::rc::Rc;
 use bytes::Bytes;
 use testpilot_core::features::{compute_dump_rows, snapshot_missing_message};
 use testpilot_core::git::{CommitMeta, DiffHunk, FileChange, GitRepo, LineRange, Sha};
-use testpilot_core::lgbm::load_model_dir;
-use testpilot_core::select::{Budget, SafeOpts, format_lines, run_select};
+use testpilot_core::lgbm::{Ranker, load_model_dir};
+use testpilot_core::select::{Budget, SafeOpts, format_lines, run_select, run_select_with_explain};
 use testpilot_core::store::{Store, TestResultRow, TestRunRow};
 
 fn fixture_model() -> PathBuf {
@@ -810,12 +810,123 @@ fn no_safe_json_week4_keys_plus_safe_block_only() {
         assert!(obj.contains_key(k), "missing week-4 key {k}");
     }
     // Week-5/6 additive: safe block + ranker/bootstrap (R10); must not drop week-4 keys.
-    let allowed_extra = ["safe", "n_safe_added", "n_ranked", "ranker", "bootstrap"];
+    let allowed_extra = [
+        "safe",
+        "n_safe_added",
+        "n_ranked",
+        "ranker",
+        "bootstrap",
+        "schema_version",
+    ];
     for k in obj.keys() {
         let ok = week4_keys.contains(&k.as_str()) || allowed_extra.contains(&k.as_str());
         assert!(ok, "unexpected JSON key {k}");
     }
     assert_eq!(obj.get("ranker").and_then(|x| x.as_str()), Some("model"));
+    assert_eq!(obj.get("schema_version").and_then(|x| x.as_u64()), Some(2));
+    // Older consumers continue to read the stable keys and ignore the additive schema fields.
+    assert_eq!(
+        obj.get("n_selected").and_then(|x| x.as_u64()),
+        Some(out.payload.n_selected as u64)
+    );
+}
+
+#[test]
+fn explain_json_has_top_three_reconstructable_raw_contributions() {
+    let booster = load_model_dir(&fixture_model()).unwrap();
+    let (repo, store) = seed_snapshot_repo(120);
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let out = run_select_with_explain(
+        &repo,
+        None,
+        &store,
+        "fixture",
+        &booster,
+        &base,
+        &head,
+        "0100",
+        &[pkg_a_hunk()],
+        false,
+        &Budget::Count(5),
+        &week4_safe(),
+        true,
+    )
+    .unwrap();
+    assert!(!out.payload.tests.is_empty());
+    for selected in &out.payload.tests {
+        let explanation = selected.explanation.as_ref().expect("explanation enabled");
+        assert!(explanation.top_contributions.len() <= 3);
+        assert_eq!(explanation.raw_score, Some(selected.score));
+        let reconstructed = explanation.base_value.unwrap()
+            + explanation.other_features_contribution.unwrap()
+            + explanation
+                .top_contributions
+                .iter()
+                .map(|item| item.contribution)
+                .sum::<f64>();
+        assert!((reconstructed - selected.score).abs() <= 1e-6);
+        assert!(!explanation.summary.to_lowercase().contains("probability"));
+    }
+
+    let json = serde_json::to_value(&out.payload).unwrap();
+    assert_eq!(json["schema_version"], 2);
+    assert_eq!(
+        json["tests"][0]["explanation"]["top_contributions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert!(!json.to_string().to_lowercase().contains("probability"));
+    #[derive(serde::Deserialize)]
+    struct LegacySelectConsumer {
+        n_selected: usize,
+        tests: Vec<LegacySelectedTest>,
+    }
+    #[derive(serde::Deserialize)]
+    struct LegacySelectedTest {
+        test_id: String,
+    }
+    let legacy: LegacySelectConsumer = serde_json::from_value(json).unwrap();
+    assert_eq!(legacy.n_selected, legacy.tests.len());
+    assert!(!legacy.tests[0].test_id.is_empty());
+}
+
+#[test]
+fn cov_lines_explain_uses_changed_line_wording() {
+    let mut booster = load_model_dir(&fixture_model()).unwrap();
+    booster.meta.ranker = Ranker::CovLines;
+    let (repo, store) = seed_snapshot_repo(120);
+    let base = Sha::from_hex("0099");
+    let head = Sha::from_hex("0100");
+    let out = run_select_with_explain(
+        &repo,
+        None,
+        &store,
+        "fixture",
+        &booster,
+        &base,
+        &head,
+        "0100",
+        &[pkg_a_hunk()],
+        false,
+        &Budget::Count(3),
+        &week4_safe(),
+        true,
+    )
+    .unwrap();
+    for selected in &out.payload.tests {
+        let summary = &selected.explanation.as_ref().unwrap().summary;
+        let count = summary
+            .strip_prefix("covers ")
+            .and_then(|tail| tail.strip_suffix(" changed lines"))
+            .expect("exact covers N changed lines phrase");
+        assert!(
+            count.parse::<u32>().is_ok(),
+            "unexpected explanation: {summary}"
+        );
+    }
 }
 
 #[test]

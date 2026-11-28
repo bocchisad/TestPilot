@@ -268,6 +268,38 @@ class BuildDemoDataTest(unittest.TestCase):
         self.assertEqual(case["new_fail_tests"], ["t::a"])
         self.assertEqual(case["budget_frac"], 0.1)
 
+    def test_uncaught_shared_failure_not_selected_is_false(self) -> None:
+        repo, sha = init_repo()
+        inp = write_input(repo, sha, "model", "model")
+        ranking_path = inp / "rankings" / f"{sha}.json"
+        ranking_doc = json.loads(ranking_path.read_text(encoding="utf-8"))
+        ranking_doc["tests"] = [
+            {"test_id": "t::b", "score": 0.2, "rank": 1, "dur": -1, "reason": "ranked"}
+        ]
+        ranking_doc["n_selected"] = 1
+        ranking_doc["n_ranked"] = 1
+        ranking_path.write_text(json.dumps(ranking_doc), encoding="utf-8")
+        (inp / "outcomes").mkdir()
+        (inp / "outcomes" / f"{sha}.json").write_text(
+            json.dumps(
+                {
+                    "complete": True,
+                    "tests": {"t::a": "fail", "t::b": "pass"},
+                    "base": {"complete": True, "tests": {"t::a": "pass", "t::b": "pass"}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        out = Path(tempfile.mkdtemp()) / "demo.json"
+        result = run_script(["--input", str(inp), "--out", str(out)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
+        self.assertFalse(case["caught"])
+        self.assertIsNone(case["caught_reason"])
+        self.assertEqual(case["new_fail_n"], 1)
+        self.assertEqual(case["new_fail_selected"], 0)
+        self.assertEqual(case["new_fail_tests"], ["t::a"])
+
     def test_caught_incomplete_is_null(self) -> None:
         repo, sha = init_repo()
         inp = write_input(repo, sha, "model", "model")
@@ -283,7 +315,7 @@ class BuildDemoDataTest(unittest.TestCase):
         self.assertIsNone(case["caught"])
         self.assertEqual(case["caught_reason"], "no_outcomes")
 
-    def test_caught_false_when_failure_was_not_selected(self) -> None:
+    def test_failure_absent_from_base_is_counted_separately(self) -> None:
         repo, sha = init_repo()
         inp = write_input(repo, sha, "model", "model")
         (inp / "outcomes").mkdir()
@@ -292,7 +324,7 @@ class BuildDemoDataTest(unittest.TestCase):
                 {
                     "complete": True,
                     "tests": {"t::a": "pass", "t::b": "pass", "t::missed": "error"},
-                    "base": {"complete": True, "tests": {"t::a": "pass", "t::missed": "pass"}},
+                    "base": {"complete": True, "tests": {"t::a": "pass"}},
                 }
             ),
             encoding="utf-8",
@@ -301,11 +333,13 @@ class BuildDemoDataTest(unittest.TestCase):
         result = run_script(["--input", str(inp), "--out", str(out)])
         self.assertEqual(result.returncode, 0, result.stderr)
         case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
-        self.assertFalse(case["caught"])
-        self.assertIsNone(case["caught_reason"])
-        self.assertEqual(case["new_fail_n"], 1)
+        self.assertIsNone(case["caught"])
+        self.assertEqual(case["caught_reason"], "nothing_to_catch")
+        self.assertEqual(case["new_fail_n"], 0)
         self.assertEqual(case["new_fail_selected"], 0)
-        self.assertEqual(case["new_fail_tests"], ["t::missed"])
+        self.assertEqual(case["new_fail_tests"], [])
+        self.assertEqual(case["missing_from_base_test_count"], 1)
+        self.assertEqual(case["missing_from_base_tests"], ["t::missed"])
 
     def test_caught_only_flaky(self) -> None:
         repo, sha = init_repo()
@@ -353,6 +387,7 @@ class BuildDemoDataTest(unittest.TestCase):
         case = json.loads(out.read_text(encoding="utf-8"))["cases"][0]
         self.assertIsNone(case["caught"])
         self.assertEqual(case["caught_reason"], "nothing_to_catch")
+        self.assertEqual(case["new_fail_n"], 0)
         self.assertEqual(case["new_fail_tests"], [])
 
     def test_budget_frac_comes_from_select(self) -> None:

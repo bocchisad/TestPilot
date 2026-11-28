@@ -1,0 +1,109 @@
+{
+  "scope": "in-sample Week 6 reconstruction; click and jinja only",
+  "fit_status": "same reports provide both step rates and actuals; not independent validation",
+  "formula": "estimate_s = collect_git_s + B_hat * backfill_s_per_commit + attempted_hat * mutate_s_per_attempt + eligible_hat * features_dump_s_per_eligible + train_s",
+  "derived_counts": {
+    "attempted_hat": "min(N, B_hat) * attempted_per_commit * K / 4",
+    "eligible_hat": "attempted_hat * observed_eligible / observed_attempted",
+    "features_dump_hat": "eligible_hat * observed_features_dump_s / observed_eligible"
+  },
+  "error_definition": "absolute_error_fraction = abs(estimated_s - actual_s) / actual_s",
+  "attrs": {
+    "used_for_fitting": false,
+    "reason": "W6 attrs run resumed; feature-dump and eligibility dry-run coefficients use conservative click/jinja proxies only"
+  },
+  "suites": {
+    "click": {
+      "source_report": "docs/measurements/bootstrap-click/bootstrap_report.json",
+      "old_dry_run_source": "docs/measurements/dry-run-click.txt",
+      "prior_source": "docs/measurements/bootstrap_time_priors.json",
+      "dry_run_input": {
+        "N": 200,
+        "K": 4,
+        "B_hat": 200,
+        "attempted_per_commit": 0.6,
+        "attempted_hat": 120.0
+      },
+      "observed_counts": {
+        "backfill_n_new": 200,
+        "n_mutants_attempted": 142,
+        "n_eligible": 110,
+        "eligible_per_attempted": 0.7746478873239436
+      },
+      "observed_step_timings_s": {
+        "collect_git": 2.235353875,
+        "backfill": 999.076823291,
+        "mutate": 566.518567625,
+        "features_dump": 141.650858458,
+        "train": 8.548876583
+      },
+      "fitted_rates": {
+        "collect_git_s": 2.235353875,
+        "backfill_s_per_commit": 4.995384116455,
+        "mutate_s_per_attempt": 3.989567377640845,
+        "features_dump_s_per_eligible": 1.287735076890909,
+        "train_s": 8.548876583
+      },
+      "estimated_components_s": {
+        "collect_git": 2.235353875,
+        "backfill": 999.076823291,
+        "mutate": 478.7480853169014,
+        "features_dump": 119.70495080957745,
+        "train": 8.548876583
+      },
+      "estimated_s": 1608.3140898754789,
+      "actual_s": 1718.0304798319999,
+      "actual_definition": "sum of collect_git, backfill, mutate, features_dump, and train step_timings_s; excludes init, gate, cleanup, finalize, and uninstrumented wall overhead",
+      "absolute_error_s": 109.71638995652097,
+      "absolute_error_fraction": 0.0638617249487039,
+      "old_estimated_s": 1103.36,
+      "old_absolute_error_fraction": 0.3577762368291082
+    },
+    "jinja": {
+      "source_report": "docs/measurements/bootstrap-jinja/bootstrap_report.json",
+      "old_dry_run_source": "docs/measurements/dry-run-jinja.txt",
+      "prior_source": "docs/measurements/bootstrap_time_priors.json",
+      "dry_run_input": {
+        "N": 200,
+        "K": 4,
+        "B_hat": 200,
+        "attempted_per_commit": 1.1,
+        "attempted_hat": 220.00000000000003
+      },
+      "observed_counts": {
+        "backfill_n_new": 199,
+        "n_mutants_attempted": 169,
+        "n_eligible": 109,
+        "eligible_per_attempted": 0.6449704142011834
+      },
+      "observed_step_timings_s": {
+        "collect_git": 2.647851916,
+        "backfill": 1228.106710167,
+        "mutate": 616.536111083,
+        "features_dump": 560.621166333,
+        "train": 7.075118125
+      },
+      "fitted_rates": {
+        "collect_git_s": 2.647851916,
+        "backfill_s_per_commit": 6.171390503351759,
+        "mutate_s_per_attempt": 3.648142669130178,
+        "features_dump_s_per_eligible": 5.14331345259633,
+        "train_s": 7.075118125
+      },
+      "estimated_components_s": {
+        "collect_git": 2.647851916,
+        "backfill": 1234.2781006703517,
+        "mutate": 802.5913872086393,
+        "features_dump": 729.8027017352664,
+        "train": 7.075118125
+      },
+      "estimated_s": 2776.3951596552574,
+      "actual_s": 2414.9869576240003,
+      "actual_definition": "sum of collect_git, backfill, mutate, features_dump, and train step_timings_s; excludes init, gate, cleanup, finalize, and uninstrumented wall overhead",
+      "absolute_error_s": 361.40820203125713,
+      "absolute_error_fraction": 0.14965223761987967,
+      "old_estimated_s": 1944.2,
+      "old_absolute_error_fraction": 0.1949438924039519
+    }
+  }
+}

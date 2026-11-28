@@ -1,0 +1,12 @@
+{
+  "including_changed_functions": {
+    "real_positive_changes": 26,
+    "comparisons": 40,
+    "synthetic_comparisons": 40
+  },
+  "excluding_changed_functions": {
+    "real_positive_changes": 24,
+    "comparisons": 40,
+    "synthetic_comparisons": 40
+  }
+}

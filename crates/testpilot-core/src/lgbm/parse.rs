@@ -67,6 +67,8 @@ pub struct Tree {
     pub left_child: Vec<i32>,
     pub right_child: Vec<i32>,
     pub leaf_value: Vec<f64>,
+    pub leaf_count: Option<Vec<f64>>,
+    pub internal_count: Option<Vec<f64>>,
 }
 
 #[derive(Debug, Clone)]
@@ -333,6 +335,8 @@ struct TreeBuilder {
     left_child: Option<Vec<i32>>,
     right_child: Option<Vec<i32>>,
     leaf_value: Option<Vec<f64>>,
+    leaf_count: Option<Vec<f64>>,
+    internal_count: Option<Vec<f64>>,
     is_linear: Option<i32>,
 }
 
@@ -354,6 +358,10 @@ impl TreeBuilder {
             self.right_child = Some(parse_i32_list(v)?);
         } else if let Some(v) = line.strip_prefix("leaf_value=") {
             self.leaf_value = Some(parse_f64_list(v)?);
+        } else if let Some(v) = line.strip_prefix("leaf_count=") {
+            self.leaf_count = Some(parse_f64_list(v)?);
+        } else if let Some(v) = line.strip_prefix("internal_count=") {
+            self.internal_count = Some(parse_f64_list(v)?);
         } else if let Some(v) = line.strip_prefix("is_linear=") {
             self.is_linear = Some(parse_i32(v, "is_linear")?);
         }
@@ -406,6 +414,8 @@ impl TreeBuilder {
             left_child,
             right_child,
             leaf_value,
+            leaf_count: self.leaf_count,
+            internal_count: self.internal_count,
         })
     }
 }

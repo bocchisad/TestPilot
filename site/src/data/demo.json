@@ -664,7 +664,9 @@
           "dur": "1",
           "reason": "recent_fail"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     },
     {
       "head": "26f2f5aa12a9588147107cb368ad544ad210fb3a",
@@ -1125,7 +1127,9 @@
           "dur": "0",
           "reason": "recent_fail"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     },
     {
       "head": "8e7bed0466fd49acf8bcf1399f54d7dc783fd6a1",
@@ -1138,7 +1142,7 @@
       "saved_ms": 466,
       "caught": null,
       "caught_reason": "nothing_to_catch",
-      "new_fail_n": null,
+      "new_fail_n": 0,
       "new_fail_selected": null,
       "new_fail_tests": [],
       "budget_frac": 0.1,
@@ -1604,7 +1608,9 @@
           "dur": "0",
           "reason": "recent_fail"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     },
     {
       "head": "934813e4d421071a1b3db3973c02fe2721359a6e",
@@ -1617,7 +1623,7 @@
       "saved_ms": 459,
       "caught": null,
       "caught_reason": "nothing_to_catch",
-      "new_fail_n": null,
+      "new_fail_n": 0,
       "new_fail_selected": null,
       "new_fail_tests": [],
       "budget_frac": 0.1,
@@ -2083,7 +2089,9 @@
           "dur": "0",
           "reason": "recent_fail"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     },
     {
       "head": "b05c737488c7683a1babd7205bab4bb559398508",
@@ -2487,7 +2495,9 @@
           "dur": "1",
           "reason": "recent_fail"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     },
     {
       "head": "bed037717d5f39cf875d83df4025e62beebc77f4",
@@ -2500,7 +2510,7 @@
       "saved_ms": 0,
       "caught": null,
       "caught_reason": "nothing_to_catch",
-      "new_fail_n": null,
+      "new_fail_n": 0,
       "new_fail_selected": null,
       "new_fail_tests": [],
       "budget_frac": 0.1,
@@ -7063,7 +7073,9 @@
           "dur": "0",
           "reason": "fallback_all"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     },
     {
       "head": "c23223b13c847ae472faa258907ffb5c27b504fa",
@@ -7076,7 +7088,7 @@
       "saved_ms": 521,
       "caught": null,
       "caught_reason": "nothing_to_catch",
-      "new_fail_n": null,
+      "new_fail_n": 0,
       "new_fail_selected": null,
       "new_fail_tests": [],
       "budget_frac": 0.1,
@@ -7542,7 +7554,9 @@
           "dur": "0",
           "reason": "recent_fail"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     },
     {
       "head": "ca00cfa35149cc1afbb3cecb32ca525579f5af47",
@@ -7986,7 +8000,9 @@
           "dur": "1",
           "reason": "recent_fail"
         }
-      ]
+      ],
+      "missing_from_base_test_count": null,
+      "missing_from_base_tests": null
     }
   ]
 }

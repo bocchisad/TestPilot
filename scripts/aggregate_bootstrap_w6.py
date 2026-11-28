@@ -43,132 +43,100 @@ def git_blob_sha1(root: Path, relative_path: Path) -> str:
     return result.stdout.strip()
 
 
-def git_commit_sha(root: Path) -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
-
-
-def measurement_provenance(root: Path) -> dict:
-    return {
-        "measurement_runner": {
-            "path": "scripts/measure_bootstrap_w6.sh",
-            "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
-            "git_blob_sha1": "f408b62d49636c259dd6980f725a5fada0311bf7",
+WEEK6_HISTORY = {
+    "attrs_pair_attribution": {
+        "assessment": "corrected_by_git_history",
+        "exact_per_pair_version_recorded": False,
+        "last_run": {
+            "count": 36,
+            "candidate_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
+            "mutate_bootstrap_blob": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+            "classifier_blob_at_978b50b": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
+            "pair_level_ledger_committed": False,
         },
-        "mutation_ledger": {
-            "path": "scripts/mutate_bootstrap.py",
-            "git_commit": "d7c73f1e1a8fdf207c8f044ba0f160dbb9288912",
-            "git_blob_sha1": "2f09ab29a91b597369cb7d76dfbade9dc397ecca",
+        "early_runs": {
+            "count": 76,
+            "description": "estimate across varying classifier versions before 978b50b",
+            "pair_level_ledger_committed": False,
         },
-        "labeling_classifier": {
-            "path": "scripts/mutate/run_mutant.py",
-            "click": {
-                "git_commit": "6c3fc2c4ffd7fc7599f2313a0dfcb86093b3dbac",
-                "git_blob_sha1": "55bacb570a74e4625eddab73ed155698c326db81",
-            },
-            "jinja": {
-                "git_commit": "b4d5bfaf9e18316895970058c87e105b0a404293",
-                "git_blob_sha1": "dfa03ce9d32c487bf0ccda0f5f95f3a4a37a245b",
-            },
-            "attrs_pairs": [
-                {
-                    "count": 36,
-                    "git_commit": "978b50b77513c0ae8ff53ece4c04222cd85a17bd",
-                    "git_blob_sha1": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
-                    "period": "last run",
-                },
-                {
-                    "count": 76,
-                    "git_commit": None,
-                    "git_blob_sha1": None,
-                    "period": "estimated early runs across classifier versions before 978b50b",
-                    "ledger_committed": False,
-                },
-            ],
-        },
-        "aggregator": {
-            "path": "scripts/aggregate_bootstrap_w6.py",
-            "git_commit": git_commit_sha(root),
-            "git_blob_sha1": git_blob_sha1(
-                root, Path("scripts/aggregate_bootstrap_w6.py")
-            ),
+        "git_history_facts": {
+            "mutate_bootstrap_at_092d6cc_and_9e863f1_blob": "548fcc2e98285d7d6bd2dea29d8e4c4b144b4620",
+            "run_mutant_at_9e863f1_blob": "7cdb0938e52c44b7733cb3b1213048e21069a539",
+            "run_mutant_at_092d6cc_blob": "b47ec90fc498f6ca59011ee487fe8df5fcabd18a",
+            "run_mutant_at_978b50b_blob": "3a6f035b688d6e35f507d07ae4b1211f2ada4d79",
         },
     }
+}
 
 
-def attach_provenance(path: Path, provenance: dict) -> None:
+def load_provenance_snapshot(path: Path) -> dict:
+    snapshot = load(path)
+    if not isinstance(snapshot.get("head_sha"), str) or not snapshot["head_sha"]:
+        raise ValueError("provenance snapshot is missing head_sha")
+    if not isinstance(snapshot.get("bin_version"), str) or not snapshot["bin_version"]:
+        raise ValueError("provenance snapshot is missing bin_version")
+    if not isinstance(snapshot.get("captured_at_utc"), str):
+        raise ValueError("provenance snapshot is missing captured_at_utc")
+    scripts = snapshot.get("scripts")
+    if not isinstance(scripts, list) or not scripts:
+        raise ValueError("provenance snapshot has no script records")
+    required = {
+        "scripts/mutate_bootstrap.py",
+        "scripts/mutate/run_mutant.py",
+        "scripts/aggregate_bootstrap_w6.py",
+        "scripts/features_reference.py",
+        "scripts/measurement_provenance.py",
+    }
+    recorded = set()
+    for row in scripts:
+        if not isinstance(row, dict) or not all(
+            isinstance(row.get(key), str) and row[key]
+            for key in ("path", "commit_blob_sha1", "worktree_blob_sha1")
+        ) or not isinstance(row.get("dirty"), bool):
+            raise ValueError("malformed script provenance record")
+        recorded.add(row["path"])
+    if not required.issubset(recorded):
+        raise ValueError(f"provenance snapshot lacks required scripts: {sorted(required - recorded)}")
+    if not any(path.startswith("scripts/measure_") and path.endswith(".sh") for path in recorded):
+        raise ValueError("provenance snapshot lacks a measurement runner")
+    return snapshot
+
+
+def attach_provenance(path: Path, snapshot: dict) -> None:
     if not path.is_file():
         return
-    payload = normalize_attrs_run_name(load(path))
-    payload["provenance"] = provenance
+    payload = load(path)
+    payload["provenance"] = {"run_snapshot": snapshot, "historical_week6": WEEK6_HISTORY}
     path.write_text(json.dumps(payload, indent=2, allow_nan=False) + "\n")
 
 
-def append_bootstrap_provenance(path: Path, provenance: dict, repo_name: str) -> None:
+def append_bootstrap_provenance(path: Path, snapshot: dict, repo_name: str) -> None:
     if not path.is_file():
         return
-    classifier = provenance["labeling_classifier"]
-    old, new = classifier["attrs_pairs"]
+    lines = [
+        f"- Captured at `{snapshot['captured_at_utc']}` from HEAD `{snapshot['head_sha']}`.",
+        f"- TestPilot binary: `{snapshot['bin_version']}`.",
+    ]
+    for row in snapshot["scripts"]:
+        lines.append(
+            f"- `{row['path']}`: commit `{snapshot['head_sha']}`, commit blob "
+            f"`{row['commit_blob_sha1']}`, worktree blob `{row['worktree_blob_sha1']}`; "
+            f"dirty `{str(row['dirty']).lower()}`."
+        )
     if repo_name == "attrs":
-        classifier_note = (
-            f"- Mutation classifier (`{classifier['path']}`): estimated split; {old['count']} "
-            f"pairs in the last run at `{old['git_commit']}` (blob `{old['git_blob_sha1']}`); "
-            f"{new['count']} pairs from early runs on varying versions before 978b50b. "
-            "The per-pair ledger was not committed."
+        attrs = WEEK6_HISTORY["attrs_pair_attribution"]
+        lines.append(
+            f"- Historical attrs split (corrected by git history): 36 pairs in the last run "
+            f"associated with `978b50b`; mutation-ledger blob `{attrs['last_run']['mutate_bootstrap_blob']}`. "
+            "Exact per-pair version is not recorded. The remaining 76 pairs are an estimate "
+            "across earlier classifier versions before `978b50b`; the pair-level ledger is not committed."
         )
-    else:
-        source = classifier[repo_name]
-        classifier_note = (
-            f"- Mutation classifier (`{classifier['path']}`): commit "
-            f"`{source['git_commit']}`, blob `{source['git_blob_sha1']}`."
-        )
-    section = "\n".join(
-        [
-            "## Provenance",
-            "",
-            classifier_note,
-            f"- Mutation ledger (`{provenance['mutation_ledger']['path']}`): commit "
-            f"`{provenance['mutation_ledger']['git_commit']}`, blob "
-            f"`{provenance['mutation_ledger']['git_blob_sha1']}`.",
-            f"- Aggregator (`{provenance['aggregator']['path']}`): commit "
-            f"`{provenance['aggregator']['git_commit']}`, blob "
-            f"`{provenance['aggregator']['git_blob_sha1']}`.",
-            "",
-        ]
-    )
-    text = path.read_text().replace("attrs-rerun12", "attrs")
+    section = "\n".join(["## Provenance", "", *lines, ""])
+    text = path.read_text()
     marker = "\n## Provenance\n"
     if marker in text:
         text = text[: text.index(marker)].rstrip() + "\n"
     path.write_text(text.rstrip() + "\n\n" + section)
-
-
-def normalize_attrs_run_name(value):
-    if isinstance(value, dict):
-        normalized = {
-            key.replace("attrs-rerun12", "attrs")
-            if isinstance(key, str)
-            else key: normalize_attrs_run_name(item)
-            for key, item in value.items()
-        }
-        if normalized.get("out") == "docs/measurements/bootstrap-attrs-rerun12":
-            normalized["out"] = "docs/measurements/bootstrap-attrs"
-        if isinstance(normalized.get("repo"), str) and normalized["repo"].endswith(
-            "/attrs-rerun12"
-        ):
-            normalized["repo"] = "attrs"
-        return normalized
-    if isinstance(value, list):
-        return [normalize_attrs_run_name(item) for item in value]
-    if isinstance(value, str):
-        return value.replace("attrs-rerun12", "attrs")
-    return value
 
 
 def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
@@ -191,16 +159,27 @@ def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
             f"n_C={gate.get('test_n_C', 'unknown')})."
         )
     provenance = report.get("provenance", {})
-    classifier = provenance.get("labeling_classifier", {})
-    attrs_pairs = classifier.get("attrs_pairs", [])
+    history = provenance.get("historical_week6", {}).get("attrs_pair_attribution", {})
     attrs_labeling = "estimated split unavailable"
-    if len(attrs_pairs) == 2:
-        last_run, early_runs = attrs_pairs
+    if history:
+        last_run = history.get("last_run", {})
+        early_runs = history.get("early_runs", {})
         attrs_labeling = (
-            f"estimated: {last_run['count']} pairs in the last run at "
-            f"{last_run['git_commit'][:7]} (blob {last_run['git_blob_sha1']}); "
-            f"{early_runs['count']} pairs from early runs across classifier versions "
-            "before 978b50b; the per-pair ledger was not committed"
+            f"corrected by git history: {last_run.get('count', 'unknown')} pairs in the last run "
+            f"associated with {last_run.get('candidate_commit', 'unknown')[:7]} "
+            f"(mutation-ledger blob {last_run.get('mutate_bootstrap_blob', 'unknown')}); "
+            f"exact per-pair version is not recorded; {early_runs.get('count', 'unknown')} early "
+            "pairs are estimated across classifier versions before 978b50b, with no committed pair ledger"
+        )
+    run_snapshot = provenance.get("run_snapshot", {})
+    provenance_lines = [
+        f"- Snapshot captured at `{run_snapshot.get('captured_at_utc', 'unknown')}` from HEAD "
+        f"`{run_snapshot.get('head_sha', 'unknown')}`; binary `{run_snapshot.get('bin_version', 'unknown')}`."
+    ]
+    for script in run_snapshot.get("scripts", []):
+        provenance_lines.append(
+            f"- `{script['path']}`: commit blob `{script['commit_blob_sha1']}`, "
+            f"worktree blob `{script['worktree_blob_sha1']}`, dirty `{str(script['dirty']).lower()}`."
         )
     section = "\n".join(
         [
@@ -223,20 +202,8 @@ def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
             "",
             "## Provenance",
             "",
-            f"- Click classifier: commit `{classifier.get('click', {}).get('git_commit', 'unknown')}`, "
-            f"blob `{classifier.get('click', {}).get('git_blob_sha1', 'unknown')}`.",
-            f"- Jinja classifier: commit `{classifier.get('jinja', {}).get('git_commit', 'unknown')}`, "
-            f"blob `{classifier.get('jinja', {}).get('git_blob_sha1', 'unknown')}`.",
             f"- Attrs labels: {attrs_labeling}.",
-            f"- Mutation ledger: `{provenance.get('mutation_ledger', {}).get('path', 'unknown')}`, "
-            f"commit `{provenance.get('mutation_ledger', {}).get('git_commit', 'unknown')}`, "
-            f"blob `{provenance.get('mutation_ledger', {}).get('git_blob_sha1', 'unknown')}`.",
-            f"- Aggregator: `{provenance.get('aggregator', {}).get('path', 'unknown')}`, "
-            f"commit `{provenance.get('aggregator', {}).get('git_commit', 'unknown')}`, "
-            f"blob `{provenance.get('aggregator', {}).get('git_blob_sha1', 'unknown')}`.",
-            f"- Measurement runner: `{provenance.get('measurement_runner', {}).get('path', 'unknown')}`, "
-            f"commit `{provenance.get('measurement_runner', {}).get('git_commit', 'unknown')}`, "
-            f"blob `{provenance.get('measurement_runner', {}).get('git_blob_sha1', 'unknown')}`.",
+            *provenance_lines,
             "",
         ]
     )
@@ -253,7 +220,6 @@ def write_loro_interpretation(root: Path, loro: dict, repos: dict) -> None:
             text = text[:start] + report_metadata + text[diagnostics + 1 :]
         else:
             text = text[:start].rstrip() + "\n"
-    text = text.replace("attrs-rerun12", "attrs")
     text = text.replace(
         "# TestPilot training report\n", "# TestPilot training report\n\n" + section
     )
@@ -317,7 +283,8 @@ def run_details(con, sha, synthetic):
     rows = con.execute("""SELECT t.test_id, r.outcome, r.flaky FROM test_results r
         JOIN tests t ON t.id=r.test_pk WHERE r.run_id=?""", (row[0],)).fetchall()
     return ({t for t, outcome, flaky in rows if outcome in ('fail', 'error') and not flaky},
-            {t for t, _, flaky in rows if flaky})
+            {t for t, _, flaky in rows if flaky},
+            {t for t, _, _ in rows})
 
 
 def collect_mutants(repo: Path) -> dict:
@@ -352,12 +319,16 @@ def collect_mutants(repo: Path) -> dict:
                 collection_error_shas.append(sha)
                 continue
             base, _ = pair.rsplit(':', 1)
-            fails_c, flaky_c = run_details(con, base, 0)
-            fails_m, flaky_m = run_details(con, sha, 1)
+            fails_c, flaky_c, present_c = run_details(con, base, 0)
+            fails_m, flaky_m, present_m = run_details(con, sha, 1)
             flaky = flaky_c | flaky_m | set(event.get('flaky_tests', []))
-            new = (fails_m - fails_c) - flaky
+            shared = present_c & present_m
+            new = (fails_m - fails_c) & shared - flaky
+            missing_from_base = (fails_m - present_c) - flaky
             labels[sha] = 'kill' if new else 'survive'
-            details[sha] = {'new_fail_tests': sorted(new), 'flaky_tests': sorted(flaky)}
+            details[sha] = {'new_fail_tests': sorted(new),
+                            'missing_from_base_tests': sorted(missing_from_base),
+                            'flaky_tests': sorted(flaky)}
     return {'m_shas_non_timeout': sorted(set(non_timeout)), 'labels': labels, 'label_details': details,
             'timeout_pairs': timeout_pairs, 'timeout_shas': sorted(set(timeout_shas)),
             'collection_error_pairs': collection, 'collection_error_shas': sorted(set(collection_error_shas)),
@@ -374,6 +345,7 @@ def compare_level_b(gold: dict, second: dict) -> dict:
     common = left & right
     label_match = True
     n_compared = 0
+    changed = []
     left_collection_errors = set(gold.get('collection_error_shas', []))
     right_collection_errors = set(second.get('collection_error_shas', []))
     for sha in common:
@@ -389,13 +361,95 @@ def compare_level_b(gold: dict, second: dict) -> dict:
         if not all(isinstance(row.get(key), list) for row in (a, b) for key in ('new_fail_tests', 'flaky_tests')):
             raise ValueError(f'malformed label details for comparable mutant {sha}')
         flaky = set(a['flaky_tests']) | set(b['flaky_tests'])
-        label_match = label_match and bool(set(a['new_fail_tests'])-flaky) == bool(set(b['new_fail_tests'])-flaky)
+        old_tests = set(a['new_fail_tests']) - flaky
+        new_tests = set(b['new_fail_tests']) - flaky
+        if old_tests != new_tests:
+            label_match = False
+            changed.append({'sha': sha, 'old_new_fail_tests': sorted(old_tests),
+                            'new_new_fail_tests': sorted(new_tests),
+                            'removed_tests': sorted(old_tests - new_tests),
+                            'added_tests': sorted(new_tests - old_tests)})
         n_compared += 1
     return {'gold': gold, 'run_b': second, 'excluded_timeout_shas': sorted(excluded),
             'sha_match': left == right, 'label_match': label_match,
+            'changed_labels': changed, 'n_label_changes': len(changed),
             'n_compared': n_compared, 'n_collection_error_compared': sum(
                 sha in left_collection_errors and sha in right_collection_errors for sha in common
             )}
+
+
+def write_level_b_delta(root: Path, gold: dict, second: dict, comparison: dict) -> None:
+    old_kills = sum(value == 'kill' for value in gold.get('labels', {}).values())
+    new_kills = sum(value == 'kill' for value in second.get('labels', {}).values())
+    missing_pairs = [
+        {'sha': sha, 'tests': detail['missing_from_base_tests']}
+        for sha, detail in sorted(second['label_details'].items())
+        if detail.get('missing_from_base_tests')
+    ]
+    report = {
+        'scope': 'Week 6 click Level-B only',
+        'label_rule': 'new_fail requires a failing non-flaky test ID present in both base and head',
+        'source_paths': {
+            'saved_gold': 'docs/measurements/bootstrap-click/level_b_gold.json',
+            'recalculated_runs': '<repos-root>/click/.testpilot/{db.sqlite,bootstrap/mutate_outcomes.jsonl}',
+        },
+        'n_compared_mutants': comparison['n_compared'],
+        'old_kill_mutants': old_kills,
+        'shared_test_kill_mutants': new_kills,
+        'kill_mutant_delta': new_kills - old_kills,
+        'n_changed_mutant_labels': comparison['n_label_changes'],
+        'n_changed_test_labels': sum(
+            len(row['removed_tests']) + len(row['added_tests'])
+            for row in comparison['changed_labels']
+        ),
+        'changed_labels': comparison['changed_labels'],
+        'labels_match': comparison['label_match'],
+        'n_pairs_with_failures_missing_from_base': len(missing_pairs),
+        'n_failures_missing_from_base': sum(len(row['tests']) for row in missing_pairs),
+        'missing_from_base_pairs': missing_pairs,
+        'sha_match': comparison['sha_match'],
+    }
+    out = root / 'docs/measurements/week7'
+    out.mkdir(parents=True, exist_ok=True)
+    (out / 'week6-level-b-delta.json').write_text(
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + '\n', encoding='utf-8'
+    )
+    lines = [
+        '# Week 6 Level-B label recalculation',
+        '',
+        'Scope: click Level-B; saved gold vs labels recalculated using shared test IDs.',
+        '',
+        'Inputs: `docs/measurements/bootstrap-click/level_b_gold.json` and the original local W6 click clone supplied via `--repos-root` (`.testpilot/db.sqlite` and `bootstrap/mutate_outcomes.jsonl`).',
+        '',
+        '| Measure | Saved labels | Shared-test labels | Delta |',
+        '| --- | ---: | ---: | ---: |',
+        f"| Kill mutants | {old_kills} | {new_kills} | {new_kills - old_kills:+d} |",
+        f"| Changed mutant labels | — | {comparison['n_label_changes']} | — |",
+        f"| Changed test labels | — | {report['n_changed_test_labels']} | — |",
+        f"| Pairs with failures missing from base | — | {len(missing_pairs)} | — |",
+        '',
+        f"Compared mutants: {comparison['n_compared']}. SHA sets match: {comparison['sha_match']}.",
+        '',
+        '## Per-mutant test-label changes',
+        '',
+    ]
+    if comparison['changed_labels']:
+        lines.extend(['| Mutant SHA | Removed from new_fail | Added to new_fail |', '| --- | --- | --- |'])
+        for row in comparison['changed_labels']:
+            removed = ', '.join(f"`{test}`" for test in row['removed_tests']) or '—'
+            added = ', '.join(f"`{test}`" for test in row['added_tests']) or '—'
+            lines.append(f"| `{row['sha']}` | {removed} | {added} |")
+    else:
+        lines.append('No per-test labels changed (0).')
+    lines.extend(['', '## Failures missing from base', ''])
+    if missing_pairs:
+        lines.extend(['| Mutant SHA | Test IDs |', '| --- | --- |'])
+        for row in missing_pairs:
+            tests = ', '.join(f"`{test}`" for test in row['tests'])
+            lines.append(f"| `{row['sha']}` | {tests} |")
+    else:
+        lines.append('No head failures were absent from base (0).')
+    (out / 'week6-level-b-delta.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
 def repo_block(root: Path, name: str) -> dict:
@@ -489,6 +543,7 @@ def main() -> int:
     ap.add_argument('--repos-root', type=Path, required=True)
     ap.add_argument('--level-b-out', type=Path, required=True)
     ap.add_argument('--bootstrap-wall-s', type=float, required=True)
+    ap.add_argument('--provenance', type=Path, required=True)
     for name in ('click', 'jinja', 'attrs'):
         ap.add_argument(f'--pins-{name}', required=True)
     args = ap.parse_args()
@@ -498,13 +553,15 @@ def main() -> int:
     if not gold_path.is_file():
         raise ValueError('missing first click gold snapshot')
     second = collect_mutants(args.repos_root/'click')
-    level = compare_level_b(load(gold_path), second)
-    if not level['sha_match'] or not level['label_match'] or not level['n_compared']:
-        raise ValueError('level-b mutant sets or nonflaky labels differ')
+    gold = load(gold_path)
+    level = compare_level_b(gold, second)
+    if not level['sha_match'] or not level['n_compared']:
+        raise ValueError('level-b mutant sets differ or no non-error mutants were comparable')
+    write_level_b_delta(root, gold, second, level)
     b_report = load(args.level_b_out/'bootstrap_report.json')
     per['click_level_b'] = {k: b_report.get(k) for k in ('step_timings_s', 'n_timeout', 'timeout_rate', 'n_actual')}
-    loro = normalize_attrs_run_name(run_loro(root))
-    provenance = measurement_provenance(root)
+    loro = run_loro(root)
+    provenance = load_provenance_snapshot(args.provenance)
     for name in ('click', 'jinja', 'attrs'):
         for filename in ('bootstrap_report.json', 'model.json', 'report.json'):
             attach_provenance(root/'docs/measurements'/f'bootstrap-{name}'/filename, provenance)
@@ -530,7 +587,7 @@ def main() -> int:
                'dry_run_estimates':dry, 'repos':per, 'level_b':level, 'loro':loro,
                'n_C_widths_citation': {'path':'docs/measurements/mut2-80x5-click-jinja.json', 'n_C_test_over_N':load(root/'docs/measurements/mut2-80x5-click-jinja.json').get('n_C_test_over_N'), 'diagnostics':load(root/'docs/measurements/mut2-80x5-click-jinja.json').get('diagnostics')}}
     summary['interpretation'] = loro_interpretation
-    summary['provenance'] = provenance
+    summary['provenance'] = {'run_snapshot': provenance, 'historical_week6': WEEK6_HISTORY}
     forbid_abs(summary, 'bootstrap-w6-click-jinja-attrs.json')
     (root/'docs/measurements/bootstrap-w6-click-jinja-attrs.json').write_text(json.dumps(summary,indent=2,sort_keys=True,allow_nan=False)+'\n')
     return 0

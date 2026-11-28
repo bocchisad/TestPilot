@@ -1,0 +1,15 @@
+{
+  "status": "data_insufficient",
+  "out": "$WORKTREE/.cache/measurements/week7/test-width/run-n400-attrs-py313c/out/attrs",
+  "ranker": "cov_lines",
+  "bootstrap": {
+    "verdict": "use_baseline",
+    "gate": "synthetic_test_vs_cov_lines_cluster_C",
+    "reason": "insufficient_test_C"
+  }
+}
+train: $WORKTREE/.cache/measurements/week7/test-width/run-n400-attrs-py313c/out/attrs/model.json
+gate: verdict=use_baseline ranker=cov_lines reason=insufficient_test_C
+bootstrap.verdict=use_baseline ranker=cov_lines
+finalize: $WORKTREE/.cache/measurements/week7/test-width/run-n400-attrs-py313c/out/attrs/bootstrap_report.json
+bootstrap complete at $WORKTREE/.cache/measurements/week7/test-width/repos-py313c/attrs/.testpilot/bootstrap/state.json (model $WORKTREE/.cache/measurements/week7/test-width/run-n400-attrs-py313c/out/attrs)

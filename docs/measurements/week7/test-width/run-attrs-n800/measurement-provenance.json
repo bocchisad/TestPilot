@@ -1,0 +1,45 @@
+{
+  "bin_version": "testpilot 0.1.0 (3409041717c2)",
+  "binary_sha256": "70102d12c5c4fbd1b4623b41784947618b3b8ef4cc3fbeaa63ac73abf972371b",
+  "captured_at_utc": "2026-11-27T20:50:49.142154Z",
+  "head_sha": "3409041717c2a09c16213d53c2927ed61a762773",
+  "missing_optional_scripts": [],
+  "scripts": [
+    {
+      "commit_blob_sha1": "f0f744f0efb4cee9742fa6c9ed1e8cb32678c13b",
+      "dirty": false,
+      "path": "scripts/aggregate_bootstrap_w6.py",
+      "worktree_blob_sha1": "f0f744f0efb4cee9742fa6c9ed1e8cb32678c13b"
+    },
+    {
+      "commit_blob_sha1": "bff8164931a63c1718d6a89eec1a5af944ec7c42",
+      "dirty": false,
+      "path": "scripts/features_reference.py",
+      "worktree_blob_sha1": "bff8164931a63c1718d6a89eec1a5af944ec7c42"
+    },
+    {
+      "commit_blob_sha1": "1292a2700fb5136cef6e0f0fa8d3124989ab5a0e",
+      "dirty": false,
+      "path": "scripts/measure_bootstrap_w6.sh",
+      "worktree_blob_sha1": "1292a2700fb5136cef6e0f0fa8d3124989ab5a0e"
+    },
+    {
+      "commit_blob_sha1": "68e020cee5d1a8d67a48d557e31b3a5bb2f46793",
+      "dirty": false,
+      "path": "scripts/measurement_provenance.py",
+      "worktree_blob_sha1": "68e020cee5d1a8d67a48d557e31b3a5bb2f46793"
+    },
+    {
+      "commit_blob_sha1": "70835d299e4b7c78460474d8af3dc6801d38bfec",
+      "dirty": false,
+      "path": "scripts/mutate/run_mutant.py",
+      "worktree_blob_sha1": "70835d299e4b7c78460474d8af3dc6801d38bfec"
+    },
+    {
+      "commit_blob_sha1": "5e8d34b744b3291751f40936c294c15244d77f30",
+      "dirty": false,
+      "path": "scripts/mutate_bootstrap.py",
+      "worktree_blob_sha1": "5e8d34b744b3291751f40936c294c15244d77f30"
+    }
+  ]
+}

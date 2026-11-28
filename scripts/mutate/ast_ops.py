@@ -64,7 +64,7 @@ def _line_starts(source: str) -> list[int]:
 
 def _utf8_offset_in_line(line: str, col_offset: int) -> int:
     """Map AST col_offset (Unicode code points) to byte index within encoded line."""
-    encoded = line.encode("utf-8")
+    _encoded = line.encode("utf-8")
     if col_offset <= 0:
         return 0
     prefix = line[:col_offset]

@@ -49,6 +49,7 @@ def kill_active_pytest_groups(sig: int = signal.SIGINT) -> None:
 @dataclass
 class MutantRunResult:
     ok: bool
+    setup_failed: bool = False
     timed_out: bool = False
     junit_path: Path | None = None
     pytest_rc: int | None = None
@@ -170,7 +171,7 @@ _NO_JUNIT_MUTANT_FROZEN_SETATTR_RE = re.compile(
     r"(?m)^ValueError: Can't freeze a class with a custom __setattr__\.\s*$"
 )
 _NO_JUNIT_MUTANT_JSONSCHEMA_NONE_RE = re.compile(
-    r"(?m)^AttributeError: 'NoneType' object has no attribute 'redefine'\s*$"
+    r"(?m)^(?:E\s+)?AttributeError: 'NoneType' object has no attribute 'redefine'\s*$"
 )
 _NO_JUNIT_MUTANT_ANNOTATIONS_NONE_RE = re.compile(
     r"(?m)^AttributeError: 'NoneType' object has no attribute 'get'\s*$"
@@ -182,20 +183,23 @@ _NO_JUNIT_ATTR_METADATA_FRAME_RE = re.compile(
     r"(?m)^\s*File ['\"].*/src/attr/_make\.py['\"], line \d+, in __getstate__"
 )
 _NO_JUNIT_ATTRS_SPECIFICATION_TYPEERROR_RE = re.compile(
-    r"(?m)^TypeError: Specification\.__init__\(\) got an unexpected keyword argument 'name'\s*$"
+    r"(?m)^(?:E\s+)?TypeError: Specification\.__init__\(\) got an unexpected keyword argument 'name'\s*$"
 )
 _NO_JUNIT_ATTRS_SPECIFICATION_OPAQUE_RE = re.compile(
-    r"(?m)^TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
+    r"(?m)^(?:E\s+)?TypeError: Specification\.__init__\(\) missing 1 required positional argument: 'OPAQUE'\s*$"
+)
+_NO_JUNIT_ATTRS_FIELDS_TYPEERROR_RE = re.compile(
+    r"(?m)^TypeError: Passed object must be a class\.\s*$"
 )
 _NO_JUNIT_ATTRS_SYNTAX_RE = re.compile(r"(?m)^SyntaxError: invalid syntax\s*$")
 _NO_JUNIT_ATTRS_INIT_TYPECHECKER_RE = re.compile(
-    r"(?m)^AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
+    r"(?m)^(?:E\s+)?AttributeError: 'jsonschema\._types\.TypeChecker' object has no attribute '_type_checkers'\s*$"
 )
 _NO_JUNIT_ATTRS_EQ_TRAILING_AND_RE = re.compile(
     r"(?m)^SyntaxError: invalid syntax\. Perhaps you forgot a comma\?\s*$"
 )
 _JSONSCHEMA_TYPECHECKER_FRAME_RE = re.compile(
-    r"jsonschema[/\\]_types\.py\", line \d+, in"
+    r"jsonschema[/\\]_types\.py(?:\", line \d+, in|:\d+:\s+in)"
 )
 _PYTEST_OUTPUT_TRUNCATED_MARKER = "\n... pytest output truncated ...\n"
 _TRACEBACK_FRAME_RE = re.compile(
@@ -293,6 +297,22 @@ def _no_junit_mutant_plugin_collection_error(
     """Accept pytest11 import failure only when its innermost frame is a changed line."""
     if returncode not in {1, 3} or _NO_JUNIT_PYTEST11_RE.search(tail) is None:
         return False
+    return _no_junit_mutant_changed_source_error(
+        returncode, tail, worktree, repo, parent_sha, mutant_sha
+    )
+
+
+def _no_junit_mutant_changed_source_error(
+    returncode: int | None,
+    tail: str,
+    worktree: Path,
+    repo: Path,
+    parent_sha: str,
+    mutant_sha: str,
+) -> bool:
+    """Accept a pre-JUnit source exception only when its innermost line changed."""
+    if returncode not in {1, 3}:
+        return False
     traceback_tail = (
         tail.rsplit(_PYTEST_OUTPUT_TRUNCATED_MARKER, 1)[-1]
         if _PYTEST_OUTPUT_TRUNCATED_MARKER in tail
@@ -301,45 +321,48 @@ def _no_junit_mutant_plugin_collection_error(
     frames = list(_TRACEBACK_FRAME_RE.finditer(traceback_tail))
     if not frames:
         return False
-    frame = frames[-1]
     try:
         resolved_wt = worktree.resolve(strict=True)
-        frame_path = Path(frame.group("path") or frame.group("compact_path"))
-        if not frame_path.is_absolute():
-            frame_path = resolved_wt / frame_path
-        resolved_source = frame_path.resolve(strict=True)
-        if not resolved_source.is_file() or not resolved_source.is_relative_to(
-            resolved_wt
-        ):
-            return False
-        relpath = resolved_source.relative_to(resolved_wt).as_posix()
-        result = subprocess.run(
-            [
-                "git",
-                "diff",
-                "--unified=0",
-                "--no-ext-diff",
-                parent_sha,
-                mutant_sha,
-                "--",
-                relpath,
-            ],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return False
-        line = int(frame.group("line") or frame.group("compact_line"))
-        for hunk in result.stdout.splitlines():
-            match = _DIFF_HUNK_RE.match(hunk)
-            if match is None:
+        for frame in reversed(frames):
+            try:
+                frame_path = Path(frame.group("path") or frame.group("compact_path"))
+                if not frame_path.is_absolute():
+                    frame_path = resolved_wt / frame_path
+                resolved_source = frame_path.resolve(strict=True)
+                if not resolved_source.is_file() or not resolved_source.is_relative_to(
+                    resolved_wt
+                ):
+                    continue
+                relpath = resolved_source.relative_to(resolved_wt).as_posix()
+                result = subprocess.run(
+                    [
+                        "git",
+                        "diff",
+                        "--unified=0",
+                        "--no-ext-diff",
+                        parent_sha,
+                        mutant_sha,
+                        "--",
+                        relpath,
+                    ],
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    continue
+                line = int(frame.group("line") or frame.group("compact_line"))
+                for hunk in result.stdout.splitlines():
+                    match = _DIFF_HUNK_RE.match(hunk)
+                    if match is None:
+                        continue
+                    start = int(match.group("start"))
+                    count = int(match.group("count") or "1")
+                    if count > 0 and start <= line < start + count:
+                        return True
+            except (OSError, ValueError):
                 continue
-            start = int(match.group("start"))
-            count = int(match.group("count") or "1")
-            if count > 0 and start <= line < start + count:
-                return True
     except (OSError, ValueError):
         return False
     return False
@@ -420,6 +443,53 @@ def _mutant_attrs_function_returns_none(
         ):
             return True
     return False
+
+
+def _mutant_breaks_attrs_fields_class_guard(
+    repo: Path, parent_sha: str, mutant_sha: str
+) -> bool:
+    """Recognize the attrs.fields guard mutation that changes and to or."""
+    path = "src/attr/_make.py"
+
+    def has_broken_guard(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for function in tree.body:
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if function.name != "fields":
+                continue
+            for node in ast.walk(function):
+                if not isinstance(node, ast.If) or not isinstance(
+                    node.test, ast.BoolOp
+                ):
+                    continue
+                if ast.unparse(node.test) == (
+                    "generic_base is None or not isinstance(cls, type)"
+                ):
+                    return True
+        return False
+
+    try:
+        parent_source = subprocess.run(
+            ["git", "show", f"{parent_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        mutant_source = subprocess.run(
+            ["git", "show", f"{mutant_sha}:{path}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return not has_broken_guard(parent_source) and has_broken_guard(mutant_source)
 
 
 def _mutant_negates_attrs_attribute_metadata(
@@ -1161,6 +1231,7 @@ def run_mutant(
             if not ok:
                 return MutantRunResult(
                     ok=False,
+                    setup_failed=True,
                     log_tail=str(log)[-2000:],
                 )
         # Project requirements can replace pytest; probe warning classes only afterwards.
@@ -1200,6 +1271,14 @@ def run_mutant(
                 and _JSONSCHEMA_TYPECHECKER_FRAME_RE.search(tail) is not None
                 and _mutant_attrs_function_returns_none(
                     repo, parent_sha, mutant_sha, "evolve"
+                )
+            )
+            attrs_fields_guard_failure = (
+                rc in {1, 3}
+                and _NO_JUNIT_ATTRS_FIELDS_TYPEERROR_RE.search(tail) is not None
+                and has_local_mutant_frame
+                and _mutant_breaks_attrs_fields_class_guard(
+                    repo, parent_sha, mutant_sha
                 )
             )
             attrs_annotations_failure = (
@@ -1280,6 +1359,7 @@ def run_mutant(
                     or attrs_generated_init_typechecker_failure
                     or attrs_generated_eq_header_syntax_failure
                     or attrs_generated_eq_trailing_and_failure
+                    or attrs_fields_guard_failure
                 )
                 and (
                     has_local_mutant_frame
@@ -1321,7 +1401,11 @@ def run_mutant(
                                             attrs_generated_eq_header_syntax_failure
                                             or attrs_generated_eq_trailing_and_failure
                                         )
-                                        else ""
+                                        else (
+                                            "mutant breaks the attrs.fields class guard; "
+                                            if attrs_fields_guard_failure
+                                            else ""
+                                        )
                                     )
                                 )
                             )

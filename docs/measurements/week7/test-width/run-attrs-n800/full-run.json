@@ -1,0 +1,88 @@
+{
+  "branch_head": "3409041717c2a09c16213d53c2927ed61a762773",
+  "created_at_utc": "2026-11-27T20:50:58.682748+00:00",
+  "dry_run_report": "dry-run.json",
+  "failed_suite": null,
+  "jobs": 2,
+  "k": 4,
+  "measurement_python": ".cache/week7-train-env/bin/python",
+  "measurement_python_version": "3.13.18",
+  "mode": "full",
+  "n": 800,
+  "runs": [
+    {
+      "command": [
+        "$REPO_ROOT/target/release/testpilot",
+        "bootstrap",
+        "--repo",
+        "$REPO_ROOT/.cache/measurements/week7/test-width/repos-retry2/attrs",
+        "--out",
+        "$REPO_ROOT/.cache/measurements/week7/test-width/run-retry2-attrs-n800/out/attrs",
+        "--max-commits",
+        "800",
+        "--mutants-per-commit",
+        "4",
+        "--jobs",
+        "2",
+        "--seed",
+        "42",
+        "--suite",
+        "attrs",
+        "--train-threads",
+        "1",
+        "--no-resume"
+      ],
+      "exit_code": 0,
+      "log": "logs/attrs-full-run.txt",
+      "out": "out/attrs",
+      "pin": "598494a618410490cfbe0c896b7a544f6d23e0d9",
+      "suite": "attrs",
+      "wall_seconds": 10003.324,
+      "initial_attempt_exit_code": 1,
+      "initial_attempt_wall_seconds": 10003.324,
+      "final_status": "complete_after_resume",
+      "final_report": "out/attrs/bootstrap_report.json",
+      "n_C": 13,
+      "gate_verdict": "use_model",
+      "gate_reason": "synth_test_ci_low_ge_0",
+      "mutate_completed_pairs": 246,
+      "resume_invocations": 3,
+      "wall_seconds_scope": "initial_failed_wrapper_attempt_only; resume time is recorded in cumulative_step_timings_s"
+    }
+  ],
+  "seed": 42,
+  "status": "complete",
+  "suites": [
+    "attrs"
+  ],
+  "resume_summary": {
+    "resume_invocations": 3,
+    "final_report": "out/attrs/bootstrap_report.json",
+    "final_report_sha256": "411100bc8945af4270bed263934bfb9c423e65df79a63311d008fb3b86cc022b",
+    "cumulative_step_timings_s": {
+      "backfill": 9645.222243625,
+      "cleanup": 0.094796958,
+      "collect_git": 1.001629083,
+      "features_dump": 1279.517617375,
+      "finalize": 2.92e-07,
+      "gate": 0.000184834,
+      "init": 0.046879040999999996,
+      "mutate": 1461.149283,
+      "train": 30.911766541
+    },
+    "cumulative_step_timings_total_s": 12417.944400749,
+    "final_status": "ok",
+    "final_gate_verdict": "use_model",
+    "final_gate_reason": "synth_test_ci_low_ge_0",
+    "n_C": 13,
+    "mutate_completed_pairs": 246,
+    "notes": [
+      "The initial full-run wrapper invocation stopped after 10003.324 seconds when a mutant-induced runtime exception produced no JUnit XML and was classified as an infrastructure failure.",
+      "A later resume stopped on another changed-source traceback pattern; the no-JUnit classifier was broadened and parent-control behavior covered by focused tests.",
+      "A transient collect_git_sha failure was resolved by indexing mutant 29095255ba324069e4d431ca27a4d92d2198e5df with the pinned binary; the final resume completed.",
+      "The final result is valid as an exploratory synthetic run, but its execution spans clean and dirty runner revisions; see resume-execution-provenance.json."
+    ]
+  },
+  "completion_mode": "resumed_after_initial_failure",
+  "failed_first_attempt": true
+}

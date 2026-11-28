@@ -1,0 +1,67 @@
+{
+  "audit_by_repo": {
+    "attrs": {
+      "completed_heads": 103,
+      "excluded_heads": 0,
+      "positive_excluded_heads": 0,
+      "reason_counts": {},
+      "retained_heads": 103
+    },
+    "click": {
+      "completed_heads": 254,
+      "excluded_heads": 114,
+      "positive_excluded_heads": 0,
+      "reason_counts": {
+        "no_shared_test_ids": 9,
+        "pytest_collection_error": 112,
+        "pytest_interrupted": 112
+      },
+      "retained_heads": 140
+    },
+    "jinja": {
+      "completed_heads": 95,
+      "excluded_heads": 18,
+      "positive_excluded_heads": 0,
+      "reason_counts": {
+        "no_shared_test_ids": 3,
+        "pytest_collection_error": 18,
+        "pytest_interrupted": 18
+      },
+      "retained_heads": 77
+    }
+  },
+  "audit_path": "docs/measurements/week7/real-pair-pytest-completeness.json",
+  "completed_heads": 452,
+  "excluded_incomplete_heads": 132,
+  "excluded_positive_heads": 0,
+  "feature_outputs": {
+    "all": {
+      "bytes": 840097,
+      "excluded_rows": 680,
+      "features_version": "2",
+      "path": ".cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-all.parquet",
+      "rows": 288062,
+      "sha256": "d8f9d5a96b80ac75dedd00df4cf2d68ad6fcad56943fd219b43649ecb117f233",
+      "source_path": ".cache/measurements/week7/pr-intermediate/real-features/real-pair-features-all.parquet",
+      "source_rows": 288742,
+      "source_sha256": "ca7fd7a62330ab2b715465d454f36502c52dec889df27f07fafda01c75b6a0af"
+    },
+    "without_changed_functions": {
+      "bytes": 857649,
+      "excluded_rows": 680,
+      "features_version": "2",
+      "path": ".cache/measurements/week7/pr-intermediate/real-features-audited/real-pair-features-without_changed_functions.parquet",
+      "rows": 287822,
+      "sha256": "844734b27c126718db9246bad9c222416df42b90c313d478ab9f4c52c8ed9883",
+      "source_path": ".cache/measurements/week7/pr-intermediate/real-features/real-pair-features-without_changed_functions.parquet",
+      "source_rows": 288502,
+      "source_sha256": "6717be4886cf123ba3c216a6392602c39784f452447755e802fc32b9c583925b"
+    }
+  },
+  "filter_command": "python scripts/filter_week7_real_features.py --input <source.parquet> --audit docs/measurements/week7/real-pair-pytest-completeness.json --out <audited.parquet>",
+  "latest_unique_heads": 569,
+  "retained_after_semantic_exclusion": 315,
+  "retained_before_semantic_exclusion": 320,
+  "semantic_excluded_heads": 5,
+  "source_pairs": ".cache/measurements/week7/pr-intermediate/full-history-run/pairs.jsonl"
+}

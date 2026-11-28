@@ -8,4 +8,4 @@ mod predict;
 pub use parse::{
     Booster, BootstrapMeta, ModelMeta, Ranker, embedded_schema_sha256, load_model_dir,
 };
-pub use predict::predict_raw;
+pub use predict::{PredictionContributions, predict_contrib, predict_raw};

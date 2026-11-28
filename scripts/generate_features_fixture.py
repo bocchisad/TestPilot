@@ -197,8 +197,8 @@ def main() -> int:
     }
     shas = shas_main
     # author times from git
-    times = [int(run(out, ["git", "show", "-s", "--format=%at", s])) for s in shas]
-    msgs = [run(out, ["git", "show", "-s", "--format=%s", s]) for s in shas]
+    _times = [int(run(out, ["git", "show", "-s", "--format=%at", s])) for s in shas]
+    _msgs = [run(out, ["git", "show", "-s", "--format=%s", s]) for s in shas]
 
     db_path = out / ".testpilot" / "db.sqlite"
     db_path.parent.mkdir(parents=True, exist_ok=True)

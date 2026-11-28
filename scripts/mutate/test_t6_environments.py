@@ -234,6 +234,8 @@ def test_failed_setup_cleans_worktree_without_traceback(tmp_path, monkeypatch, f
         work_dir=tmp_path / "run", pip_bin=tmp_path / "pip",
         install_project_cb=(lambda *a: (False, "install failed")) if failure=="install" else None)
     assert not result.ok
+    if failure == "install":
+        assert result.setup_failed
     assert "install failed" in result.log_tail or "pytest executable missing" in result.log_tail
     assert not (tmp_path / "run" / f"wt-{sha[:12]}").exists()
 

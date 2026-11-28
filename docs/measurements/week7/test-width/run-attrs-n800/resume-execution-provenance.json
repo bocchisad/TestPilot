@@ -1,0 +1,88 @@
+{
+  "record_type": "resume_execution_provenance",
+  "recorded_date": "2026-11-27",
+  "experiment": {
+    "suite": "attrs",
+    "n": 800,
+    "k": 4,
+    "jobs": 2,
+    "seed": 42,
+    "pinned_repo_sha": "598494a618410490cfbe0c896b7a544f6d23e0d9",
+    "testpilot_version": "testpilot 0.1.0 (3409041717c2)",
+    "testpilot_binary_sha256": "70102d12c5c4fbd1b4623b41784947618b3b8ef4cc3fbeaa63ac73abf972371b",
+    "measurement_python": "3.13.18",
+    "pytest": "9.2.0",
+    "resume_invocations": 3
+  },
+  "original_capture": "measurement-provenance.json",
+  "original_capture_caveat": "The initial provenance snapshot reports scripts/mutate/run_mutant.py as clean at HEAD. It does not list scripts/backfill.py. That snapshot is insufficient to describe the resumed execution.",
+  "script_state": [
+    {
+      "path": "scripts/backfill.py",
+      "head_blob": "2bc739c2e50dbb1358c64270f6593218c48289b6",
+      "worktree_blob": "206cfeae36d526558ac13201febb7f1539142fa2",
+      "sha256": "52d5016d17a6f52c3af01789dc45b26772b83cc6927491ffc250104c9ae3b1c1",
+      "dirty_during": "initial full run and resumes"
+    },
+    {
+      "path": "scripts/mutate/run_mutant.py",
+      "head_blob": "70835d299e4b7c78460474d8af3dc6801d38bfec",
+      "worktree_blob": "43db6aff8334badc8b1ce08caf988fd75c373cd7",
+      "sha256": "9db0659babd3cbd9f97ddbde77387640151eede2d2c70eebb2cb072e777a22e7",
+      "dirty_during": "resumes; initial attempt used clean HEAD version"
+    },
+    {
+      "path": "scripts/mutate/test_collection_error.py",
+      "head_blob": "8ac071e3617fd3201b9eae725e96ff7d9ec3915f",
+      "worktree_blob": "d604a0651145475693a21fc4868d7d82b0331790",
+      "sha256": "345d252d805d5d07eb90112fc798c77a5a3ef83fa339078e57505a0660469a68",
+      "dirty_during": "focused tests and final report; not measurement runner"
+    },
+    {
+      "path": "scripts/mutate_bootstrap.py",
+      "head_blob": "5e8d34b744b3291751f40936c294c15244d77f30",
+      "worktree_blob": "5e8d34b744b3291751f40936c294c15244d77f30",
+      "dirty_during": false
+    },
+    {
+      "path": "scripts/mutate/git_mutant.py",
+      "head_blob": "a13b28c2a3b1e1329394b7adb630e7c65815ad45",
+      "worktree_blob": "a13b28c2a3b1e1329394b7adb630e7c65815ad45",
+      "dirty_during": false
+    },
+    {
+      "path": "scripts/run_week7_test_width.py",
+      "head_blob": "198ea08fdae33ba17394ae5783d2c9e979ad65c0",
+      "worktree_blob": "198ea08fdae33ba17394ae5783d2c9e979ad65c0",
+      "dirty_during": false
+    },
+    {
+      "path": "scripts/measurement_provenance.py",
+      "head_blob": "68e020cee5d1a8d67a48d557e31b3a5bb2f46793",
+      "worktree_blob": "68e020cee5d1a8d67a48d557e31b3a5bb2f46793",
+      "dirty_during": false
+    }
+  ],
+  "resume_notes": [
+    "The first full-run attempt exited after 10003.324 seconds when changed-source runtime errors before JUnit XML were treated as infrastructure failures.",
+    "The final runner uses whitelisted no-JUnit mutant signatures; generic attrs/init signatures require a successful parent control, and pytest11-plugin failures require a changed-source frame. Unrecognized exceptions remain infrastructure failures.",
+    "One resume stopped on a second traceback shape; a subsequent resume also encountered transient collect_git_sha failure. Mutant 29095255ba324069e4d431ca27a4d92d2198e5df was indexed with the pinned binary, and the third resume completed.",
+    "The attrs outcome log contains 248 event rows for 246 unique pairs. None of its final collection_error outcomes carries the former generic changed-source fallback note; the saved pair outcomes were audited after the full-suite regression was found.",
+    "Backfill unavailable: 86 historical revisions could not install on Python 3.13 because distutils is missing; one failed pip installation because that historical version has invalid extras_require metadata."
+  ],
+  "final_report": "out/attrs/bootstrap_report.json",
+  "final_report_sha256": "411100bc8945af4270bed263934bfb9c423e65df79a63311d008fb3b86cc022b",
+  "final_outcome_summary": {
+    "event_rows": 248,
+    "unique_pairs": 246,
+    "final_status_counts": {
+      "complete": 184,
+      "setup_failure": 41,
+      "collection_error": 21
+    },
+    "earlier_infrastructure_failure_rows_reclassified": 2,
+    "complete_killed": 173,
+    "complete_survived": 11,
+    "note": "setup_failure and collection_error outcomes are not counted as killed mutants."
+  }
+}

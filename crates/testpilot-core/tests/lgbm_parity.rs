@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use testpilot_core::features::schema::MODEL_FEATURE_NAMES;
-use testpilot_core::lgbm::{load_model_dir, predict_raw};
+use testpilot_core::lgbm::{load_model_dir, predict_contrib, predict_raw};
 
 fn fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/reference_model")
@@ -98,5 +98,53 @@ fn rejects_best_iteration_too_large() {
     assert!(
         msg.contains("best_iteration"),
         "expected best_iteration error, got {msg}"
+    );
+}
+
+#[test]
+fn pred_contrib_matches_lightgbm_oracle_and_reconstructs_raw_score() {
+    let dir = fixture_dir();
+    let booster = load_model_dir(&dir).expect("load model");
+    let csv = fs::read_to_string(dir.join("pred_contrib.csv")).expect("pred_contrib oracle");
+    let mut lines = csv.lines();
+    let header: Vec<&str> = lines.next().expect("header").split(',').collect();
+    assert_eq!(header[0..3], ["row_index", "raw_score", "bias"]);
+    for (i, name) in MODEL_FEATURE_NAMES.iter().enumerate() {
+        assert_eq!(header[i + 3], *name);
+    }
+
+    let parity = fs::read_to_string(dir.join("parity_scores.csv")).expect("parity csv");
+    let parity_rows: Vec<Vec<&str>> = parity
+        .lines()
+        .skip(1)
+        .map(|line| line.split(',').collect())
+        .collect();
+    let mut max_contrib_error = 0.0_f64;
+    let mut max_reconstruction_error = 0.0_f64;
+    for line in lines {
+        let cells: Vec<&str> = line.split(',').collect();
+        let row_index: usize = cells[0].parse().unwrap();
+        let raw_score: f64 = cells[1].parse().unwrap();
+        let expected_bias: f64 = cells[2].parse().unwrap();
+        let features: Vec<f64> = parity_rows[row_index][4..]
+            .iter()
+            .map(|cell| cell.parse().unwrap())
+            .collect();
+        let actual = predict_contrib(&booster, &features).expect("predict contributions");
+        max_contrib_error = max_contrib_error.max((actual.bias - expected_bias).abs());
+        for (got, expected) in actual.feature_contributions.iter().zip(&cells[3..]) {
+            max_contrib_error =
+                max_contrib_error.max((got - expected.parse::<f64>().unwrap()).abs());
+        }
+        let reconstructed = actual.bias + actual.feature_contributions.iter().sum::<f64>();
+        max_reconstruction_error = max_reconstruction_error.max((reconstructed - raw_score).abs());
+    }
+    assert!(
+        max_contrib_error <= 1e-6,
+        "max contribution error={max_contrib_error}"
+    );
+    assert!(
+        max_reconstruction_error <= 1e-6,
+        "max reconstruction error={max_reconstruction_error}"
     );
 }
