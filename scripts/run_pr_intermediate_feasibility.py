@@ -238,6 +238,35 @@ def _stable_positive_test_ids(outcomes: Mapping[str, Mapping[str, str]]) -> list
     )
 
 
+def _pytest_run_status(exit_code: int, output: str) -> tuple[str, str] | None:
+    """Return a non-complete status for interrupted or otherwise invalid pytest runs."""
+    lowered = output.lower()
+    if "internalerror>" in lowered or exit_code == 3:
+        return "pytest_internal_error", f"pytest_internal_error_exit:{exit_code}"
+    if "interrupted:" in lowered:
+        return "pytest_interrupted", f"pytest_interrupted_exit:{exit_code}"
+    if "error collecting" in lowered or "errors during collection" in lowered:
+        return "test_collection_error", f"pytest_collection_error_exit:{exit_code}"
+    if exit_code == 2:
+        return "pytest_interrupted", f"pytest_interrupted_exit:{exit_code}"
+    if exit_code == 5:
+        return "pytest_no_tests", "pytest_no_tests_exit:5"
+    if exit_code not in {0, 1}:
+        return "pytest_exit_error", f"pytest_unexpected_exit:{exit_code}"
+    return None
+
+
+def _pytest_source_invalid_status(label: str, output: str) -> tuple[str, str] | None:
+    for marker in ("IndentationError", "TabError", "SyntaxError"):
+        if marker in output:
+            side = "head" if label == "head" else "base"
+            return (
+                f"{side}_source_invalid",
+                f"pytest_source_syntax_error:{label}:{marker}",
+            )
+    return None
+
+
 def _promote_pair_timeout(result: dict, remaining_s: int, pair_timeout_s: int) -> dict:
     """Label a timed-out pair as batch-deadline only when the batch shortened it."""
     if result.get("status") == "timeout" and remaining_s < pair_timeout_s:
@@ -431,6 +460,7 @@ def _run_pair(
         "tests_started": False,
         "positive": False,
         "positive_test_ids": [],
+        "pytest_exit_codes": {},
         "wall_seconds": None,
         "log_dir": str(logs),
     }
@@ -484,44 +514,57 @@ def _run_pair(
                 ]
                 result["tests_started"] = True
                 test_run = _run(command, cwd=tree, deadline=deadline)
+                run_key = f"{label}{attempt}"
+                result["pytest_exit_codes"][run_key] = test_run.returncode
+                output = (test_run.stdout + b"\n" + test_run.stderr).decode(
+                    "utf-8", errors="replace"
+                )
                 (logs / f"{label}-{attempt}.log").write_bytes(
                     test_run.stdout + b"\n--- stderr ---\n" + test_run.stderr
                 )
+                source_status = _pytest_source_invalid_status(label, output)
+                if source_status:
+                    status, reason = source_status
+                    result.update(
+                        status=status,
+                        reason=reason,
+                        failed_run=run_key,
+                        junit_present=xml.is_file(),
+                        diagnostic="\n".join(output.splitlines()[-12:]),
+                    )
+                    return result
+                run_status = _pytest_run_status(test_run.returncode, output)
+                if run_status:
+                    status, reason = run_status
+                    result.update(
+                        status=status,
+                        reason=reason,
+                        failed_run=run_key,
+                        junit_present=xml.is_file(),
+                        diagnostic="\n".join(output.splitlines()[-12:]),
+                    )
+                    return result
                 if not xml.is_file():
-                    failure_text = (test_run.stdout + b"\n" + test_run.stderr).decode(
-                        "utf-8", errors="replace"
+                    result.update(
+                        status="test_collection_error",
+                        reason=f"pytest_no_junit:{label}",
+                        failed_run=run_key,
+                        junit_present=False,
+                        diagnostic="\n".join(output.splitlines()[-12:]),
                     )
-                    syntax_error = next(
-                        (
-                            marker
-                            for marker in (
-                                "IndentationError",
-                                "TabError",
-                                "SyntaxError",
-                            )
-                            if marker in failure_text
-                        ),
-                        None,
-                    )
-                    if syntax_error:
-                        result.update(
-                            status="head_source_invalid"
-                            if label == "head"
-                            else "base_source_invalid",
-                            reason=f"pytest_source_syntax_error:{label}:{syntax_error}",
-                            diagnostic="\n".join(failure_text.splitlines()[-12:]),
-                        )
-                    else:
-                        result.update(
-                            status="test_collection_error",
-                            reason=f"pytest_no_junit:{label}",
-                            diagnostic="\n".join(failure_text.splitlines()[-12:]),
-                        )
                     return result
                 outcomes[f"{label}{attempt}"] = _junit(xml)
         base_ids = set(outcomes["base1"]) & set(outcomes["base2"])
         shared = base_ids & set(outcomes["head1"]) & set(outcomes["head2"])
         positive_ids = _stable_positive_test_ids(outcomes)
+        if not shared:
+            result.update(
+                status="no_shared_tests",
+                reason="zero_test_ids_shared_across_all_four_runs",
+                base_test_ids=len(base_ids),
+                shared_base_test_ids=0,
+            )
+            return result
         result.update(
             status="completed",
             base_test_ids=len(base_ids),

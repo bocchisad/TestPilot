@@ -9,6 +9,8 @@ if str(_SCRIPTS) not in sys.path:
 from run_pr_intermediate_feasibility import (  # noqa: E402
     _classify_check_runs,
     _promote_pair_timeout,
+    _pytest_run_status,
+    _pytest_source_invalid_status,
     _select_ci_pytest_rows,
     _stable_positive_test_ids,
 )
@@ -126,3 +128,47 @@ def test_timeout_is_batch_deadline_only_when_batch_budget_shortened_pair_timeout
         "status": "batch_deadline",
         "reason": "batch_budget_exhausted_before_pair_timeout",
     }
+
+
+def test_pytest_exit_and_collection_diagnostics_must_confirm_a_complete_run():
+    assert _pytest_run_status(1, "1 failed, 10 passed") is None
+    assert _pytest_run_status(
+        2, "!!!!!!!!!!!!!!!! Interrupted: 21 errors during collection"
+    ) == (
+        "pytest_interrupted",
+        "pytest_interrupted_exit:2",
+    )
+    assert _pytest_run_status(2, "KeyboardInterrupt") == (
+        "pytest_interrupted",
+        "pytest_interrupted_exit:2",
+    )
+    assert _pytest_run_status(3, "INTERNALERROR> plugin traceback") == (
+        "pytest_internal_error",
+        "pytest_internal_error_exit:3",
+    )
+    assert _pytest_run_status(2, "ERROR collecting tests/test_x.py") == (
+        "test_collection_error",
+        "pytest_collection_error_exit:2",
+    )
+    assert _pytest_run_status(5, "no tests ran") == (
+        "pytest_no_tests",
+        "pytest_no_tests_exit:5",
+    )
+    assert _pytest_source_invalid_status("head", "SyntaxError: invalid syntax") == (
+        "head_source_invalid",
+        "pytest_source_syntax_error:head:SyntaxError",
+    )
+
+
+def test_no_shared_test_ids_are_not_a_completed_negative_pair():
+    assert (
+        _stable_positive_test_ids(
+            {
+                "base1": {"a": "pass"},
+                "base2": {"a": "pass"},
+                "head1": {"b": "fail"},
+                "head2": {"b": "fail"},
+            }
+        )
+        == []
+    )

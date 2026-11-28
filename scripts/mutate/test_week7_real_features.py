@@ -7,6 +7,7 @@ if str(_SCRIPTS) not in sys.path:
 
 from build_week7_real_pair_features import (  # noqa: E402
     _exclude_audited_groups,
+    _exclude_invalid_heads,
     is_modified_test_function,
     normalize_pytest_id,
     stable_new_fail_labels,
@@ -14,9 +15,10 @@ from build_week7_real_pair_features import (  # noqa: E402
 
 
 def test_normalize_pytest_id_matches_feature_store_ids():
-    assert normalize_pytest_id(
-        "tests.test_math.TestFoo", "test_add[case0]"
-    ) == "tests/test_math.py::TestFoo::test_add[case0]"
+    assert (
+        normalize_pytest_id("tests.test_math.TestFoo", "test_add[case0]")
+        == "tests/test_math.py::TestFoo::test_add[case0]"
+    )
     assert normalize_pytest_id("tests.test_math", "test_add") == (
         "tests/test_math.py::test_add"
     )
@@ -62,6 +64,15 @@ def test_semantic_audit_excludes_all_heads_in_a_pr_group():
         {"repo": "click", "pr_group": ["other"], "head": "keep"},
     ]
 
-    assert _exclude_audited_groups(rows, {("click", ("3872", "3873"))}) == [
-        rows[2]
+    assert _exclude_audited_groups(rows, {("click", ("3872", "3873"))}) == [rows[2]]
+
+
+def test_invalid_pytest_heads_are_removed_from_feature_build_inputs():
+    rows = [
+        {"repo": "click", "head": "bad"},
+        {"repo": "click", "head": "good"},
+        {"repo": "jinja", "head": "bad"},
     ]
+    exclusions = {("click", "bad"), ("jinja", "bad")}
+
+    assert _exclude_invalid_heads(rows, exclusions) == [rows[1]]

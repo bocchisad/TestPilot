@@ -148,6 +148,13 @@ def _exclude_audited_groups(
     return kept
 
 
+def _exclude_invalid_heads(
+    rows: list[dict[str, Any]], excluded_heads: set[tuple[str, str]]
+) -> list[dict[str, Any]]:
+    """Exclude heads whose saved pytest logs show an incomplete comparison."""
+    return [row for row in rows if (str(row["repo"]), str(row["head"])) not in excluded_heads]
+
+
 def _load_schema(path: Path) -> tuple[list[str], int]:
     doc = json.loads(path.read_text(encoding="utf-8"))
     return [col["name"] for col in doc["columns"]], int(doc["features_version"])
@@ -172,6 +179,16 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     for row in raw_rows:
         latest[(row["repo"], row["head"])] = row
     completed = [row for row in latest.values() if row.get("status") == "completed"]
+    invalid_heads: set[tuple[str, str]] = set()
+    if args.exclude_invalid_heads:
+        audit = json.loads(args.exclude_invalid_heads.read_text(encoding="utf-8"))
+        invalid_heads = {
+            (str(row["repo"]), str(row["head"]))
+            for row in audit.get("excluded", [])
+        }
+    before_invalid_exclusion = len(completed)
+    completed = _exclude_invalid_heads(completed, invalid_heads)
+    invalid_head_exclusion_count = before_invalid_exclusion - len(completed)
     excluded_groups = set()
     for value in args.exclude_pr_group:
         repo, sep, raw_ids = value.partition(":")
@@ -264,6 +281,12 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
         written[variant] = {"path": str(path.resolve()), "rows": len(cleaned)}
     summary = {
         "completed_unique_heads": len(completed),
+        "excluded_incomplete_pytest_heads": invalid_head_exclusion_count,
+        "invalid_pytest_audit": (
+            str(args.exclude_invalid_heads.resolve())
+            if args.exclude_invalid_heads
+            else None
+        ),
         "excluded_pr_groups": [
             {"repo": repo, "pr_group": list(group)}
             for repo, group in sorted(excluded_groups)
@@ -296,6 +319,11 @@ def main() -> None:
         action="append",
         default=[],
         help="repo:pr[,pr] group excluded by semantic audit (repeatable)",
+    )
+    parser.add_argument(
+        "--exclude-invalid-heads",
+        type=Path,
+        help="JSON output from audit_real_pair_pytest_runs.py",
     )
     args = parser.parse_args()
     summary = build(args)
